@@ -105,6 +105,15 @@ bootstrapper.push_to_hub("commul/ud-genres", revision="2.15")
 
 ## Configuration
 
+### Data Sources
+
+The `ud_source` configuration accepts:
+- **HuggingFace**: `hf://commul/universal_dependencies` - Load from HuggingFace datasets
+- **Local files**: `local:///absolute/path/to/UD_repos/` - Load from local CoNLL-U files (absolute path)
+- **Local files**: `local://../relative/path/to/UD_repos/` - Load from local CoNLL-U files (relative path)
+
+Relative paths are resolved relative to the current working directory.
+
 Example `config.yaml`:
 
 ```yaml
