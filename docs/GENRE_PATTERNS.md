@@ -280,7 +280,64 @@ All extracted genres should map to these canonical UD genre labels:
 
 ## Testing Patterns
 
-### Test Pattern Matching
+### CLI Testing Tool
+
+The easiest way to test patterns is using the built-in CLI command:
+
+```bash
+# Test a specific treebank
+ud-genre-bootstrap test-genres --treebank en_ewt --config configs/default.yaml
+
+# Test with custom patterns
+ud-genre-bootstrap test-genres \
+    --treebank en_ewt \
+    --config configs/custom.yaml \
+    --limit 100 \
+    --split train
+
+# Test multiple treebanks (first 10)
+ud-genre-bootstrap test-genres --config configs/default.yaml
+
+# Test without showing examples
+ud-genre-bootstrap test-genres --treebank en_gum --no-examples
+```
+
+**Output includes**:
+- Coverage statistics (% of sentences with genres)
+- Genre distribution
+- Extraction methods used (direct field, standard comment, pattern match)
+- Example matched sentences
+- Example unmatched sentences
+
+**Example output**:
+```
+Testing: en_ewt (train)
+Expected genres from metadata: weblog, answers, email, reviews
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Metric                    ┃ Value  ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ Total Sentences           │ 100    │
+│ Sentences with Genre      │ 85     │
+│ Sentences without Genre   │ 15     │
+│ Coverage                  │ 85.0%  │
+└───────────────────────────┴────────┘
+
+Extracted Genres:
+┏━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━┓
+┃ Genre   ┃ Count ┃ Percentage ┃
+┡━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━┩
+│ blog    │ 45    │ 52.9%      │
+│ social  │ 25    │ 29.4%      │
+│ email   │ 10    │ 11.8%      │
+│ reviews │ 5     │ 5.9%       │
+└─────────┴───────┴────────────┘
+
+Extraction Methods:
+  • pattern_match: 85
+```
+
+### Test Pattern Matching (Python)
 
 ```python
 import re
@@ -307,9 +364,10 @@ Matched: # newdoc id = answers-test -> genre: answers
 No match: # newdoc id = fiction-novel
 ```
 
-### Test Full Extraction
+### Test Full Extraction (Python)
 
 ```python
+from pathlib import Path
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 
 mapper = GenreMapper(

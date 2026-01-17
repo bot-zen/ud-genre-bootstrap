@@ -336,6 +336,99 @@ def evaluate(
 
 
 @app.command()
+def test_genres(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Specific treebank to test (e.g., en_ewt). If not specified, tests all.",
+    ),
+    split: Optional[str] = typer.Option(
+        "train",
+        "--split",
+        "-s",
+        help="Split to test (train, dev, test)",
+    ),
+    limit: int = typer.Option(
+        100,
+        "--limit",
+        "-n",
+        help="Number of sentences to process (0 for all)",
+    ),
+    show_examples: bool = typer.Option(
+        True,
+        "--examples/--no-examples",
+        help="Show example sentences for each pattern match",
+    ),
+):
+    """Test and debug genre extraction patterns.
+
+    Applies genre extraction to treebank(s) and shows detailed statistics
+    about pattern matches, extracted genres, and unmatched sentences.
+    """
+    console.print("\n[bold cyan]Genre Extraction Test & Debug[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        cfg = load_config_from_path(config)
+
+        from pathlib import Path
+        from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+        from ud_genre_bootstrap.utils.data_loader import UDDataLoader
+
+        # Initialize components
+        data_loader = UDDataLoader(
+            ud_source=cfg.ud_source,
+            ud_version=cfg.ud_version,
+        )
+
+        # Initialize genre mapper with patterns
+        mapping_path = None
+        patterns_path = None
+        if cfg.genre_extraction.mapping_path:
+            mapping_path = Path(cfg.genre_extraction.mapping_path)
+        if cfg.genre_extraction.patterns_path:
+            patterns_path = Path(cfg.genre_extraction.patterns_path)
+
+        genre_mapper = GenreMapper(
+            genre_mapping_path=mapping_path,
+            metadata_patterns_path=patterns_path,
+        )
+
+        # Determine which treebanks to test
+        if treebank:
+            treebanks_to_test = [treebank]
+        else:
+            treebanks_to_test = data_loader.get_treebank_codes()[:10]  # First 10 for testing
+            console.print(f"[yellow]Testing first 10 treebanks. Use --treebank to test specific one.[/yellow]\n")
+
+        # Process each treebank
+        for tb_code in treebanks_to_test:
+            _test_treebank_genres(
+                data_loader,
+                genre_mapper,
+                tb_code,
+                split,
+                limit,
+                show_examples,
+                console,
+            )
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Genre extraction test failed")
+        raise typer.Exit(1)
+
+
+@app.command()
 def info(
     config: Optional[Path] = typer.Option(
         None,
@@ -463,6 +556,166 @@ def _display_evaluation_results(results: dict):
                 )
 
         console.print(table)
+
+
+def _test_treebank_genres(
+    data_loader,
+    genre_mapper,
+    treebank_code: str,
+    split: str,
+    limit: int,
+    show_examples: bool,
+    console,
+):
+    """Test genre extraction for a single treebank."""
+    from collections import defaultdict, Counter
+
+    console.print(f"\n[bold yellow]Testing: {treebank_code} ({split})[/bold yellow]")
+
+    try:
+        # Load treebank data
+        dataset = data_loader.load_treebank(treebank_code, split)
+
+        # Get expected genres from metadata
+        expected_genres = data_loader.get_treebank_genres(treebank_code)
+        if expected_genres:
+            console.print(f"[blue]Expected genres from metadata:[/blue] {', '.join(expected_genres)}")
+        else:
+            console.print("[yellow]⚠ No genre metadata available for this treebank[/yellow]")
+
+        # Statistics tracking
+        stats = {
+            'total_sentences': 0,
+            'sentences_with_genre': 0,
+            'sentences_without_genre': 0,
+            'genres_extracted': Counter(),
+            'methods_used': Counter(),
+            'pattern_matches': defaultdict(list),
+            'examples': defaultdict(list),
+            'no_match_examples': [],
+        }
+
+        # Process sentences
+        num_sentences = limit if limit > 0 else len(dataset)
+        for i, sentence in enumerate(dataset):
+            if limit > 0 and i >= limit:
+                break
+
+            stats['total_sentences'] += 1
+
+            # Extract genres
+            genres = genre_mapper.extract_genres_from_metadata(sentence, treebank_code)
+
+            if genres:
+                stats['sentences_with_genre'] += 1
+                for genre in genres:
+                    stats['genres_extracted'][genre] += 1
+
+                # Track which method was used
+                if 'genre' in sentence:
+                    stats['methods_used']['direct_field'] += 1
+                elif 'comments' in sentence:
+                    # Check if it was a pattern match or standard comment
+                    for comment in sentence['comments']:
+                        if 'newdoc genre' in comment or 'genre =' in comment:
+                            stats['methods_used']['standard_comment'] += 1
+                            break
+                    else:
+                        stats['methods_used']['pattern_match'] += 1
+
+                # Store examples
+                if show_examples and len(stats['examples'][genres[0]]) < 3:
+                    example = {
+                        'sent_id': sentence.get('sent_id', f'sentence_{i}'),
+                        'text': sentence.get('text', ''),
+                        'comments': sentence.get('comments', [])[:3],
+                        'genres': genres,
+                    }
+                    stats['examples'][genres[0]].append(example)
+            else:
+                stats['sentences_without_genre'] += 1
+
+                # Store examples of no match
+                if show_examples and len(stats['no_match_examples']) < 3:
+                    example = {
+                        'sent_id': sentence.get('sent_id', f'sentence_{i}'),
+                        'text': sentence.get('text', ''),
+                        'comments': sentence.get('comments', [])[:3],
+                    }
+                    stats['no_match_examples'].append(example)
+
+        # Display statistics
+        _display_genre_test_results(stats, show_examples, console)
+
+    except Exception as e:
+        console.print(f"[red]✗ Failed to test {treebank_code}: {e}[/red]")
+        logger.exception(f"Failed to test {treebank_code}")
+
+
+def _display_genre_test_results(stats, show_examples, console):
+    """Display genre extraction test results."""
+    # Summary statistics
+    table = Table(title="Extraction Statistics", show_header=True, header_style="bold magenta")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Total Sentences", str(stats['total_sentences']))
+    table.add_row("Sentences with Genre", str(stats['sentences_with_genre']))
+    table.add_row("Sentences without Genre", str(stats['sentences_without_genre']))
+
+    if stats['total_sentences'] > 0:
+        coverage = (stats['sentences_with_genre'] / stats['total_sentences']) * 100
+        table.add_row("Coverage", f"{coverage:.1f}%")
+
+    console.print(table)
+
+    # Genre distribution
+    if stats['genres_extracted']:
+        console.print("\n[bold]Extracted Genres:[/bold]")
+        genre_table = Table(show_header=True, header_style="bold magenta")
+        genre_table.add_column("Genre", style="cyan")
+        genre_table.add_column("Count", style="green")
+        genre_table.add_column("Percentage", style="yellow")
+
+        for genre, count in stats['genres_extracted'].most_common():
+            pct = (count / stats['sentences_with_genre']) * 100
+            genre_table.add_row(genre, str(count), f"{pct:.1f}%")
+
+        console.print(genre_table)
+
+    # Methods used
+    if stats['methods_used']:
+        console.print("\n[bold]Extraction Methods:[/bold]")
+        for method, count in stats['methods_used'].most_common():
+            console.print(f"  • {method}: {count}")
+
+    # Show examples
+    if show_examples:
+        # Matched examples
+        if stats['examples']:
+            console.print("\n[bold green]Example Matches:[/bold green]")
+            for genre, examples in list(stats['examples'].items())[:3]:
+                console.print(f"\n[cyan]Genre: {genre}[/cyan]")
+                for ex in examples:
+                    console.print(f"  sent_id: {ex['sent_id']}")
+                    if ex['text']:
+                        console.print(f"  text: {ex['text'][:80]}...")
+                    if ex['comments']:
+                        console.print(f"  comments: {ex['comments'][0]}")
+                    console.print()
+
+        # No match examples
+        if stats['no_match_examples']:
+            console.print("\n[bold yellow]Examples Without Genre Match:[/bold yellow]")
+            for ex in stats['no_match_examples']:
+                console.print(f"  sent_id: {ex['sent_id']}")
+                if ex['text']:
+                    console.print(f"  text: {ex['text'][:80]}...")
+                if ex['comments']:
+                    console.print(f"  comments: {ex['comments']}")
+                else:
+                    console.print(f"  comments: [none]")
+                console.print()
 
 
 if __name__ == "__main__":
