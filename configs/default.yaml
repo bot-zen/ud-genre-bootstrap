@@ -1,0 +1,54 @@
+# Default configuration for UD Genre Bootstrap
+
+ud_version: "2.17"
+ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
+
+embeddings:
+  model: "xlm-roberta-base"
+  pooling: "mean"  # mean, cls
+  batch_size: 64
+  layer: -1  # -1 for last layer
+  device: "auto"  # auto, cuda, cpu
+
+clustering:
+  method: "gmm"  # gmm, kmeans
+  level: "treebank"  # treebank, language, all
+  seed: 42
+
+bootstrapping:
+  min_confidence: 0.8
+  max_iterations: 10
+  fail_on_incomplete: false
+  unresolved_handling: "null"  # null, omit, string:UNKNOWN
+
+evaluation:
+  enabled: true
+
+  metadata_validation:
+    method: "kfold"  # kfold, holdout
+    k: 5
+    stratify_by: "genre"
+    group_by: "language"  # Don't split same language across folds
+
+  cluster_metrics:
+    - "silhouette"
+    - "calinski_harabasz"
+    - "davies_bouldin"
+
+  convergence_metrics:
+    - "resolution_rate"
+    - "disjunct_combinations"
+    - "confidence_distribution"
+
+output:
+  genres_path: "output/ud-v2.17/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.17"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.17"
+  push_to_hub: false  # Set to true when ready to publish
+  hf_token: "${HF_TOKEN}"  # From environment variable
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
