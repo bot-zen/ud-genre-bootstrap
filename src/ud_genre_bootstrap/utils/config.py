@@ -39,6 +39,14 @@ class BootstrappingConfig:
 
 
 @dataclass
+class GenreExtractionConfig:
+    """Configuration for genre extraction."""
+
+    mapping_path: Optional[str] = None
+    patterns_path: Optional[str] = None
+
+
+@dataclass
 class MetadataValidationConfig:
     """Configuration for metadata validation."""
 
@@ -98,6 +106,7 @@ class Config:
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     bootstrapping: BootstrappingConfig = field(default_factory=BootstrappingConfig)
+    genre_extraction: GenreExtractionConfig = field(default_factory=GenreExtractionConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -109,6 +118,7 @@ class Config:
         embeddings = EmbeddingsConfig(**config_dict.get("embeddings", {}))
         clustering = ClusteringConfig(**config_dict.get("clustering", {}))
         bootstrapping = BootstrappingConfig(**config_dict.get("bootstrapping", {}))
+        genre_extraction = GenreExtractionConfig(**config_dict.get("genre_extraction", {}))
 
         # Parse evaluation config
         eval_dict = config_dict.get("evaluation", {})
@@ -131,6 +141,7 @@ class Config:
             embeddings=embeddings,
             clustering=clustering,
             bootstrapping=bootstrapping,
+            genre_extraction=genre_extraction,
             evaluation=evaluation,
             output=output,
             logging=logging_cfg,

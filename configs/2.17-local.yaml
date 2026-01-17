@@ -1,7 +1,7 @@
 # Default configuration for UD Genre Bootstrap
 
 ud_version: "2.17"
-ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
 
 embeddings:
   model: "xlm-roberta-base"
@@ -20,15 +20,6 @@ bootstrapping:
   max_iterations: 10
   fail_on_incomplete: false
   unresolved_handling: "null"  # null, omit, string:UNKNOWN
-
-genre_extraction:
-  # Optional: Map non-standard genre labels to canonical UD genres
-  # See configs/genre_mappings.example.json for format
-  mapping_path: null  # "configs/genre_mappings.json"
-
-  # Optional: Define patterns for extracting genres from sentence metadata
-  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
-  patterns_path: null  # "configs/metadata_patterns.json"
 
 evaluation:
   enabled: true

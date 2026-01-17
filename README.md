@@ -127,6 +127,11 @@ bootstrapping:
   max_iterations: 10
   fail_on_incomplete: false
 
+genre_extraction:
+  # Optional: custom genre mappings and patterns
+  mapping_path: "configs/genre_mappings.json"
+  patterns_path: "configs/metadata_patterns.json"
+
 evaluation:
   enabled: true
   metadata_validation:
@@ -140,6 +145,8 @@ output:
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   push_to_hub: true
 ```
+
+**Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
 
 ## Output Format
 

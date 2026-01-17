@@ -1,0 +1,48 @@
+{
+  "_comment": "Maps non-standard genre labels to canonical UD genres",
+  "_canonical_genres": [
+    "academic", "blog", "email", "fiction", "government",
+    "grammar-examples", "legal", "medical", "news", "nonfiction",
+    "reviews", "social", "spoken", "web", "wiki"
+  ],
+
+  "weblog": "blog",
+  "weblogs": "blog",
+  "blog-post": "blog",
+
+  "answers": "social",
+  "qa": "social",
+  "question-answer": "social",
+
+  "reviews": "reviews",
+  "review": "reviews",
+
+  "newspaper": "news",
+  "newsgroup": "news",
+  "news-article": "news",
+
+  "wikipedia": "wiki",
+  "wiki-article": "wiki",
+
+  "scientific": "academic",
+  "academic-paper": "academic",
+  "research": "academic",
+
+  "legal-doc": "legal",
+  "law": "legal",
+
+  "spoken-conv": "spoken",
+  "conversation": "spoken",
+  "interview": "spoken",
+
+  "fiction-novel": "fiction",
+  "literature": "fiction",
+
+  "government-doc": "government",
+  "official": "government",
+
+  "en_ewt:weblog": "blog",
+  "en_ewt:answers": "social",
+  "en_gum:interview": "spoken",
+  "en_gum:whow": "web"
+}

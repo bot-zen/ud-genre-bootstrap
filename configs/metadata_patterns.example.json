@@ -1,0 +1,91 @@
+{
+  "_comment": "Pattern-based genre extraction for treebank-specific metadata formats",
+  "_format": "Treebank code -> list of pattern objects",
+  "_pattern_fields": {
+    "pattern": "Required: regex to match against sentence comments",
+    "genre": "Optional: static genre or $1/$2 for capture groups",
+    "genre_mapping": "Optional: dict mapping captured values to genres"
+  },
+
+  "en_ewt": [
+    {
+      "_description": "Extract genre from document ID prefix",
+      "pattern": "# newdoc id = (weblog|answers|email|reviews)-",
+      "genre": "$1"
+    }
+  ],
+
+  "en_gum": [
+    {
+      "_description": "GUM corpus uses genre in document ID",
+      "pattern": "# newdoc id = GUM_(blog|news|fiction|academic|interview|voyage|whow)",
+      "genre": "$1"
+    }
+  ],
+
+  "fi_tdt": [
+    {
+      "_description": "Finnish TDT encodes genre in doc_name",
+      "pattern": "# doc_name = (blog|news|wiki)_",
+      "genre": "$1"
+    }
+  ],
+
+  "de_gsd": [
+    {
+      "_description": "German GSD has explicit genre comment",
+      "pattern": "# genre = (.+)",
+      "genre": "$1"
+    }
+  ],
+
+  "cs_pdt": [
+    {
+      "_description": "Czech PDT uses source field with mapping",
+      "pattern": "# source = (.+)",
+      "genre_mapping": {
+        "news": "news",
+        "magazine": "news",
+        "business": "news",
+        "culture": "news",
+        "sport": "news",
+        "blog": "blog",
+        "forum": "social"
+      }
+    }
+  ],
+
+  "fr_gsd": [
+    {
+      "_description": "Extract from file path in sent_id",
+      "pattern": "# sent_id = .+/(blog|news|wiki|fiction)/",
+      "genre": "$1"
+    }
+  ],
+
+  "it_isdt": [
+    {
+      "_description": "Multiple patterns tried in order",
+      "pattern": "# newdoc id = .+-(news|blog|legal)",
+      "genre": "$1"
+    },
+    {
+      "_description": "Fallback to explicit genre field",
+      "pattern": "# genre = (.+)",
+      "genre": "$1"
+    }
+  ],
+
+  "ja_gsd": [
+    {
+      "_description": "Japanese GSD with source type mapping",
+      "pattern": "# source_type = (.+)",
+      "genre_mapping": {
+        "wikipedia": "wiki",
+        "blog": "blog",
+        "news": "news",
+        "textbook": "academic"
+      }
+    }
+  ]
+}
