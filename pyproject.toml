@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Egon W. Stemle", email = "egon.stemle@eurac.edu"},
 ]
 keywords = ["nlp", "universal-dependencies", "genre-classification", "bootstrapping", "clustering"]
 classifiers = [
@@ -61,10 +61,10 @@ viz = [
 ud-genre-bootstrap = "ud_genre_bootstrap.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/ud-genre-bootstrap"
-Documentation = "https://github.com/yourusername/ud-genre-bootstrap#readme"
-Repository = "https://github.com/yourusername/ud-genre-bootstrap"
-"Bug Tracker" = "https://github.com/yourusername/ud-genre-bootstrap/issues"
+Homepage = "https://github.com/bot-zen/ud-genre-bootstrap"
+Documentation = "https://github.com/bot-zen/ud-genre-bootstrap#readme"
+Repository = "https://github.com/bot-zen/ud-genre-bootstrap"
+"Bug Tracker" = "https://github.com/bot-zen/ud-genre-bootstrap/issues"
 
 [tool.hatch.metadata]
 allow-direct-references = true

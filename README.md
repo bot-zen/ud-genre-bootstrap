@@ -33,10 +33,10 @@ This tool automatically classifies Universal Dependencies sentences into genres 
 
 ```bash
 # Using uv (recommended)
-uv pip install git+https://github.com/yourusername/ud-genre-bootstrap
+uv pip install git+https://github.com/bot-zen/ud-genre-bootstrap
 
 # Or using pip
-pip install git+https://github.com/yourusername/ud-genre-bootstrap
+pip install git+https://github.com/bot-zen/ud-genre-bootstrap
 ```
 
 ### Development Setup
@@ -45,7 +45,7 @@ pip install git+https://github.com/yourusername/ud-genre-bootstrap
 # Clone both repos side-by-side
 cd /your/workspace/
 git clone https://github.com/bot-zen/ud-hf-parquet-tools
-git clone https://github.com/yourusername/ud-genre-bootstrap
+git clone https://github.com/bot-zen/ud-genre-bootstrap
 cd ud-genre-bootstrap/
 
 # Create virtual environment and install
