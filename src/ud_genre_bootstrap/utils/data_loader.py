@@ -70,6 +70,146 @@ class UDDataLoader:
         """
         return list(self.metadata.keys())
 
+    def _load_local_treebank(self, treebank_code: str, split: str, local_path: str = None) -> Dataset:
+        """Load treebank from local CoNLL-U files.
+
+        Args:
+            treebank_code: Treebank code
+            split: Split name
+            local_path: Base path to UD repos (overrides self.ud_source)
+
+        Returns:
+            Dataset with parsed sentences
+        """
+        # Get file paths from metadata
+        if treebank_code not in self.metadata:
+            raise ValueError(f"Treebank {treebank_code} not found in metadata")
+
+        tb_meta = self.metadata[treebank_code]
+        if 'splits' not in tb_meta or split not in tb_meta['splits']:
+            raise ValueError(f"Split {split} not found for {treebank_code}")
+
+        split_info = tb_meta['splits'][split]
+        file_paths = split_info['files']
+
+        # Parse CoNLL-U files
+        sentences = []
+        base_path = Path(local_path if local_path else self.ud_source)
+
+        # Resolve relative paths to absolute paths
+        if not base_path.is_absolute():
+            base_path = base_path.resolve()
+
+        for rel_path in file_paths:
+            # Try the full path from metadata first
+            file_path = base_path / rel_path
+
+            # If not found, try removing version directory (e.g., r2.17)
+            # Metadata has paths like: UD_English-EWT/r2.17/en_ewt-ud-train.conllu
+            # But checked-out repos have: UD_English-EWT/en_ewt-ud-train.conllu
+            if not file_path.exists():
+                parts = Path(rel_path).parts
+                if len(parts) >= 3:
+                    # Remove version directory (parts[1])
+                    alt_path = base_path / parts[0] / parts[2]
+                    if alt_path.exists():
+                        file_path = alt_path
+
+            if not file_path.exists():
+                logger.warning(f"File not found: {file_path}")
+                continue
+
+            logger.debug(f"Loading {file_path}")
+            sentences.extend(self._parse_conllu_file(file_path))
+
+        # Convert to HuggingFace Dataset
+        from datasets import Dataset as HFDataset
+        return HFDataset.from_list(sentences)
+
+    def _parse_conllu_file(self, file_path: Path) -> List[Dict]:
+        """Parse a CoNLL-U file into sentence dictionaries.
+
+        Args:
+            file_path: Path to .conllu file
+
+        Returns:
+            List of sentence dictionaries
+        """
+        sentences = []
+        current_sentence = {
+            'sent_id': None,
+            'text': None,
+            'comments': [],
+            'tokens': [],
+            'lemmas': [],
+            'upos': [],
+            'xpos': [],
+            'feats': [],
+            'head': [],
+            'deprel': [],
+            'deps': [],
+            'misc': [],
+        }
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.rstrip('\n')
+
+                # Empty line = end of sentence
+                if not line:
+                    if current_sentence['sent_id']:
+                        sentences.append(current_sentence)
+                        current_sentence = {
+                            'sent_id': None,
+                            'text': None,
+                            'comments': [],
+                            'tokens': [],
+                            'lemmas': [],
+                            'upos': [],
+                            'xpos': [],
+                            'feats': [],
+                            'head': [],
+                            'deprel': [],
+                            'deps': [],
+                            'misc': [],
+                        }
+                    continue
+
+                # Comment line
+                if line.startswith('#'):
+                    current_sentence['comments'].append(line)
+
+                    # Extract sent_id
+                    if line.startswith('# sent_id'):
+                        current_sentence['sent_id'] = line.split('=', 1)[1].strip()
+                    # Extract text
+                    elif line.startswith('# text'):
+                        current_sentence['text'] = line.split('=', 1)[1].strip()
+                    continue
+
+                # Token line
+                parts = line.split('\t')
+                if len(parts) == 10:
+                    # Skip multiword tokens (e.g., 1-2)
+                    if '-' in parts[0] or '.' in parts[0]:
+                        continue
+
+                    current_sentence['tokens'].append(parts[1])  # FORM
+                    current_sentence['lemmas'].append(parts[2])  # LEMMA
+                    current_sentence['upos'].append(parts[3])    # UPOS
+                    current_sentence['xpos'].append(parts[4])    # XPOS
+                    current_sentence['feats'].append(parts[5])   # FEATS
+                    current_sentence['head'].append(parts[6])    # HEAD
+                    current_sentence['deprel'].append(parts[7])  # DEPREL
+                    current_sentence['deps'].append(parts[8])    # DEPS
+                    current_sentence['misc'].append(parts[9])    # MISC
+
+        # Don't forget last sentence
+        if current_sentence['sent_id']:
+            sentences.append(current_sentence)
+
+        return sentences
+
     def get_language_treebanks(self) -> Dict[str, List[str]]:
         """Get mapping of languages to their treebanks.
 
@@ -109,8 +249,12 @@ class UDDataLoader:
                 revision=self.ud_version,
             )
         else:
-            # TODO: Load from local files using ud-hf-parquet-tools
-            raise NotImplementedError("Local file loading not yet implemented")
+            # Load from local CoNLL-U files
+            # Remove local:// prefix if present
+            local_path = self.ud_source
+            if local_path.startswith("local://"):
+                local_path = local_path.replace("local://", "")
+            return self._load_local_treebank(treebank_code, split, local_path)
 
     def iter_all_treebanks(
         self, split: Optional[str] = None
