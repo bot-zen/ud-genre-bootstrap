@@ -22,6 +22,20 @@ class TestGenreMapper:
         genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
         assert "blog" in genres
 
+    def test_alternative_comment_format(self):
+        """Test extraction from alternative comment format without newdoc."""
+        mapper = GenreMapper()
+        sentence = {"comments": ["# genre = news"]}
+        genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+        assert "news" in genres
+
+    def test_genre_with_hyphen(self):
+        """Test extraction of genre names with hyphens."""
+        mapper = GenreMapper()
+        sentence = {"comments": ["# genre = grammar-examples"]}
+        genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+        assert "grammar-examples" in genres
+
     def test_pattern_with_capture_group(self):
         """Test pattern matching with capture group substitution."""
         # Create temp pattern file

@@ -1,5 +1,7 @@
 # Default configuration for UD Genre Bootstrap
 
+
+
 ud_version: "2.17"
 ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
 
@@ -28,7 +30,9 @@ genre_extraction:
 
   # Optional: Define patterns for extracting genres from sentence metadata
   # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
-  patterns_path: "configs/metadata_patterns.json"
+  patterns_path:
+    - "configs/metadata_patterns.json"
+    - "configs/pud-patterns.json"
 
 evaluation:
   enabled: true

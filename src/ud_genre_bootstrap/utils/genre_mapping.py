@@ -144,10 +144,17 @@ class GenreMapper:
         if "genre" in sentence:
             genres.append(sentence["genre"])
 
-        # Method 2: Check CoNLL-U comments (# newdoc genre = ...)
+        # Method 2: Check CoNLL-U comments for standard genre metadata
         if "comments" in sentence:
             for comment in sentence["comments"]:
-                match = re.search(r"#\s*newdoc\s+genre\s*=\s*(\w+)", comment)
+                # Standard UD format: # newdoc genre = ...
+                match = re.search(r"#\s*newdoc\s+genre\s*=\s*(\S+)", comment)
+                if match:
+                    genres.append(match.group(1))
+                    continue
+
+                # Alternative format: # genre = ... (without newdoc)
+                match = re.search(r"#\s+genre\s*=\s*(\S+)", comment)
                 if match:
                     genres.append(match.group(1))
 

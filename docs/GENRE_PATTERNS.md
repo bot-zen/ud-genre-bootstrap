@@ -6,11 +6,44 @@ This document describes how to configure pattern-based genre extraction for tree
 
 The genre extraction system supports three methods for identifying sentence genres:
 
-1. **Direct metadata field**: If a sentence has a `genre` field in its metadata
-2. **CoNLL-U comments**: Standard UD comments like `# newdoc genre = news`
+1. **Direct metadata field**: If a sentence has a `genre` field in its metadata (automatic)
+2. **Standard CoNLL-U comments**: (automatic, no patterns needed)
+   - `# newdoc genre = news`
+   - `# genre = news`
 3. **Pattern-based extraction**: Custom patterns for treebank-specific metadata formats
 
-This document focuses on method 3: pattern-based extraction.
+### What's Automatic?
+
+The following formats are **automatically extracted** without any pattern configuration:
+
+```python
+# Direct genre field in sentence
+sentence = {"genre": "news"}  # ✓ Automatic
+
+# Standard UD format
+"# newdoc genre = news"        # ✓ Automatic
+
+# Alternative format (without newdoc)
+"# genre = blog"               # ✓ Automatic
+```
+
+### When Do You Need Patterns?
+
+Use pattern-based extraction when genre information is encoded in:
+- Document IDs: `# newdoc id = weblog-example-001`
+- Sentence IDs: `# sent_id = n01001011` (PUD treebanks)
+- File paths: `# sent_id = news/article001`
+- Source fields: `# source = wikipedia`
+- Other non-standard locations
+
+### When Do You Need Mappings?
+
+Use genre mappings when extracted values differ from canonical UD genres:
+- `"weblog" → "blog"`
+- `"newspaper" → "news"`
+- `"n" → "news"` (PUD single-letter codes)
+
+This document focuses on pattern-based extraction (method 3).
 
 ## When to Use Pattern-Based Extraction
 
