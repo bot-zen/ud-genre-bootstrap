@@ -412,6 +412,15 @@ def test_genres(
 
         # Process each treebank
         for tb_code in treebanks_to_test:
+            # Check if the split exists for this treebank
+            available_splits = data_loader.get_available_splits(tb_code)
+            if split not in available_splits:
+                console.print(
+                    f"\n[yellow]⚠ Skipping {tb_code}: split '{split}' not available. "
+                    f"Available: {', '.join(available_splits)}[/yellow]"
+                )
+                continue
+
             _test_treebank_genres(
                 data_loader,
                 genre_mapper,

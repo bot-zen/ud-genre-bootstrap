@@ -70,6 +70,24 @@ class UDDataLoader:
         """
         return list(self.metadata.keys())
 
+    def get_available_splits(self, treebank_code: str) -> List[str]:
+        """Get list of available splits for a treebank.
+
+        Args:
+            treebank_code: Treebank code
+
+        Returns:
+            List of available split names (e.g., ['train', 'dev', 'test'])
+        """
+        if treebank_code not in self.metadata:
+            return []
+
+        tb_meta = self.metadata[treebank_code]
+        if 'splits' not in tb_meta:
+            return []
+
+        return list(tb_meta['splits'].keys())
+
     def _load_local_treebank(self, treebank_code: str, split: str, local_path: str = None) -> Dataset:
         """Load treebank from local CoNLL-U files.
 
@@ -87,7 +105,14 @@ class UDDataLoader:
 
         tb_meta = self.metadata[treebank_code]
         if 'splits' not in tb_meta or split not in tb_meta['splits']:
-            raise ValueError(f"Split {split} not found for {treebank_code}")
+            available_splits = self.get_available_splits(treebank_code)
+            if available_splits:
+                raise ValueError(
+                    f"Split '{split}' not found for {treebank_code}. "
+                    f"Available splits: {', '.join(available_splits)}"
+                )
+            else:
+                raise ValueError(f"No splits found in metadata for {treebank_code}")
 
         split_info = tb_meta['splits'][split]
         file_paths = split_info['files']
