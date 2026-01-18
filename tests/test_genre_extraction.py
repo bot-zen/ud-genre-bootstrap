@@ -174,10 +174,54 @@ class TestGenreMapper:
         try:
             mapper = GenreMapper(genre_mapping_path=mappings_path)
 
-            # Generic mapping
+            # Generic mapping (no treebank specified)
             assert mapper.normalize_genre("web") == "web"
-            # Treebank-specific override
+            # Treebank-specific override (even for canonical genres)
             assert mapper.normalize_genre("web", "en_ewt") == "blog"
+
+        finally:
+            mappings_path.unlink()
+
+    def test_treebank_specific_mapping_without_patterns(self):
+        """Test treebank-specific mappings work without patterns (standard extraction)."""
+        import tempfile
+        import json
+
+        # No patterns file - only mappings!
+        mappings = {
+            "weblog": "blog",  # Global mapping
+            "de_gsd:web": "blog",  # de_gsd-specific: 'web' means 'blog'
+            "fr_gsd:web": "web",   # fr_gsd-specific: 'web' stays 'web'
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            # No patterns needed!
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=None
+            )
+
+            # Test 1: de_gsd overrides 'web' to 'blog'
+            sentence = {"comments": ["# genre = web"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "de_gsd")
+            assert "blog" in genres, f"Expected 'blog', got {genres}"
+
+            # Test 2: fr_gsd keeps 'web' as 'web'
+            genres = mapper.extract_genres_from_metadata(sentence, "fr_gsd")
+            assert "web" in genres, f"Expected 'web', got {genres}"
+
+            # Test 3: en_ewt has no override, keeps canonical 'web'
+            genres = mapper.extract_genres_from_metadata(sentence, "en_ewt")
+            assert "web" in genres, f"Expected 'web', got {genres}"
+
+            # Test 4: Global mapping still works
+            sentence = {"comments": ["# genre = weblog"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "en_ewt")
+            assert "blog" in genres, f"Expected 'blog', got {genres}"
 
         finally:
             mappings_path.unlink()

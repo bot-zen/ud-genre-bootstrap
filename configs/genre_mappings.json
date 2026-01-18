@@ -6,6 +6,11 @@
     "reviews", "social", "spoken", "web", "wiki"
   ],
 
+  "scientific": "academic",
+  "academic-paper": "academic",
+  "research": "academic",
+  "_medical": "academic",
+
   "weblog": "blog",
   "weblogs": "blog",
   "blog-post": "blog",
@@ -14,6 +19,7 @@
   "qa": "social",
   "question-answer": "social",
 
+  "reviews": "reviews",
   "review": "reviews",
 
   "newspaper": "news",
@@ -22,10 +28,6 @@
 
   "wikipedia": "wiki",
   "wiki-article": "wiki",
-
-  "scientific": "academic",
-  "academic-paper": "academic",
-  "research": "academic",
 
   "legal-doc": "legal",
   "law": "legal",
@@ -43,11 +45,6 @@
   "_comment_pud": "PUD treebanks use single-letter codes in sent_id",
   "n": "news",
   "w": "wiki",
-
-  "_comment_cac": "Czech CAC uses combined letters from doc ID (first + last)",
-  "aw": "legal",
-  "nw": "news",
-  "sw": "nonfiction",
 
   "_comment_treebank_specific": "Treebank-specific overrides (from original paper)",
   "be_hse:fiction": "fiction",

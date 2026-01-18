@@ -109,22 +109,22 @@ class GenreMapper:
         Returns:
             Canonical UD genre label
         """
-        # Check if already canonical
-        if genre in self.CANONICAL_GENRES:
-            return genre
-
-        # Try direct mapping
-        if genre in self.genre_mappings:
-            return self.genre_mappings[genre]
-
-        # Try treebank-specific mapping
+        # Priority 1: Treebank-specific mapping (allows overriding canonical genres)
         if treebank_code:
             tb_key = f"{treebank_code}:{genre}"
             if tb_key in self.genre_mappings:
                 return self.genre_mappings[tb_key]
 
-        # TODO: Implement fuzzy matching or raise warning
-        return genre  # Return as-is if no mapping found
+        # Priority 2: Global mapping
+        if genre in self.genre_mappings:
+            return self.genre_mappings[genre]
+
+        # Priority 3: Already canonical (no mapping needed)
+        if genre in self.CANONICAL_GENRES:
+            return genre
+
+        # No mapping found, return as-is
+        return genre
 
     def extract_genres_from_metadata(
         self, sentence: Dict, treebank_code: str

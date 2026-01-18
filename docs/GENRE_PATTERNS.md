@@ -39,9 +39,47 @@ Use pattern-based extraction when genre information is encoded in:
 ### When Do You Need Mappings?
 
 Use genre mappings when extracted values differ from canonical UD genres:
-- `"weblog" → "blog"`
-- `"newspaper" → "news"`
-- `"n" → "news"` (PUD single-letter codes)
+- **Global mappings**: `"weblog" → "blog"`, `"newspaper" → "news"`
+- **Treebank-specific mappings**: Override behavior for specific treebanks
+
+### Treebank-Specific Mappings Without Patterns
+
+You can use treebank-specific mappings **without defining any patterns**. This is useful when a treebank uses standard genre metadata (`# genre = ...`) but interprets genre values differently.
+
+**Example**: The `web` genre means different things in different treebanks:
+
+```json
+{
+  "weblog": "blog",         // Global: normalize non-standard terms
+
+  "de_gsd:web": "blog",     // de_gsd: 'web' means 'blog'
+  "fr_gsd:web": "web",      // fr_gsd: 'web' means generic web (keep as-is)
+  "en_gum:web": "nonfiction" // en_gum: 'web' means 'nonfiction'
+}
+```
+
+**Usage**: Just add to `genre_mappings.json`, no patterns needed!
+
+```yaml
+# config.yaml
+genre_extraction:
+  mapping_path: "configs/genre_mappings.json"
+  # patterns_path not needed for this!
+```
+
+**Behavior**:
+```python
+# All treebanks have: # genre = web
+
+de_gsd: "web" → "blog"        # Override canonical genre
+fr_gsd: "web" → "web"         # Keep canonical genre
+en_ewt: "web" → "web"         # No override, use canonical
+```
+
+**Priority order**:
+1. **Treebank-specific mapping** (highest priority, can override canonical)
+2. **Global mapping**
+3. **Canonical genre** (no mapping needed)
 
 This document focuses on pattern-based extraction (method 3).
 

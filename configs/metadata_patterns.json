@@ -8,10 +8,15 @@
   },
   "cs_cac": [
     {
-      "_description": "Czech CAC: extract first and last letter from doc ID (e.g., a01w -> aw)",
+      "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
       "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'news'",
       "pattern": "# sent_id = ([a-z])\\d+([a-z])-.*",
-      "genre": "$1$2"
+      "genre": "$1$2",
+      "genre_mapping": {
+          "aw": "legal",
+          "nw": "news",
+          "sw": "nonfiction"
+      }
     }
   ],
   "en_ewt": [
@@ -35,28 +40,19 @@
       "pattern": "# sent_id = GUM_([a-z]+)_",
       "genre": "$1",
       "genre_mapping": {
-        "academic": "academic",
-        "blog": "blog",
-        "fiction": "fiction",
-        "government": "government",
-        "news": "news",
-        "nonfiction": "nonfiction",
-        "social": "social",
-        "spoken": "spoken",
-        "web": "web",
-        "wiki": "wiki",
-
-        "bio": "wiki",
-        "court": "wiki",
-        "essay": "wiki",
-        "interview": "wiki",
-        "letter": "wiki",
-        "podcast": "wiki",
-        "speech": "wiki",
-        "textbook": "wiki",
-        "vlog": "wiki",
+        "court": "spoken",
+        "speech": "spoken",
+        "textbook": "nonfiction",
+        "_comment_wiki": "wikivoyage: worldwide travel guide that you can edit. NOTE: much more like wiki than guide",
         "voyage": "wiki",
-        "whow": "wiki"
+        "_comment_whow": "wikiHow: how-to site on the internet",
+        "whow": "nonfiction",
+        "_comment_bio": "biographies, very similar to the beginning of a wikipedia page",
+        "bio": "wiki",
+        "essay": "nonfiction",
+        "letter": "nonfiction",
+        "podcast": "spoken",
+        "vlog": "spoken"
       }
     }
   ],
@@ -80,6 +76,13 @@
         "sport": "news",
         "blog": "blog",
         "forum": "social"
+      }
+    }
+  ],
+  "de_lit": [
+    {
+      "genre_mapping": {
+        "fragments": "nonfiction"
       }
     }
   ],
