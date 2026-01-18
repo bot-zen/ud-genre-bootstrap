@@ -140,6 +140,16 @@ class GenreMapper:
         """
         genres = []
 
+        # Collect treebank-specific genre_mappings (without patterns)
+        # These apply to standard automatic extraction
+        treebank_genre_mappings = {}
+        if treebank_code in self.metadata_patterns:
+            for pattern_dict in self.metadata_patterns[treebank_code]:
+                if isinstance(pattern_dict, dict):
+                    # Pattern-less genre_mapping for this treebank
+                    if "genre_mapping" in pattern_dict and "pattern" not in pattern_dict:
+                        treebank_genre_mappings.update(pattern_dict["genre_mapping"])
+
         # Method 1: Direct genre field in sentence metadata
         if "genre" in sentence:
             genres.append(sentence["genre"])
@@ -157,6 +167,17 @@ class GenreMapper:
                 match = re.search(r"#\s+genre\s*=\s*(\S+)", comment)
                 if match:
                     genres.append(match.group(1))
+
+        # Apply treebank-specific genre_mappings to genres extracted so far
+        if treebank_genre_mappings:
+            # Map genres using treebank-specific mappings
+            mapped_genres = []
+            for genre in genres:
+                if genre in treebank_genre_mappings:
+                    mapped_genres.append(treebank_genre_mappings[genre])
+                else:
+                    mapped_genres.append(genre)
+            genres = mapped_genres
 
         # Method 3: Use treebank-specific patterns
         if treebank_code in self.metadata_patterns:

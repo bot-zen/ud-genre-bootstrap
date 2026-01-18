@@ -150,9 +150,44 @@ Defines extraction patterns for sentence-level metadata.
       "pattern": "# doc_name = (.+?)_",
       "genre": "$1"
     }
+  ],
+  "de_lit": [
+    {
+      "_description": "Pattern-less genre_mapping",
+      "genre_mapping": {
+        "fragments": "nonfiction",
+        "poetry": "fiction"
+      }
+    }
   ]
 }
 ```
+
+**Pattern-less Mappings**: You can define `genre_mapping` **without** a `pattern`. This applies the mapping to standard automatic extraction (`# genre = ...`):
+
+```json
+{
+  "de_lit": [
+    {
+      "genre_mapping": {
+        "fragments": "nonfiction",
+        "poetry": "fiction"
+      }
+    }
+  ]
+}
+```
+
+**Behavior**:
+- `# genre = fragments` in de_lit → `nonfiction` ✓
+- `# genre = poetry` in de_lit → `fiction` ✓
+- `# genre = news` in de_lit → `news` ✓ (no mapping, kept as-is)
+- `# genre = fragments` in fr_gsd → `fragments` ✓ (other treebanks unaffected)
+
+**Benefits**:
+- Organize treebank-specific mappings in patterns file (near related patterns)
+- No need to use `treebank:genre` syntax in global mappings file
+- Clear separation: patterns file = treebank-specific, mappings file = global
 
 ## Pattern Specification
 

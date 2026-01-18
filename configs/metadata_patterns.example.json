@@ -90,5 +90,17 @@
         "textbook": "academic"
       }
     }
+  ],
+
+  "_comment_patternless": "Pattern-less mappings apply to standard automatic extraction",
+  "de_lit": [
+    {
+      "_description": "Pattern-less genre_mapping for treebank-specific normalization",
+      "_note": "No pattern needed - applies to standard # genre = ... extraction",
+      "genre_mapping": {
+        "fragments": "nonfiction",
+        "poetry": "fiction"
+      }
+    }
   ]
 }

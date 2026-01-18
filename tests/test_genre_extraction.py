@@ -226,6 +226,55 @@ class TestGenreMapper:
         finally:
             mappings_path.unlink()
 
+    def test_patternless_genre_mapping_in_patterns_file(self):
+        """Test genre_mapping without pattern in metadata_patterns file."""
+        import tempfile
+        import json
+
+        # Define treebank-specific mappings in patterns file WITHOUT patterns
+        patterns = {
+            "de_lit": [
+                {
+                    "genre_mapping": {
+                        "fragments": "nonfiction",
+                        "poetry": "fiction"
+                    }
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=None,
+                metadata_patterns_path=patterns_path
+            )
+
+            # Test mapping defined in patterns file
+            sentence = {"comments": ["# genre = fragments"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "de_lit")
+            assert "nonfiction" in genres, f"Expected 'nonfiction', got {genres}"
+
+            sentence = {"comments": ["# genre = poetry"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "de_lit")
+            assert "fiction" in genres, f"Expected 'fiction', got {genres}"
+
+            # Test unmapped genre passes through
+            sentence = {"comments": ["# genre = news"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "de_lit")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+            # Test other treebank not affected
+            sentence = {"comments": ["# genre = fragments"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "fr_gsd")
+            assert "fragments" in genres, f"Expected 'fragments', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+
     def test_multiple_capture_groups_combined(self):
         """Test combining multiple capture groups for split matches."""
         import tempfile
