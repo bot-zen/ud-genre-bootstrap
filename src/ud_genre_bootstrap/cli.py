@@ -411,8 +411,33 @@ def test_genres(
         if treebank:
             treebanks_to_test = [treebank]
         else:
-            treebanks_to_test = data_loader.get_treebank_codes()[:10]  # First 10 for testing
-            console.print(f"[yellow]Testing first 10 treebanks. Use --treebank to test specific one.[/yellow]\n")
+            # If patterns are defined, only test treebanks with patterns
+            if genre_mapper.metadata_patterns:
+                # Get treebanks that have patterns defined
+                treebanks_with_patterns = list(genre_mapper.metadata_patterns.keys())
+                # Also include all treebanks if we want to show coverage
+                all_treebanks = data_loader.get_treebank_codes()
+
+                # Prioritize treebanks with patterns
+                treebanks_to_test = [
+                    tb for tb in all_treebanks if tb in treebanks_with_patterns
+                ][:10]
+
+                if treebanks_to_test:
+                    console.print(
+                        f"[yellow]Testing {len(treebanks_to_test)} treebanks with patterns defined. "
+                        f"Use --treebank to test specific one.[/yellow]\n"
+                    )
+                else:
+                    # Fallback to first 10 if no patterns match
+                    treebanks_to_test = all_treebanks[:10]
+                    console.print(
+                        f"[yellow]No patterns match available treebanks. "
+                        f"Testing first 10 treebanks.[/yellow]\n"
+                    )
+            else:
+                treebanks_to_test = data_loader.get_treebank_codes()[:10]
+                console.print(f"[yellow]No patterns defined. Testing first 10 treebanks.[/yellow]\n")
 
         # Process each treebank
         for tb_code in treebanks_to_test:
