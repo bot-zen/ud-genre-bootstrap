@@ -6,19 +6,58 @@
     "genre": "Optional: static genre or $1/$2 for capture groups",
     "genre_mapping": "Optional: dict mapping captured values to genres"
   },
+  "cs_cac": [
+    {
+      "_description": "Czech CAC: extract first and last letter from doc ID (e.g., a01w -> aw)",
+      "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'news'",
+      "pattern": "# sent_id = ([a-z])\\d+([a-z])-.*",
+      "genre": "$1$2"
+    }
+  ],
   "en_ewt": [
     {
       "_description": "Extract genre from document ID prefix",
-      "pattern": "# newdoc id = (weblog|answers|email|reviews)-",
-      "genre": "$1"
+      "pattern": "# sent_id = ([a-z]+)-",
+      "genre": "$1",
+      "genre_mapping": {
+        "weblog": "blog",
+        "email": "email",
+        "reviews": "reviews",
+        "newsgroup": "social",
+        "answers": "social"
+      }
     }
   ],
 
   "en_gum": [
     {
       "_description": "GUM corpus uses genre in document ID",
-      "pattern": "# newdoc id = GUM_(blog|news|fiction|academic|interview|voyage|whow)",
-      "genre": "$1"
+      "pattern": "# sent_id = GUM_([a-z]+)_",
+      "genre": "$1",
+      "genre_mapping": {
+        "academic": "academic",
+        "blog": "blog",
+        "fiction": "fiction",
+        "government": "government",
+        "news": "news",
+        "nonfiction": "nonfiction",
+        "social": "social",
+        "spoken": "spoken",
+        "web": "web",
+        "wiki": "wiki",
+
+        "bio": "wiki",
+        "court": "wiki",
+        "essay": "wiki",
+        "interview": "wiki",
+        "letter": "wiki",
+        "podcast": "wiki",
+        "speech": "wiki",
+        "textbook": "wiki",
+        "vlog": "wiki",
+        "voyage": "wiki",
+        "whow": "wiki"
+      }
     }
   ],
 
@@ -29,7 +68,6 @@
       "genre": "$1"
     }
   ],
-
   "cs_pdt": [
     {
       "_description": "Czech PDT uses source field with mapping",
@@ -45,7 +83,6 @@
       }
     }
   ],
-
   "fr_gsd": [
     {
       "_description": "Extract from file path in sent_id",

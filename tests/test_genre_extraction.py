@@ -231,6 +231,64 @@ class TestGenreMapper:
             patterns_path.unlink()
             mappings_path.unlink()
 
+    def test_partial_inline_genre_mapping_with_global_fallback(self):
+        """Test that global mappings work when inline mapping is partial."""
+        import tempfile
+        import json
+
+        # Pattern with partial inline mapping
+        patterns = {
+            "test_tb": [
+                {
+                    "pattern": r"# source = (.+)",
+                    "genre_mapping": {
+                        "news": "news",
+                        "magazine": "news"
+                        # "blog" and "weblog" are NOT in inline mapping
+                    }
+                }
+            ]
+        }
+
+        # Global mapping should handle values not in inline mapping
+        mappings = {
+            "blog": "blog",
+            "weblog": "blog"
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=patterns_path
+            )
+
+            # Test inline mapping
+            sentence = {"comments": ["# source = news"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+            # Test global mapping (not in inline mapping)
+            sentence = {"comments": ["# source = blog"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "blog" in genres, f"Expected 'blog', got {genres}"
+
+            # Test global normalization (not in inline mapping)
+            sentence = {"comments": ["# source = weblog"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "blog" in genres, f"Expected 'blog', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+            mappings_path.unlink()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

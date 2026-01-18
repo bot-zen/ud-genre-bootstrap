@@ -14,7 +14,6 @@
   "qa": "social",
   "question-answer": "social",
 
-  "reviews": "reviews",
   "review": "reviews",
 
   "newspaper": "news",
@@ -45,7 +44,12 @@
   "n": "news",
   "w": "wiki",
 
-  "_comment_treebank_specific": "Treebank-specific overrides",
+  "_comment_cac": "Czech CAC uses combined letters from doc ID (first + last)",
+  "aw": "legal",
+  "nw": "news",
+  "sw": "nonfiction",
+
+  "_comment_treebank_specific": "Treebank-specific overrides (from original paper)",
   "be_hse:fiction": "fiction",
   "be_hse:legal": "legal",
   "be_hse:news": "news",
@@ -56,8 +60,6 @@
   "be_hse:social-media-poll-question": "social",
   "be_hse:social-media-poll-answer": "social",
   "be_hse:wiki": "wiki",
-  "en_ewt:weblog": "blog",
-  "en_ewt:answers": "social",
-  "en_gum:interview": "spoken",
-  "en_gum:whow": "web"
+
+  "_comment_end": ""
 }

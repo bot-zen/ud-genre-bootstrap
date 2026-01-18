@@ -175,9 +175,16 @@ class GenreMapper:
                                 if match:
                                     if genre_mapping:
                                         # Use genre_mapping dict to map captured value
+                                        # If not in inline mapping, add raw value for global normalization
                                         captured = match.group(1) if match.groups() else None
-                                        if captured and captured in genre_mapping:
-                                            genres.append(genre_mapping[captured])
+                                        if captured:
+                                            if captured in genre_mapping:
+                                                # Use inline mapping
+                                                genres.append(genre_mapping[captured])
+                                            else:
+                                                # Not in inline mapping, add raw value
+                                                # It will be normalized by global genre_mappings later
+                                                genres.append(captured)
                                     elif genre_template:
                                         # Substitute capture groups in genre template
                                         genre_value = genre_template

@@ -145,7 +145,43 @@ Defines extraction patterns for sentence-level metadata.
 
 **Fields**:
 - `pattern` (required): Regular expression with capture group
-- `genre_mapping` (required): Dictionary mapping captured values to genres
+- `genre_mapping` (optional): Dictionary mapping captured values to genres
+
+**Inline vs Global Mappings**:
+
+The inline `genre_mapping` can be partial. Values not in the inline mapping will fall back to global genre mappings:
+
+```json
+// Pattern file
+{
+  "cs_pdt": [
+    {
+      "pattern": "# source = (.+)",
+      "genre_mapping": {
+        "news": "news",
+        "magazine": "news"
+        // Other values fall back to global mappings
+      }
+    }
+  ]
+}
+
+// Global mappings file
+{
+  "blog": "blog",
+  "weblog": "blog"
+}
+```
+
+**Behavior**:
+- `# source = news` → inline mapping → `news` ✓
+- `# source = blog` → not in inline, uses global → `blog` ✓
+- `# source = weblog` → not in inline, global normalizes → `blog` ✓
+
+This allows you to:
+1. Use inline mappings for treebank-specific overrides
+2. Use global mappings for common normalizations
+3. Combine both approaches flexibly
 
 ### Combining Multiple Capture Groups
 
