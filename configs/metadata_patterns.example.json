@@ -49,6 +49,15 @@
     }
   ],
 
+  "cs_cac": [
+    {
+      "_description": "Czech CAC: extract first and last letter from doc ID (e.g., a01w -> aw)",
+      "_example": "# newdoc id = a01w -> extracts 'aw' -> maps to 'news'",
+      "pattern": "# newdoc id = ([a-z])\\d+([a-z])",
+      "genre": "$1$2"
+    }
+  ],
+
   "fr_gsd": [
     {
       "_description": "Extract from file path in sent_id",

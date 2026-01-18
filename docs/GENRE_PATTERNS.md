@@ -147,6 +147,47 @@ Defines extraction patterns for sentence-level metadata.
 - `pattern` (required): Regular expression with capture group
 - `genre_mapping` (required): Dictionary mapping captured values to genres
 
+### Combining Multiple Capture Groups
+
+You can combine multiple capture groups to extract non-contiguous parts:
+
+```json
+{
+  "pattern": "# newdoc id = ([a-z])\\d+([a-z])",
+  "genre": "$1$2"
+}
+```
+
+**Example**: Czech CAC treebank uses document IDs like `a01w`, `b12s`
+- First letter indicates corpus section
+- Last letter indicates genre
+- Combined: `aw` → needs mapping to canonical genre
+
+```json
+{
+  "cs_cac": [
+    {
+      "pattern": "# newdoc id = ([a-z])\\d+([a-z])",
+      "genre": "$1$2"
+    }
+  ]
+}
+```
+
+With mapping:
+```json
+{
+  "aw": "news",
+  "as": "news",
+  "bw": "nonfiction",
+  "bs": "nonfiction"
+}
+```
+
+Result:
+- `# newdoc id = a01w` → extracts `aw` → maps to `news` ✓
+- `# newdoc id = b12s` → extracts `bs` → maps to `nonfiction` ✓
+
 ## Examples
 
 ### Example 1: English EWT Treebank

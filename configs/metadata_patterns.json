@@ -6,13 +6,6 @@
     "genre": "Optional: static genre or $1/$2 for capture groups",
     "genre_mapping": "Optional: dict mapping captured values to genres"
   },
-  "akk_pisandub": [
-    {
-      "_description": "Extract genre from document ID prefix",
-      "pattern": "# newdoc id = (weblog|answers|email|reviews)-",
-      "genre": "$1"
-    }
-  ],
   "en_ewt": [
     {
       "_description": "Extract genre from document ID prefix",

@@ -182,6 +182,55 @@ class TestGenreMapper:
         finally:
             mappings_path.unlink()
 
+    def test_multiple_capture_groups_combined(self):
+        """Test combining multiple capture groups for split matches."""
+        import tempfile
+        import json
+
+        # Czech CAC pattern: extract first and last letter from doc ID
+        patterns = {
+            "cs_cac": [
+                {
+                    "pattern": r"# newdoc id = ([a-z])\d+([a-z])",
+                    "genre": "$1$2"
+                }
+            ]
+        }
+
+        mappings = {
+            "aw": "news",
+            "as": "news",
+            "bw": "nonfiction"
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=patterns_path
+            )
+
+            # Test extracting "aw" from "a01w"
+            sentence = {"comments": ["# newdoc id = a01w"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "cs_cac")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+            # Test extracting "bw" from "b12w"
+            sentence = {"comments": ["# newdoc id = b12w"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "cs_cac")
+            assert "nonfiction" in genres, f"Expected 'nonfiction', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+            mappings_path.unlink()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
