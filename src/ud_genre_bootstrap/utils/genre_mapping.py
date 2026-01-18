@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Union
 
 import json
 
@@ -32,13 +32,13 @@ class GenreMapper:
     def __init__(
         self,
         genre_mapping_path: Optional[Path] = None,
-        metadata_patterns_path: Optional[Path] = None,
+        metadata_patterns_path: Optional[Union[Path, List[Path]]] = None,
     ):
         """Initialize genre mapper.
 
         Args:
             genre_mapping_path: Path to JSON with non-standard -> UD genre mappings
-            metadata_patterns_path: Path to JSON with sentence-level genre patterns
+            metadata_patterns_path: Path or list of paths to JSON files with sentence-level genre patterns
         """
         self.genre_mappings = self._load_genre_mappings(genre_mapping_path)
         self.metadata_patterns = self._load_metadata_patterns(metadata_patterns_path)
@@ -54,16 +54,50 @@ class GenreMapper:
         with open(path) as f:
             return json.load(f)
 
-    def _load_metadata_patterns(self, path: Optional[Path]) -> Dict:
-        """Load metadata extraction patterns from JSON file.
+    def _load_metadata_patterns(self, paths: Optional[Union[Path, List[Path]]]) -> Dict:
+        """Load metadata extraction patterns from JSON file(s).
+
+        Args:
+            paths: Single path or list of paths to pattern files
+
+        Returns:
+            Merged dictionary of patterns. Later files override earlier ones for
+            the same treebank code.
 
         Format similar to ud28/meta.json with patterns for sentence headers
         """
-        if path is None or not path.exists():
+        if paths is None:
             return {}
 
-        with open(path) as f:
-            return json.load(f)
+        # Normalize to list
+        if isinstance(paths, (str, Path)):
+            paths = [Path(paths)]
+        else:
+            paths = [Path(p) for p in paths]
+
+        # Load and merge patterns from all files
+        merged_patterns = {}
+        for path in paths:
+            if not path.exists():
+                continue
+
+            with open(path) as f:
+                patterns = json.load(f)
+
+            # Merge patterns
+            for treebank_code, treebank_patterns in patterns.items():
+                # Skip comments
+                if treebank_code.startswith("_"):
+                    continue
+
+                if treebank_code in merged_patterns:
+                    # Extend existing patterns
+                    merged_patterns[treebank_code].extend(treebank_patterns)
+                else:
+                    # Add new treebank patterns
+                    merged_patterns[treebank_code] = treebank_patterns
+
+        return merged_patterns
 
     def normalize_genre(self, genre: str, treebank_code: Optional[str] = None) -> str:
         """Normalize a genre label to canonical UD genre.

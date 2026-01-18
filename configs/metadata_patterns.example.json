@@ -31,13 +31,7 @@
     }
   ],
 
-  "de_pud": [
-    {
-      "_description": "German GSD has explicit genre comment",
-      "pattern": "# sent_id = /(n|w)/.+",
-      "genre": "$1"
-    }
-  ],
+  "_comment_pud": "PUD treebanks use configs/pud-patterns.json",
 
   "cs_pdt": [
     {

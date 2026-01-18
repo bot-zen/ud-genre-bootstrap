@@ -1,0 +1,53 @@
+# Example configuration showing how to combine multiple pattern files
+# This config uses both base patterns and PUD-specific patterns
+
+ud_version: "2.17"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"
+
+genre_extraction:
+  mapping_path: "configs/genre_mappings.example.json"
+
+  # Use multiple pattern files - patterns are merged
+  # Later files extend earlier ones for the same treebank
+  patterns_path:
+    - "configs/metadata_patterns.example.json"  # Base patterns
+    - "configs/pud-patterns.json"               # PUD-specific patterns
+
+embeddings:
+  model: "xlm-roberta-base"
+  pooling: "mean"
+  batch_size: 64
+  layer: -1
+  device: "auto"
+
+clustering:
+  method: "gmm"
+  level: "treebank"
+  seed: 42
+
+bootstrapping:
+  min_confidence: 0.8
+  max_iterations: 10
+  fail_on_incomplete: false
+  unresolved_handling: "null"
+
+evaluation:
+  enabled: true
+  metadata_validation:
+    method: "kfold"
+    k: 5
+    stratify_by: "genre"
+    group_by: "language"
+
+output:
+  genres_path: "output/ud-v2.17/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.17"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.17"
+  push_to_hub: false
+  hf_token: "${HF_TOKEN}"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

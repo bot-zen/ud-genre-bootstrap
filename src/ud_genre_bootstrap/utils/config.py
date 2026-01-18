@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
@@ -43,7 +43,7 @@ class GenreExtractionConfig:
     """Configuration for genre extraction."""
 
     mapping_path: Optional[str] = None
-    patterns_path: Optional[str] = None
+    patterns_path: Optional[Union[str, List[str]]] = None
 
 
 @dataclass

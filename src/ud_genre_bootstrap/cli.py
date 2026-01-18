@@ -396,7 +396,11 @@ def test_genres(
         if cfg.genre_extraction.mapping_path:
             mapping_path = Path(cfg.genre_extraction.mapping_path)
         if cfg.genre_extraction.patterns_path:
-            patterns_path = Path(cfg.genre_extraction.patterns_path)
+            # Handle both string and list of strings
+            if isinstance(cfg.genre_extraction.patterns_path, list):
+                patterns_path = [Path(p) for p in cfg.genre_extraction.patterns_path]
+            else:
+                patterns_path = Path(cfg.genre_extraction.patterns_path)
 
         genre_mapper = GenreMapper(
             genre_mapping_path=mapping_path,

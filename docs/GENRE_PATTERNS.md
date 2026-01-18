@@ -227,25 +227,58 @@ This extracts the genre directly from comments like:
 
 ### In YAML Config
 
+**Single pattern file:**
 ```yaml
 genre_extraction:
   mapping_path: "configs/genre_mappings.json"
   patterns_path: "configs/metadata_patterns.json"
 ```
 
+**Multiple pattern files (patterns are merged):**
+```yaml
+genre_extraction:
+  mapping_path: "configs/genre_mappings.json"
+  patterns_path:
+    - "configs/metadata_patterns.json"  # Base patterns
+    - "configs/pud-patterns.json"       # PUD-specific patterns
+```
+
+When using multiple files:
+- Patterns are loaded in order and merged
+- For the same treebank code, patterns from all files are combined
+- This allows modular pattern organization (e.g., separate files for PUD, GUM, etc.)
+
 ### In Python Code
 
+**Single pattern file:**
 ```python
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 from pathlib import Path
 
-# Initialize with custom patterns
+# Initialize with single pattern file
 mapper = GenreMapper(
     genre_mapping_path=Path("configs/genre_mappings.json"),
     metadata_patterns_path=Path("configs/metadata_patterns.json")
 )
+```
 
-# Extract genres from sentence
+**Multiple pattern files:**
+```python
+from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+from pathlib import Path
+
+# Initialize with multiple pattern files
+mapper = GenreMapper(
+    genre_mapping_path=Path("configs/genre_mappings.json"),
+    metadata_patterns_path=[
+        Path("configs/metadata_patterns.json"),
+        Path("configs/pud-patterns.json")
+    ]
+)
+```
+
+**Extract genres from sentence:**
+```python
 sentence = {
     'sent_id': 'en_ewt-ud-train#1',
     'comments': [

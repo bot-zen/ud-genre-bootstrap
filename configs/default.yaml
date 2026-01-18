@@ -27,8 +27,13 @@ genre_extraction:
   mapping_path: null  # "configs/genre_mappings.json"
 
   # Optional: Define patterns for extracting genres from sentence metadata
+  # Can be a single file or a list of files (patterns are merged)
   # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
   patterns_path: null  # "configs/metadata_patterns.json"
+  # Or use multiple files:
+  # patterns_path:
+  #   - "configs/metadata_patterns.json"
+  #   - "configs/pud-patterns.json"
 
 evaluation:
   enabled: true
