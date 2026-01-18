@@ -1,0 +1,119 @@
+{
+  "_comment": "Genre extraction patterns for PUD (Parallel Universal Dependencies) treebanks",
+  "_description": "PUD treebanks encode genre in sent_id: 'n' = news, 'w' = wiki",
+
+  "ar_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "cs_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "de_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "en_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "es_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "fi_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "fr_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "hi_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "id_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "it_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "ja_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "ko_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "pl_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "pt_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "ru_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "sv_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "th_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "tr_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ],
+  "zh_pud": [
+    {
+      "pattern": "# sent_id = ([nw])",
+      "genre": "$1"
+    }
+  ]
+}

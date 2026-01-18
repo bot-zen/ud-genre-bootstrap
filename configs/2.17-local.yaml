@@ -21,6 +21,15 @@ bootstrapping:
   fail_on_incomplete: false
   unresolved_handling: "null"  # null, omit, string:UNKNOWN
 
+genre_extraction:
+  # Optional: Map non-standard genre labels to canonical UD genres
+  # See configs/genre_mappings.example.json for format
+  mapping_path: "configs/genre_mappings.json"
+
+  # Optional: Define patterns for extracting genres from sentence metadata
+  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
+  patterns_path: "configs/metadata_patterns.json"
+
 evaluation:
   enabled: true
 

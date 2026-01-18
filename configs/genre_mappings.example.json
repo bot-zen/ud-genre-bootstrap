@@ -41,6 +41,11 @@
   "government-doc": "government",
   "official": "government",
 
+  "_comment_pud": "PUD treebanks use single-letter codes in sent_id",
+  "n": "news",
+  "w": "wiki",
+
+  "_comment_treebank_specific": "Treebank-specific overrides",
   "en_ewt:weblog": "blog",
   "en_ewt:answers": "social",
   "en_gum:interview": "spoken",

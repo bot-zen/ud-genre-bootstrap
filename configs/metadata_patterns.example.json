@@ -31,10 +31,10 @@
     }
   ],
 
-  "de_gsd": [
+  "de_pud": [
     {
       "_description": "German GSD has explicit genre comment",
-      "pattern": "# genre = (.+)",
+      "pattern": "# sent_id = /(n|w)/.+",
       "genre": "$1"
     }
   ],

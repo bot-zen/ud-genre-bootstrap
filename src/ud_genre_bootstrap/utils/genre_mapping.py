@@ -126,9 +126,25 @@ class GenreMapper:
                     for pattern_dict in patterns:
                         if isinstance(pattern_dict, dict):
                             pattern = pattern_dict.get("pattern", "")
-                            genre = pattern_dict.get("genre", "")
-                            if pattern and re.search(pattern, comment):
-                                genres.append(genre)
+                            genre_template = pattern_dict.get("genre", "")
+                            genre_mapping = pattern_dict.get("genre_mapping", None)
+
+                            if pattern:
+                                match = re.search(pattern, comment)
+                                if match:
+                                    if genre_mapping:
+                                        # Use genre_mapping dict to map captured value
+                                        captured = match.group(1) if match.groups() else None
+                                        if captured and captured in genre_mapping:
+                                            genres.append(genre_mapping[captured])
+                                    elif genre_template:
+                                        # Substitute capture groups in genre template
+                                        genre_value = genre_template
+                                        # Replace $1, $2, etc. with captured groups
+                                        for i, group in enumerate(match.groups(), 1):
+                                            if group:
+                                                genre_value = genre_value.replace(f"${i}", group)
+                                        genres.append(genre_value)
                         elif isinstance(pattern_dict, str):
                             # Simple string matching
                             if pattern_dict in comment:

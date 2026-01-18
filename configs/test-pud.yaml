@@ -1,0 +1,49 @@
+# Configuration for testing PUD treebank genre extraction
+# PUD (Parallel Universal Dependencies) treebanks only have test splits
+# Genre is encoded in sent_id: 'n' = news, 'w' = wiki
+
+ud_version: "2.17"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"
+
+genre_extraction:
+  mapping_path: "configs/genre_mappings.example.json"
+  patterns_path: "configs/pud-patterns.json"
+
+embeddings:
+  model: "xlm-roberta-base"
+  pooling: "mean"
+  batch_size: 64
+  layer: -1
+  device: "auto"
+
+clustering:
+  method: "gmm"
+  level: "treebank"
+  seed: 42
+
+bootstrapping:
+  min_confidence: 0.8
+  max_iterations: 10
+  fail_on_incomplete: false
+  unresolved_handling: "null"
+
+evaluation:
+  enabled: true
+  metadata_validation:
+    method: "kfold"
+    k: 5
+    stratify_by: "genre"
+    group_by: "language"
+
+output:
+  genres_path: "output/ud-v2.17/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.17"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.17"
+  push_to_hub: false
+  hf_token: "${HF_TOKEN}"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
