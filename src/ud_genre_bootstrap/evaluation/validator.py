@@ -167,7 +167,7 @@ class CrossValidator:
 
         # Convert to numpy arrays for sklearn
         X = np.arange(len(treebank_ids))  # Dummy features
-        y = np.array([genres])  # Not used for splitting, but needed for API
+        y = np.array(genres)  # Not used for splitting, but needed for API
 
         for fold_idx, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups=groups)):
             logger.info(f"Fold {fold_idx + 1}/{self.n_folds}")
