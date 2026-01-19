@@ -153,8 +153,12 @@ def embed(
         bootstrapper = GenreBootstrapper(cfg)
 
         # Generate embeddings
-        console.print("\n[yellow]Generating embeddings...[/yellow]")
-        embeddings_by_tb = bootstrapper._generate_embeddings()
+        if treebank:
+            console.print(f"\n[yellow]Generating embeddings for {treebank}...[/yellow]")
+        else:
+            console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
+
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank)
 
         console.print(f"\n[bold green]✓ Generated embeddings for {len(embeddings_by_tb)} treebank splits[/bold green]")
 
@@ -199,8 +203,12 @@ def cluster(
         bootstrapper = GenreBootstrapper(cfg)
 
         # Generate embeddings first
-        console.print("\n[yellow]Generating embeddings...[/yellow]")
-        embeddings_by_tb = bootstrapper._generate_embeddings()
+        if treebank:
+            console.print(f"\n[yellow]Generating embeddings for {treebank}...[/yellow]")
+        else:
+            console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
+
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank)
 
         # Cluster treebanks
         console.print("\n[yellow]Clustering treebanks...[/yellow]")
@@ -241,7 +249,7 @@ def label(
         bootstrapper = GenreBootstrapper(cfg)
 
         # Run through clustering
-        console.print("\n[yellow]Generating embeddings...[/yellow]")
+        console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
         embeddings_by_tb = bootstrapper._generate_embeddings()
 
         console.print("\n[yellow]Clustering treebanks...[/yellow]")
