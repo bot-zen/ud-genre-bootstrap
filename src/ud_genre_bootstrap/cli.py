@@ -121,7 +121,7 @@ def embed(
         None,
         "--treebank",
         "-t",
-        help="Specific treebank to embed (e.g., en_ewt). If not specified, embeds all.",
+        help="Specific treebank(s) to embed (e.g., en_ewt or en_ewt,de_gsd). If not specified, embeds all.",
     ),
     model: Optional[str] = typer.Option(
         None,
@@ -152,13 +152,18 @@ def embed(
         # Initialize bootstrapper (which includes embedding generator)
         bootstrapper = GenreBootstrapper(cfg)
 
-        # Generate embeddings
+        # Parse treebank filter (comma-separated)
+        treebank_filter = None
         if treebank:
-            console.print(f"\n[yellow]Generating embeddings for {treebank}...[/yellow]")
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+            if len(treebank_filter) == 1:
+                console.print(f"\n[yellow]Generating embeddings for {treebank_filter[0]}...[/yellow]")
+            else:
+                console.print(f"\n[yellow]Generating embeddings for {len(treebank_filter)} treebanks: {', '.join(treebank_filter)}...[/yellow]")
         else:
             console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
 
-        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank)
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_filter)
 
         console.print(f"\n[bold green]✓ Generated embeddings for {len(embeddings_by_tb)} treebank splits[/bold green]")
 
@@ -187,7 +192,7 @@ def cluster(
         None,
         "--treebank",
         "-t",
-        help="Specific treebank to cluster",
+        help="Specific treebank(s) to cluster (e.g., en_ewt or en_ewt,de_gsd). If not specified, clusters all.",
     ),
 ):
     """Cluster treebank sentences into genre groups.
@@ -202,13 +207,18 @@ def cluster(
 
         bootstrapper = GenreBootstrapper(cfg)
 
-        # Generate embeddings first
+        # Parse treebank filter (comma-separated)
+        treebank_filter = None
         if treebank:
-            console.print(f"\n[yellow]Generating embeddings for {treebank}...[/yellow]")
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+            if len(treebank_filter) == 1:
+                console.print(f"\n[yellow]Generating embeddings for {treebank_filter[0]}...[/yellow]")
+            else:
+                console.print(f"\n[yellow]Generating embeddings for {len(treebank_filter)} treebanks: {', '.join(treebank_filter)}...[/yellow]")
         else:
             console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
 
-        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank)
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_filter)
 
         # Cluster treebanks
         console.print("\n[yellow]Clustering treebanks...[/yellow]")

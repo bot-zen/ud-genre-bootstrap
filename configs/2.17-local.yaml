@@ -11,6 +11,7 @@ embeddings:
   batch_size: 64
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/embeddings"
 
 clustering:
   method: "gmm"  # gmm, kmeans
