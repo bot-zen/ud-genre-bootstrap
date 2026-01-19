@@ -1,0 +1,30 @@
+# Test configuration for embedding caching
+
+ud_version: "2.17"
+ud_source: "hf://commul/universal_dependencies"
+
+embeddings:
+  model: "xlm-roberta-base"
+  pooling: "mean"
+  batch_size: 64
+  layer: -1
+  device: "auto"
+  cache_dir: "test_cache/embeddings"
+
+clustering:
+  method: "gmm"
+  level: "treebank"
+  seed: 42
+
+bootstrapping:
+  min_confidence: 0.8
+  max_iterations: 10
+  fail_on_incomplete: false
+
+genre_extraction:
+  mapping_path: null
+  patterns_path: null
+
+output:
+  genres_path: "test_output/genres/"
+  push_to_hub: false

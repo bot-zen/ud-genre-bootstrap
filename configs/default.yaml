@@ -9,6 +9,7 @@ embeddings:
   batch_size: 64
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
+  cache_dir: null  # Optional: directory to cache embeddings (e.g., "cache/embeddings")
 
 clustering:
   method: "gmm"  # gmm, kmeans

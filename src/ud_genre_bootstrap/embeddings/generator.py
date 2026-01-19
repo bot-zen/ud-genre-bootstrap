@@ -196,3 +196,35 @@ class EmbeddingGenerator:
             Embedding dimension
         """
         return self.model.config.hidden_size
+
+    @staticmethod
+    def load_embeddings(
+        treebank_code: str, split: str, cache_dir: Path
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Load cached embeddings from disk if they exist.
+
+        Args:
+            treebank_code: Treebank code (e.g., 'en_ewt')
+            split: Split name ('train', 'dev', 'test')
+            cache_dir: Directory containing cached embeddings
+
+        Returns:
+            Dictionary with embeddings or None if not found
+        """
+        cache_dir = Path(cache_dir)
+        embedding_path = cache_dir / f"{treebank_code}-{split}.npy"
+        ids_path = cache_dir / f"{treebank_code}-{split}_ids.txt"
+
+        if not embedding_path.exists() or not ids_path.exists():
+            return None
+
+        try:
+            embeddings = np.load(embedding_path)
+            with open(ids_path, "r") as f:
+                sent_ids = [line.strip() for line in f.readlines()]
+
+            logger.info(f"Loaded cached embeddings from {embedding_path}")
+            return {"sent_id": sent_ids, "embedding": embeddings}
+        except Exception as e:
+            logger.warning(f"Failed to load cached embeddings: {e}")
+            return None

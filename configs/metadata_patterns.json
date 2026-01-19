@@ -27,13 +27,98 @@
   "cs_cac": [
     {
       "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
-      "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'news'",
+      "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'academic/written'",
       "pattern": "# sent_id = ([a-z])\\d+([a-z])-.*",
       "genre": "$1$2",
       "genre_mapping": {
-          "aw": "legal",
+          "aw": "government",
           "nw": "news",
-          "sw": "nonfiction"
+          "sw": "academic"
+      }
+    }
+  ],
+
+  "cs_cltt": [
+    {
+      "_description": "CLTT consists of two legal documents",
+      "genre": "legal"
+    }
+  ],
+
+  "cs_fictree": [
+    {
+      "_description": "The eight texts in the treebank include six fiction titles, a children’s fiction book, and a book of memoirs",
+      "genre": "fiction"
+    }
+  ],
+
+  "cs_pdtc": [
+    {
+      "_description": "Czech-PDTC: based on the PDT – Consolidated",
+      "_link": "https://github.com/UniversalDependencies/UD_Czech-PDTC/blob/master/README.md",
+      "pattern": "# sent_id = ([a-z]+)[_0-9]",
+      "genre": "$1",
+      "genre_mapping": {
+        "cmpr": "news",
+        "wsj": "news", 
+        "faust": "learner-essays",
+        "pdtsc": "spoken",
+        "ln": "news",
+        "mf": "news",
+        "vesm": "academic",
+        "lnd": "news",
+        "magazine": "news",
+        "business": "news",
+        "culture": "news",
+        "sport": "news",
+        "blog": "blog",
+        "forum": "social"
+      }
+    }
+  ],
+
+  "de_gsd": [
+    {
+      "pattern": "# sent_id = train-(s[1-9]|s[1-9][0-9]|s[1-9][0-9][0-9]|s1[0-4][0-9][0-9])$",
+      "genre": "reviews"
+    },
+    {
+      "pattern": "# sent_id = train-(s1[5-9][0-9][0-9]|s2[0-1][0-9][0-9])$",
+      "genre": "news"
+    },
+    {
+      "pattern": "# sent_id = train-(s2[2-9][0-9][0-9]|s[3-9][0-9][0-9][0-9]|s1[0-4][0-9][0-9][0-9])$",
+      "genre": "web"
+    },
+    {
+      "pattern": "# sent_id = dev-(s[1-9]|s[1-9][0-9]|s[1-4][0-9][0-9])$",
+      "genre": "reviews"
+    },
+    {
+      "pattern": "# sent_id = dev-(s[5-7][0-9][0-9])$",
+      "genre": "news"
+    },
+    {
+      "pattern": "# sent_id = test-(s[1-9]|s[1-9][0-9]|s[1-2][0-9][0-9])$",
+      "genre": "reviews"
+    },
+    {
+      "pattern": "# sent_id = test-(s[3-9][0-9][0-9])$",
+      "genre": "news"
+    }
+  ],
+
+  "de_hdt": [
+    {
+      "_description": "The sentences were all sourced from the German news site heise.de",
+      "genre": "news"
+    }
+  ],
+
+  "de_lit": [
+    {
+      "genre_mapping": {
+        "fragments": "nonfiction"
       }
     }
   ],
@@ -91,6 +176,13 @@
     }
   ],
 
+  "pt_petrogold": [
+    {
+      "_description": "...which consists of academic texts from the oil & gas domain in Brazilian Portugues",
+      "genre": "academic"
+    }
+  ],
+
   "ru_taiga": [
     {
       "genre_mapping": {
@@ -118,51 +210,6 @@
         "QA-society-question": "social",
         "nonfiction-academic-encycl": "academic",
         "fiction-kids": "fiction"
-      }
-    }
-  ],
-
-  "cs_pdtc": [
-    {
-      "_description": "Czech-PDTC: based on the PDT – Consolidated",
-      "_link": "https://github.com/UniversalDependencies/UD_Czech-PDTC/blob/master/README.md",
-      "pattern": "# sent_id = ([a-z]+)[_0-9]",
-      "genre": "$1",
-      "genre_mapping": {
-        "cmpr": "news",
-        "wsj": "news", 
-        "faust": "learner-essays",
-        "pdtsc": "spoken",
-        "ln": "news",
-        "mf": "news",
-        "vesm": "academic",
-        "lnd": "news",
-        "magazine": "news",
-        "business": "news",
-        "culture": "news",
-        "sport": "news",
-        "blog": "blog",
-        "forum": "social"
-      }
-    }
-  ],
-
-  "cs_cac": [
-    {
-      "pattern": "# sent_id = ([a-z])[0-9]+w-.+",
-      "genre": "$1",
-      "genre_mapping": {
-        "a": "government",
-        "s": "academic",
-        "n": "news"
-      }
-    }
-  ],
-
-  "de_lit": [
-    {
-      "genre_mapping": {
-        "fragments": "nonfiction"
       }
     }
   ],

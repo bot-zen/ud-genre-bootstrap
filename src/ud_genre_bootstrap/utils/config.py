@@ -17,6 +17,7 @@ class EmbeddingsConfig:
     batch_size: int = 64
     layer: int = -1
     device: str = "auto"
+    cache_dir: Optional[str] = None  # Directory to cache embeddings
 
 
 @dataclass

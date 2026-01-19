@@ -96,16 +96,33 @@ class GenreBootstrapper:
     def _generate_embeddings(self) -> Dict:
         """Generate embeddings for all treebanks.
 
+        Checks cache first if configured, generates and caches otherwise.
+
         Returns:
             Dictionary: {(treebank_code, split): {'sent_ids': [...], 'embeddings': array}}
         """
         embeddings_by_tb = {}
+        cache_dir = self.config.embeddings.cache_dir
 
         # Iterate over all treebanks and splits
         for tb_code, split, dataset in self.data_loader.iter_all_treebanks():
-            logger.info(f"Embedding {tb_code} {split}: {len(dataset)} sentences")
+            # Try loading from cache first
+            if cache_dir:
+                cached = self.embedding_generator.load_embeddings(
+                    tb_code, split, Path(cache_dir)
+                )
+                if cached is not None:
+                    embeddings_by_tb[(tb_code, split)] = cached
+                    continue
 
-            result = self.embedding_generator.embed_dataset(dataset)
+            # Generate embeddings
+            logger.info(f"Embedding {tb_code} {split}: {len(dataset)} sentences")
+            result = self.embedding_generator.embed_treebank(
+                treebank_code=tb_code,
+                split=split,
+                dataset=dataset,
+                output_path=Path(cache_dir) if cache_dir else None,
+            )
             embeddings_by_tb[(tb_code, split)] = result
 
         return embeddings_by_tb
