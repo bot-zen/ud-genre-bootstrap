@@ -236,5 +236,14 @@
       "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
+  ],
+
+  "pl_pud": [
+    {
+      "_description": "Polish-PUD",
+      "genre_mapping": {
+         "nonfiction": "news"
+      }
+    }
   ]
 }

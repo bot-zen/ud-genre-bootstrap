@@ -35,7 +35,22 @@ class GenreBootstrapper:
             ud_version=config.ud_version,
         )
 
-        self.genre_mapper = GenreMapper()
+        # Initialize genre mapper with configuration
+        from pathlib import Path as PathLib
+        mapping_path = None
+        patterns_path = None
+        if config.genre_extraction.mapping_path:
+            mapping_path = PathLib(config.genre_extraction.mapping_path)
+        if config.genre_extraction.patterns_path:
+            if isinstance(config.genre_extraction.patterns_path, list):
+                patterns_path = [PathLib(p) for p in config.genre_extraction.patterns_path]
+            else:
+                patterns_path = PathLib(config.genre_extraction.patterns_path)
+
+        self.genre_mapper = GenreMapper(
+            genre_mapping_path=mapping_path,
+            metadata_patterns_path=patterns_path,
+        )
 
         self.embedding_generator = EmbeddingGenerator(
             model_name=config.embeddings.model,
@@ -140,7 +155,13 @@ class GenreBootstrapper:
         if self.config.clustering.level == "treebank":
             # Cluster each treebank independently
             for (tb_code, split), emb_data in embeddings_by_tb.items():
-                genres = self.data_loader.get_treebank_genres(tb_code)
+                # Get genres and normalize them using genre mapper
+                raw_genres = self.data_loader.get_treebank_genres(tb_code)
+                genres = [
+                    self.genre_mapper.normalize_genre(g, tb_code) for g in raw_genres
+                ]
+                # Remove duplicates after normalization
+                genres = list(set(genres))
                 n_genres = len(genres)
 
                 if n_genres == 0:
