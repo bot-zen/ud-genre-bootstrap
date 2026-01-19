@@ -295,6 +295,12 @@ def evaluate(
         exists=True,
         dir_okay=False,
     ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Specific treebank(s) to evaluate (e.g., en_ewt or en_ewt,de_gsd). If not specified, evaluates all.",
+    ),
     n_folds: int = typer.Option(
         5,
         "--n-folds",
@@ -322,6 +328,17 @@ def evaluate(
     try:
         cfg = load_config_from_path(config)
 
+        # Parse treebank filter (comma-separated)
+        treebank_filter = None
+        if treebank:
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+            if len(treebank_filter) == 1:
+                console.print(f"[blue]Evaluating:[/blue] {treebank_filter[0]}")
+            else:
+                console.print(f"[blue]Evaluating {len(treebank_filter)} treebanks:[/blue] {', '.join(treebank_filter)}")
+        else:
+            console.print("[blue]Evaluating all treebanks[/blue]")
+
         # Initialize validator
         validator = CrossValidator(
             n_folds=n_folds,
@@ -333,6 +350,7 @@ def evaluate(
         bootstrapper = GenreBootstrapper(cfg)
 
         # TODO: Need to extract treebank metadata with genres
+        # TODO: Use treebank_filter to limit evaluation to specific treebanks
         console.print("\n[yellow]Loading treebank metadata...[/yellow]")
         console.print("[red]Evaluation not yet fully implemented[/red]")
 
