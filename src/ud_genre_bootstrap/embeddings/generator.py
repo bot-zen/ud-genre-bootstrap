@@ -38,16 +38,13 @@ class EmbeddingGenerator:
         self.pooling = pooling
         self.layer = layer
         self.batch_size = batch_size
+        self._device_str = device
         self.device = self._get_device(device)
 
-        # Load model and tokenizer
-        logger.info(f"Loading model: {model_name}")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
-        self.model.to(self.device)
-        self.model.eval()
-
-        logger.info(f"Model loaded on device: {self.device}")
+        # Lazy-load model and tokenizer on first use
+        self.tokenizer = None
+        self.model = None
+        self._model_loaded = False
 
     def _get_device(self, device: Optional[str]) -> torch.device:
         """Determine which device to use.
@@ -61,6 +58,23 @@ class EmbeddingGenerator:
         if device == "auto" or device is None:
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return torch.device(device)
+
+    def _load_model(self):
+        """Load model and tokenizer (lazy loading).
+
+        Called automatically before first use to avoid loading when not needed.
+        """
+        if self._model_loaded:
+            return
+
+        logger.info(f"Loading model: {self.model_name}")
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModel.from_pretrained(self.model_name)
+        self.model.to(self.device)
+        self.model.eval()
+        self._model_loaded = True
+
+        logger.info(f"Model loaded on device: {self.device}")
 
     def _pool_embeddings(
         self, token_embeddings: torch.Tensor, attention_mask: torch.Tensor
@@ -98,6 +112,9 @@ class EmbeddingGenerator:
         Returns:
             Numpy array of embeddings [num_sentences, hidden_dim]
         """
+        # Lazy-load model on first use
+        self._load_model()
+
         all_embeddings = []
 
         # Process in batches
@@ -195,6 +212,8 @@ class EmbeddingGenerator:
         Returns:
             Embedding dimension
         """
+        # Lazy-load model if needed
+        self._load_model()
         return self.model.config.hidden_size
 
     @staticmethod

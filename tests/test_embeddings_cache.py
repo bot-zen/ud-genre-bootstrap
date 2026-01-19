@@ -109,6 +109,30 @@ class TestEmbeddingCache:
             assert cache_dir.exists(), "Cache directory should be created"
             assert (cache_dir / "test_tb-train.npy").exists()
 
+    def test_lazy_loading(self):
+        """Test that model is not loaded until actually needed."""
+        # Create generator - model should not be loaded yet
+        generator = EmbeddingGenerator(
+            model_name="prajjwal1/bert-tiny",
+            pooling="mean",
+            batch_size=2,
+            device="cpu"
+        )
+
+        # Model should not be loaded yet
+        assert not generator._model_loaded, "Model should not be loaded on init"
+        assert generator.model is None, "Model should be None until loaded"
+        assert generator.tokenizer is None, "Tokenizer should be None until loaded"
+
+        # Now use the model - should trigger lazy loading
+        embeddings = generator.embed_sentences(["Test sentence"])
+
+        # Model should now be loaded
+        assert generator._model_loaded, "Model should be loaded after use"
+        assert generator.model is not None, "Model should exist after use"
+        assert generator.tokenizer is not None, "Tokenizer should exist after use"
+        assert embeddings.shape[0] == 1, "Should have embeddings for 1 sentence"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
