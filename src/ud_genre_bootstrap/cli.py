@@ -467,6 +467,9 @@ def evaluate(
         console.print()
         console.print(tb_table)
 
+        # Create list of all treebank IDs being evaluated
+        evaluated_treebank_ids = [tb['id'] for tb in treebank_data]
+
         # Create bootstrapper function for cross-validation
         def run_bootstrap(visible_treebanks: List[str]) -> Dict[str, str]:
             """Run bootstrap with only visible treebanks and predict hidden ones.
@@ -477,12 +480,9 @@ def evaluate(
             Returns:
                 Dict mapping treebank_id to predicted genre
             """
-            # Create a modified config with only visible treebanks
-            # For now, we'll create a simple implementation that uses
-            # the treebank-level metadata available
-
-            # Get embeddings for all treebanks (we need them for clustering)
-            embeddings_by_tb = bootstrapper._generate_embeddings()
+            # Get embeddings for all treebanks being evaluated (not all treebanks in dataset)
+            # We need embeddings for all evaluated treebanks for clustering, not just visible ones
+            embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=evaluated_treebank_ids)
 
             # Cluster all treebanks
             bootstrapper._cluster_treebanks(embeddings_by_tb)
