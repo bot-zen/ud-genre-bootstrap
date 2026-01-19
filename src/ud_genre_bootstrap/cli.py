@@ -229,6 +229,71 @@ def cluster(
         # Display cluster statistics
         _display_cluster_stats(bootstrapper.treebank_clusters)
 
+        # Save cluster results
+        from pathlib import Path as PathLib
+        import json
+        import pandas as pd
+
+        output_dir = PathLib(cfg.output.genres_path) / "clusters"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        console.print(f"\n[yellow]Saving cluster results to {output_dir}...[/yellow]")
+
+        # Save cluster assignments as parquet
+        cluster_assignments = []
+        for (tb_code, split), info in bootstrapper.treebank_clusters.items():
+            cluster_result = info['cluster_result']
+            emb_data = embeddings_by_tb[(tb_code, split)]
+
+            for cluster_id, cluster_info in cluster_result['clusters'].items():
+                for sent_id in cluster_info['sent_ids']:
+                    cluster_assignments.append({
+                        'treebank': tb_code,
+                        'split': split,
+                        'sent_id': sent_id,
+                        'cluster_id': cluster_id,
+                        'confidence': cluster_info.get('confidence', None),
+                    })
+
+        if cluster_assignments:
+            df_assignments = pd.DataFrame(cluster_assignments)
+            assignments_file = output_dir / "cluster_assignments.parquet"
+            df_assignments.to_parquet(assignments_file, index=False)
+            console.print(f"[green]✓ Saved cluster assignments:[/green] {assignments_file}")
+
+        # Save cluster statistics as JSON
+        cluster_stats = {}
+        for (tb_code, split), info in bootstrapper.treebank_clusters.items():
+            key = f"{tb_code}_{split}"
+            cluster_result = info['cluster_result']
+
+            cluster_stats[key] = {
+                'treebank': tb_code,
+                'split': split,
+                'genres': list(info['genres']),
+                'n_clusters': len(cluster_result['clusters']),
+                'n_sentences': sum(len(c['sent_ids']) for c in cluster_result['clusters'].values()),
+                'clusters': {
+                    str(cid): {
+                        'size': len(cinfo['sent_ids']),
+                        'confidence': float(cinfo.get('confidence', 0.0)),
+                    }
+                    for cid, cinfo in cluster_result['clusters'].items()
+                },
+                'metrics': cluster_result.get('metrics', {}),
+            }
+
+        stats_file = output_dir / "cluster_statistics.json"
+        with open(stats_file, 'w') as f:
+            json.dump(cluster_stats, f, indent=2)
+        console.print(f"[green]✓ Saved cluster statistics:[/green] {stats_file}")
+
+        # Save embeddings for visualization (optional, can be large)
+        console.print(f"[blue]Embeddings already cached at:[/blue] {cfg.embeddings.cache_dir if cfg.embeddings.cache_dir else 'not configured'}")
+
+        console.print(f"\n[bold green]✓ Cluster results saved to {output_dir}[/bold green]")
+        console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --clusters {output_dir}")
+
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
         logger.exception("Clustering failed")
@@ -738,6 +803,239 @@ def info(
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def visualize_clusters(
+    clusters: Path = typer.Option(
+        ...,
+        "--clusters",
+        "-c",
+        help="Path to cluster output directory (contains cluster_assignments.parquet)",
+        exists=True,
+        dir_okay=True,
+    ),
+    embeddings: Optional[Path] = typer.Option(
+        None,
+        "--embeddings",
+        "-e",
+        help="Path to embeddings cache directory. If not specified, uses config.",
+    ),
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file for visualization (PNG/HTML). Default: clusters/visualization.html",
+    ),
+    method: str = typer.Option(
+        "umap",
+        "--method",
+        help="Dimensionality reduction method: 'umap' or 'tsne'",
+    ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Specific treebank to visualize (e.g., en_ewt). If not specified, visualizes all.",
+    ),
+):
+    """Visualize cluster assignments using dimensionality reduction.
+
+    Creates interactive plots showing how sentences cluster together.
+    """
+    console.print("\n[bold cyan]Cluster Visualization[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        import pandas as pd
+        import numpy as np
+        from pathlib import Path as PathLib
+
+        # Load cluster assignments
+        assignments_file = PathLib(clusters) / "cluster_assignments.parquet"
+        if not assignments_file.exists():
+            console.print(f"[bold red]✗ Error:[/bold red] Cluster assignments not found at {assignments_file}")
+            raise typer.Exit(1)
+
+        console.print(f"[blue]Loading cluster assignments from:[/blue] {assignments_file}")
+        df_clusters = pd.read_parquet(assignments_file)
+
+        # Filter by treebank if specified
+        if treebank:
+            df_clusters = df_clusters[df_clusters['treebank'] == treebank]
+            if len(df_clusters) == 0:
+                console.print(f"[bold red]✗ Error:[/bold red] No clusters found for treebank '{treebank}'")
+                raise typer.Exit(1)
+            console.print(f"[blue]Filtered to treebank:[/blue] {treebank}")
+
+        # Determine embeddings directory
+        if embeddings:
+            emb_dir = PathLib(embeddings)
+        elif config:
+            cfg = load_config_from_path(config)
+            if cfg.embeddings.cache_dir:
+                emb_dir = PathLib(cfg.embeddings.cache_dir)
+            else:
+                console.print("[bold red]✗ Error:[/bold red] No embeddings cache directory configured")
+                raise typer.Exit(1)
+        else:
+            console.print("[bold red]✗ Error:[/bold red] Must specify --embeddings or --config")
+            raise typer.Exit(1)
+
+        console.print(f"[blue]Loading embeddings from:[/blue] {emb_dir}")
+
+        # Load embeddings for each treebank/split
+        embeddings_list = []
+        labels_list = []
+        treebank_list = []
+        sent_ids_list = []
+
+        for (tb, split), group in df_clusters.groupby(['treebank', 'split']):
+            emb_file = emb_dir / f"{tb}-{split}.npy"
+            ids_file = emb_dir / f"{tb}-{split}_ids.txt"
+
+            if not emb_file.exists() or not ids_file.exists():
+                console.print(f"[yellow]⚠ Skipping {tb} {split}: embeddings not found[/yellow]")
+                continue
+
+            # Load embeddings and IDs
+            embeddings = np.load(emb_file)
+            with open(ids_file, 'r') as f:
+                sent_ids = [line.strip() for line in f.readlines()]
+
+            # Create mapping from sent_id to embedding index
+            sent_id_to_idx = {sid: i for i, sid in enumerate(sent_ids)}
+
+            # Get embeddings for sentences in this cluster group
+            for _, row in group.iterrows():
+                if row['sent_id'] in sent_id_to_idx:
+                    idx = sent_id_to_idx[row['sent_id']]
+                    embeddings_list.append(embeddings[idx])
+                    labels_list.append(f"{tb}:{split}:c{row['cluster_id']}")
+                    treebank_list.append(f"{tb}_{split}")
+                    sent_ids_list.append(row['sent_id'])
+
+        if len(embeddings_list) == 0:
+            console.print("[bold red]✗ Error:[/bold red] No embeddings found for clustered sentences")
+            raise typer.Exit(1)
+
+        embeddings_array = np.array(embeddings_list)
+        console.print(f"[blue]Loaded {len(embeddings_array)} embeddings[/blue]")
+
+        # Perform dimensionality reduction
+        console.print(f"\n[yellow]Performing {method.upper()} dimensionality reduction...[/yellow]")
+
+        if method == "umap":
+            try:
+                from umap import UMAP
+                reducer = UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+                embeddings_2d = reducer.fit_transform(embeddings_array)
+            except ImportError:
+                console.print("[bold red]✗ Error:[/bold red] UMAP not installed. Install with: uv pip install umap-learn")
+                raise typer.Exit(1)
+        elif method == "tsne":
+            from sklearn.manifold import TSNE
+            reducer = TSNE(n_components=2, metric='cosine', random_state=42)
+            embeddings_2d = reducer.fit_transform(embeddings_array)
+        else:
+            console.print(f"[bold red]✗ Error:[/bold red] Unknown method '{method}'. Use 'umap' or 'tsne'")
+            raise typer.Exit(1)
+
+        console.print("[green]✓ Dimensionality reduction complete[/green]")
+
+        # Create visualization
+        console.print("\n[yellow]Creating visualization...[/yellow]")
+
+        try:
+            import plotly.express as px
+
+            # Create DataFrame for plotting
+            plot_df = pd.DataFrame({
+                'x': embeddings_2d[:, 0],
+                'y': embeddings_2d[:, 1],
+                'cluster': labels_list,
+                'treebank_split': treebank_list,
+                'sent_id': sent_ids_list,
+            })
+
+            # Create interactive plot
+            fig = px.scatter(
+                plot_df,
+                x='x',
+                y='y',
+                color='cluster',
+                hover_data=['treebank_split', 'sent_id'],
+                title=f'Cluster Visualization ({method.upper()})',
+                labels={'x': f'{method.upper()} 1', 'y': f'{method.upper()} 2'},
+            )
+
+            fig.update_traces(marker=dict(size=5, opacity=0.7))
+            fig.update_layout(
+                width=1200,
+                height=800,
+                showlegend=True,
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            )
+
+            # Save plot
+            if output:
+                output_file = PathLib(output)
+            else:
+                output_file = PathLib(clusters) / "visualization.html"
+
+            fig.write_html(str(output_file))
+            console.print(f"[bold green]✓ Visualization saved to:[/bold green] {output_file}")
+            console.print(f"[blue]Open in browser to view interactive plot[/blue]")
+
+        except ImportError:
+            console.print("[yellow]⚠ Plotly not installed, falling back to matplotlib[/yellow]")
+
+            import matplotlib.pyplot as plt
+            import matplotlib.cm as cm
+
+            # Create static plot with matplotlib
+            unique_labels = list(set(labels_list))
+            colors = cm.rainbow(np.linspace(0, 1, len(unique_labels)))
+            label_to_color = {label: colors[i] for i, label in enumerate(unique_labels)}
+
+            plt.figure(figsize=(12, 8))
+            for label in unique_labels:
+                mask = [l == label for l in labels_list]
+                plt.scatter(
+                    embeddings_2d[mask, 0],
+                    embeddings_2d[mask, 1],
+                    c=[label_to_color[label]],
+                    label=label,
+                    alpha=0.6,
+                    s=20
+                )
+
+            plt.xlabel(f'{method.upper()} 1')
+            plt.ylabel(f'{method.upper()} 2')
+            plt.title(f'Cluster Visualization ({method.upper()})')
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.tight_layout()
+
+            # Save plot
+            if output:
+                output_file = PathLib(output)
+            else:
+                output_file = PathLib(clusters) / "visualization.png"
+
+            plt.savefig(str(output_file), dpi=300, bbox_inches='tight')
+            console.print(f"[bold green]✓ Visualization saved to:[/bold green] {output_file}")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Visualization failed")
         raise typer.Exit(1)
 
 
