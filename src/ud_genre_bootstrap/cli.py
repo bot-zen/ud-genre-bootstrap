@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -301,21 +301,26 @@ def evaluate(
         "-t",
         help="Specific treebank(s) to evaluate (e.g., en_ewt or en_ewt,de_gsd). If not specified, evaluates all.",
     ),
-    n_folds: int = typer.Option(
-        5,
+    n_folds: Optional[int] = typer.Option(
+        None,
         "--n-folds",
         "-k",
-        help="Number of folds for cross-validation",
+        help="Number of folds for cross-validation (overrides config)",
     ),
-    stratify: str = typer.Option(
-        "genre",
+    coverage_threshold: Optional[float] = typer.Option(
+        None,
+        "--coverage-threshold",
+        help="Minimum sentence-level metadata coverage to include treebank (overrides config)",
+    ),
+    stratify: Optional[str] = typer.Option(
+        None,
         "--stratify",
-        help="Variable to stratify on",
+        help="Variable to stratify on (overrides config)",
     ),
     group_by: Optional[str] = typer.Option(
-        "language",
+        None,
         "--group-by",
-        help="Variable to group by (e.g., language)",
+        help="Variable to group by: 'treebank', 'language', or None (overrides config)",
     ),
 ):
     """Evaluate bootstrap quality using cross-validation.
@@ -328,6 +333,13 @@ def evaluate(
     try:
         cfg = load_config_from_path(config)
 
+        # Get evaluation config values (CLI overrides config)
+        eval_cfg = cfg.evaluation.metadata_validation
+        n_folds_val = n_folds if n_folds is not None else eval_cfg.k
+        coverage_threshold_val = coverage_threshold if coverage_threshold is not None else eval_cfg.coverage_threshold
+        stratify_val = stratify if stratify is not None else eval_cfg.stratify_by
+        group_by_val = group_by if group_by is not None else eval_cfg.group_by
+
         # Parse treebank filter (comma-separated)
         treebank_filter = None
         if treebank:
@@ -339,31 +351,198 @@ def evaluate(
         else:
             console.print("[blue]Evaluating all treebanks[/blue]")
 
+        console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}, coverage>={coverage_threshold_val:.0%}")
+
         # Initialize validator
         validator = CrossValidator(
-            n_folds=n_folds,
-            stratify_by=stratify,
-            group_by=group_by,
+            n_folds=n_folds_val,
+            stratify_by=stratify_val,
+            group_by=group_by_val,
         )
 
-        # Load treebank metadata
+        # Load treebank metadata and genre mapper
+        console.print("\n[yellow]Loading treebank metadata and checking coverage...[/yellow]")
         bootstrapper = GenreBootstrapper(cfg)
 
-        # TODO: Need to extract treebank metadata with genres
-        # TODO: Use treebank_filter to limit evaluation to specific treebanks
-        console.print("\n[yellow]Loading treebank metadata...[/yellow]")
-        console.print("[red]Evaluation not yet fully implemented[/red]")
+        # Initialize genre mapper for coverage checking
+        from pathlib import Path as PathLib
+        from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 
-        # This would look like:
-        # treebank_data = bootstrapper.data_loader.get_all_treebank_metadata()
-        #
-        # def run_bootstrap(visible_treebanks):
-        #     # Run bootstrap with only visible treebanks
-        #     # Return predictions for hidden treebanks
-        #     pass
-        #
-        # results = validator.k_fold_validate(treebank_data, run_bootstrap)
-        # _display_evaluation_results(results)
+        mapping_path = None
+        patterns_path = None
+        if cfg.genre_extraction.mapping_path:
+            mapping_path = PathLib(cfg.genre_extraction.mapping_path)
+        if cfg.genre_extraction.patterns_path:
+            if isinstance(cfg.genre_extraction.patterns_path, list):
+                patterns_path = [PathLib(p) for p in cfg.genre_extraction.patterns_path]
+            else:
+                patterns_path = PathLib(cfg.genre_extraction.patterns_path)
+
+        genre_mapper = GenreMapper(
+            genre_mapping_path=mapping_path,
+            metadata_patterns_path=patterns_path,
+        )
+
+        # Get all treebank metadata
+        all_treebank_data = bootstrapper.data_loader.get_all_treebank_metadata()
+
+        # Filter by treebank if specified
+        if treebank_filter:
+            all_treebank_data = [
+                tb for tb in all_treebank_data if tb['id'] in treebank_filter
+            ]
+
+        console.print(f"[blue]Checking {len(all_treebank_data)} treebanks...[/blue]")
+
+        # Check sentence-level coverage for each treebank
+        treebank_data = []
+        for tb in all_treebank_data:
+            tb_code = tb['id']
+
+            # Load train split for coverage check (most representative)
+            try:
+                dataset = bootstrapper.data_loader.load_treebank(tb_code, 'train')
+            except Exception:
+                # Try dev or test if train doesn't exist
+                try:
+                    dataset = bootstrapper.data_loader.load_treebank(tb_code, 'dev')
+                except Exception:
+                    try:
+                        dataset = bootstrapper.data_loader.load_treebank(tb_code, 'test')
+                    except Exception:
+                        logger.warning(f"Could not load any split for {tb_code}, skipping")
+                        continue
+
+            # Extract genres for all sentences
+            total_sentences = len(dataset)
+            sentences_with_genre = 0
+            genre_counts = {}
+
+            for sentence in dataset:
+                genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+                if genres:
+                    sentences_with_genre += 1
+                    for genre in genres:
+                        genre_counts[genre] = genre_counts.get(genre, 0) + 1
+
+            coverage = sentences_with_genre / total_sentences if total_sentences > 0 else 0.0
+
+            # Include if coverage meets threshold
+            if coverage >= coverage_threshold_val:
+                # Determine the dominant genre (for stratification)
+                if genre_counts:
+                    dominant_genre = max(genre_counts, key=genre_counts.get)
+                    treebank_data.append({
+                        'id': tb_code,
+                        'genres': [dominant_genre],  # Use dominant genre for stratification
+                        'language': tb['language'],
+                        'coverage': coverage,
+                        'sentence_count': total_sentences,
+                    })
+
+        console.print(f"[blue]Treebanks with >= {coverage_threshold_val:.0%} coverage: {len(treebank_data)}/{len(all_treebank_data)}[/blue]")
+
+        if len(treebank_data) < n_folds_val:
+            console.print(
+                f"\n[bold red]✗ Error:[/bold red] Not enough treebanks with sufficient coverage "
+                f"({len(treebank_data)}) for {n_folds_val}-fold cross-validation"
+            )
+            raise typer.Exit(1)
+
+        # Display treebank summary
+        tb_table = Table(title="Treebanks for Evaluation", show_header=True, header_style="bold magenta")
+        tb_table.add_column("Treebank", style="cyan")
+        tb_table.add_column("Dominant Genre", style="green")
+        tb_table.add_column("Coverage", style="yellow", justify="right")
+        tb_table.add_column("Sentences", style="blue", justify="right")
+
+        for tb in sorted(treebank_data, key=lambda x: x['id']):
+            tb_table.add_row(
+                tb['id'],
+                tb['genres'][0],
+                f"{tb['coverage']:.1%}",
+                str(tb['sentence_count'])
+            )
+
+        console.print()
+        console.print(tb_table)
+
+        # Create bootstrapper function for cross-validation
+        def run_bootstrap(visible_treebanks: List[str]) -> Dict[str, str]:
+            """Run bootstrap with only visible treebanks and predict hidden ones.
+
+            Args:
+                visible_treebanks: List of treebank IDs to use for training
+
+            Returns:
+                Dict mapping treebank_id to predicted genre
+            """
+            # Create a modified config with only visible treebanks
+            # For now, we'll create a simple implementation that uses
+            # the treebank-level metadata available
+
+            # Get embeddings for all treebanks (we need them for clustering)
+            embeddings_by_tb = bootstrapper._generate_embeddings()
+
+            # Cluster all treebanks
+            bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+            # Compute cluster embeddings
+            bootstrapper._compute_cluster_embeddings(embeddings_by_tb)
+
+            # Create schedule using only visible treebanks
+            # Filter genre_combination_clusters to only include visible treebanks
+            visible_clusters = {}
+            for genre_comb, treebanks_dict in bootstrapper.genre_combination_clusters.items():
+                visible_tbs = {
+                    k: v for k, v in treebanks_dict.items()
+                    if k[0] in visible_treebanks
+                }
+                if visible_tbs:
+                    visible_clusters[genre_comb] = visible_tbs
+
+            # Temporarily replace clusters
+            original_clusters = bootstrapper.genre_combination_clusters
+            bootstrapper.genre_combination_clusters = visible_clusters
+
+            try:
+                # Create schedule with visible treebanks only
+                schedule = bootstrapper._create_schedule()
+
+                # Label clusters
+                bootstrapper._label_clusters(schedule)
+
+                # Predict genres for all treebanks based on their sentences
+                predictions = {}
+                for (tb_code, split), info in bootstrapper.treebank_clusters.items():
+                    # Get sentence predictions for this treebank
+                    cluster_result = info['cluster_result']
+                    genre_counts = {}
+
+                    for cluster_id, cluster_info in cluster_result['clusters'].items():
+                        # Get predicted genres for sentences in this cluster
+                        for sent_id in cluster_info['sent_ids']:
+                            if sent_id in bootstrapper.final_labels:
+                                predicted_genre, _, _ = bootstrapper.final_labels[sent_id]
+                                genre_counts[predicted_genre] = genre_counts.get(predicted_genre, 0) + 1
+
+                    # Majority vote for treebank-level prediction
+                    if genre_counts:
+                        predicted_genre = max(genre_counts, key=genre_counts.get)
+                        predictions[tb_code] = predicted_genre
+
+                return predictions
+
+            finally:
+                # Restore original clusters
+                bootstrapper.genre_combination_clusters = original_clusters
+
+        # Run cross-validation
+        console.print(f"\n[yellow]Running {n_folds}-fold cross-validation...[/yellow]")
+        results = validator.k_fold_validate(treebank_data, run_bootstrap)
+
+        # Display results
+        _display_evaluation_results(results)
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")

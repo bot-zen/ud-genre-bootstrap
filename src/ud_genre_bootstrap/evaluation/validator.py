@@ -136,7 +136,7 @@ class CrossValidator:
         languages: List[str],
         bootstrapper_fn,
     ) -> List[Dict]:
-        """Perform grouped k-fold (keeps same language together).
+        """Perform grouped k-fold (keeps same group together).
 
         Args:
             treebank_ids: List of treebank IDs
@@ -149,7 +149,18 @@ class CrossValidator:
         """
         from sklearn.model_selection import GroupKFold
 
-        # Use GroupKFold to ensure same language stays together
+        # Determine grouping variable
+        if self.group_by == "treebank":
+            # Each treebank is its own group (treebank-level CV)
+            groups = treebank_ids
+        elif self.group_by == "language":
+            # Group by language (language-level CV)
+            groups = languages
+        else:
+            # No grouping (sample-level CV) - use stratified instead
+            return self._stratified_k_fold(treebank_ids, genres, bootstrapper_fn)
+
+        # Use GroupKFold to ensure same group stays together
         gkf = GroupKFold(n_splits=self.n_folds)
 
         fold_results = []
@@ -158,7 +169,7 @@ class CrossValidator:
         X = np.arange(len(treebank_ids))  # Dummy features
         y = np.array([genres])  # Not used for splitting, but needed for API
 
-        for fold_idx, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups=languages)):
+        for fold_idx, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups=groups)):
             logger.info(f"Fold {fold_idx + 1}/{self.n_folds}")
 
             # Hide metadata for test fold

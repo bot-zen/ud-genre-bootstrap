@@ -54,7 +54,8 @@ class MetadataValidationConfig:
     method: str = "kfold"
     k: int = 5
     stratify_by: str = "genre"
-    group_by: str = "language"
+    group_by: str = "language"  # "language", "treebank", or None
+    coverage_threshold: float = 0.95  # Minimum sentence-level metadata coverage
 
 
 @dataclass

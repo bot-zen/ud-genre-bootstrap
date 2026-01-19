@@ -43,7 +43,8 @@ evaluation:
     method: "kfold"  # kfold, holdout
     k: 5
     stratify_by: "genre"
-    group_by: "language"  # Don't split same language across folds
+    group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
 
   cluster_metrics:
     - "silhouette"
