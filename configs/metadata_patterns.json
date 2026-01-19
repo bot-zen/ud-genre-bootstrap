@@ -6,6 +6,24 @@
     "genre": "Optional: static genre or $1/$2 for capture groups",
     "genre_mapping": "Optional: dict mapping captured values to genres"
   },
+
+  "be_hse": [
+    {
+      "genre_mapping": {
+        "fiction": "fiction",
+        "legal": "legal",
+        "news": "news",
+        "news-poll-question": "news",
+        "nonfiction": "nonfiction",
+        "poetry": "poetry",
+        "social-media": "social",
+        "social-media-poll-question": "social",
+        "social-media-poll-answer": "social",
+        "wiki": "wiki"
+      }
+    }
+  ],
+
   "cs_cac": [
     {
       "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
@@ -19,9 +37,9 @@
       }
     }
   ],
+
   "en_ewt": [
     {
-      "_description": "Extract genre from document ID prefix",
       "pattern": "# sent_id = ([a-z]+)-",
       "genre": "$1",
       "genre_mapping": {
@@ -36,7 +54,6 @@
 
   "en_gum": [
     {
-      "_description": "GUM corpus uses genre in document ID",
       "pattern": "# sent_id = GUM_([a-z]+)_",
       "genre": "$1",
       "genre_mapping": {
@@ -57,19 +74,69 @@
     }
   ],
 
-  "fi_tdt": [
-    {
-      "_description": "Finnish TDT encodes genre in doc_name",
-      "pattern": "# doc_name = (blog|news|wiki)_",
-      "genre": "$1"
+  "pl_lfg": [
+    { 
+      "genre_mapping": {
+         "news": "news",
+         "nonfiction": "nonfiction",
+         "social": "social",
+         "fiction": "fiction",
+         "spoken (conversational)": "spoken",
+         "spoken (media)": "spoken",
+         "spoken (prepared)": "spoken",
+         "blog": "blog",
+         "academic": "nonfiction",
+         "legal": "legal"
+      }
     }
   ],
-  "cs_pdt": [
+
+  "ru_taiga": [
     {
-      "_description": "Czech PDT uses source field with mapping",
-      "pattern": "# source = (.+)",
       "genre_mapping": {
+        "social": "social",
+        "poetry": "poetry",
         "news": "news",
+        "fiction": "fiction",
+        "wiki": "wiki",
+        "QA-health-question": "social",
+        "QA-health-answer-author": "social",
+        "QA-health-answer": "social",
+        "QA-health-question-title": "social",
+        "QA-travel-question": "social",
+        "QA-travel-answer": "social",
+        "review": "reviews",
+        "nonfiction": "nonfiction",
+        "QA-countries-question": "social",
+        "QA-lifestyle-question": "social",
+        "QA-relax-question": "social",
+        "QA-animals_plants-question": "social",
+        "QA-family-question": "social",
+        "QA-science-question": "social",
+        "QA-love-question": "social",
+        "QA-culture-question": "social",
+        "QA-society-question": "social",
+        "nonfiction-academic-encycl": "academic",
+        "fiction-kids": "fiction"
+      }
+    }
+  ],
+
+  "cs_pdtc": [
+    {
+      "_description": "Czech-PDTC: based on the PDT – Consolidated",
+      "_link": "https://github.com/UniversalDependencies/UD_Czech-PDTC/blob/master/README.md",
+      "pattern": "# sent_id = ([a-z]+)[_0-9]",
+      "genre": "$1",
+      "genre_mapping": {
+        "cmpr": "news",
+        "wsj": "news", 
+        "faust": "learner-essays",
+        "pdtsc": "spoken",
+        "ln": "news",
+        "mf": "news",
+        "vesm": "academic",
+        "lnd": "news",
         "magazine": "news",
         "business": "news",
         "culture": "news",
@@ -79,6 +146,19 @@
       }
     }
   ],
+
+  "cs_cac": [
+    {
+      "pattern": "# sent_id = ([a-z])[0-9]+w-.+",
+      "genre": "$1",
+      "genre_mapping": {
+        "a": "government",
+        "s": "academic",
+        "n": "news"
+      }
+    }
+  ],
+
   "de_lit": [
     {
       "genre_mapping": {
@@ -86,37 +166,28 @@
       }
     }
   ],
-  "fr_gsd": [
+
+  "gl_pud": [
     {
-      "_description": "Extract from file path in sent_id",
-      "pattern": "# sent_id = .+/(blog|news|wiki|fiction)/",
+      "_description": "Galician-PUD",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
   ],
 
-  "it_isdt": [
+  "is_pud": [
     {
-      "_description": "Multiple patterns tried in order",
-      "pattern": "# newdoc id = .+-(news|blog|legal)",
-      "genre": "$1"
-    },
-    {
-      "_description": "Fallback to explicit genre field",
-      "pattern": "# genre = (.+)",
+      "_description": "Icelandic-PUD",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
   ],
 
-  "ja_gsd": [
+  "ja_pudluw": [
     {
-      "_description": "Japanese GSD with source type mapping",
-      "pattern": "# source_type = (.+)",
-      "genre_mapping": {
-        "wikipedia": "wiki",
-        "blog": "blog",
-        "news": "news",
-        "textbook": "academic"
-      }
+      "_description": "Japanese-PUDLUW (Long Unit Word)",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
+      "genre": "$1"
     }
   ]
 }

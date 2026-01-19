@@ -46,17 +46,5 @@
   "n": "news",
   "w": "wiki",
 
-  "_comment_treebank_specific": "Treebank-specific overrides (from original paper)",
-  "be_hse:fiction": "fiction",
-  "be_hse:legal": "legal",
-  "be_hse:news": "news",
-  "be_hse:news-poll-question": "news",
-  "be_hse:nonfiction": "nonfiction",
-  "be_hse:poetry": "poetry",
-  "be_hse:social-media": "social",
-  "be_hse:social-media-poll-question": "social",
-  "be_hse:social-media-poll-answer": "social",
-  "be_hse:wiki": "wiki",
-
   "_comment_end": ""
 }

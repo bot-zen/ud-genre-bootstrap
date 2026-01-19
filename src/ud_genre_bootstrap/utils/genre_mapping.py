@@ -140,15 +140,19 @@ class GenreMapper:
         """
         genres = []
 
-        # Collect treebank-specific genre_mappings (without patterns)
-        # These apply to standard automatic extraction
+        # Collect treebank-specific settings (without patterns)
         treebank_genre_mappings = {}
+        default_genre = None
         if treebank_code in self.metadata_patterns:
             for pattern_dict in self.metadata_patterns[treebank_code]:
-                if isinstance(pattern_dict, dict):
+                if isinstance(pattern_dict, dict) and "pattern" not in pattern_dict:
                     # Pattern-less genre_mapping for this treebank
-                    if "genre_mapping" in pattern_dict and "pattern" not in pattern_dict:
+                    if "genre_mapping" in pattern_dict:
                         treebank_genre_mappings.update(pattern_dict["genre_mapping"])
+
+                    # Default genre when no genre metadata exists
+                    if "genre" in pattern_dict:
+                        default_genre = pattern_dict["genre"]
 
         # Method 1: Direct genre field in sentence metadata
         if "genre" in sentence:
@@ -221,6 +225,10 @@ class GenreMapper:
                                 match = re.search(r"genre[:\s=]+(\w+)", comment, re.IGNORECASE)
                                 if match:
                                     genres.append(match.group(1))
+
+        # Method 4: Use default genre if no genre was extracted
+        if not genres and default_genre:
+            genres.append(default_genre)
 
         # Normalize all genres
         normalized = [

@@ -275,6 +275,49 @@ class TestGenreMapper:
         finally:
             patterns_path.unlink()
 
+    def test_default_genre_for_entire_treebank(self):
+        """Test setting default genre for treebank with no genre metadata."""
+        import tempfile
+        import json
+
+        # Define default genres for treebanks
+        patterns = {
+            "xx_news": [{"genre": "news"}],
+            "yy_fiction": [{"genre": "fiction"}]
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=None,
+                metadata_patterns_path=patterns_path
+            )
+
+            # Test 1: Sentence with NO genre metadata - should use default
+            sentence = {"comments": ["# sent_id = test-001"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "xx_news")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+            # Test 2: Different treebank with different default
+            genres = mapper.extract_genres_from_metadata(sentence, "yy_fiction")
+            assert "fiction" in genres, f"Expected 'fiction', got {genres}"
+
+            # Test 3: Sentence WITH genre metadata - should use metadata, not default
+            sentence_with_genre = {"comments": ["# genre = blog"]}
+            genres = mapper.extract_genres_from_metadata(sentence_with_genre, "xx_news")
+            assert "blog" in genres and "news" not in genres, \
+                f"Expected only 'blog', got {genres}"
+
+            # Test 4: Treebank without default - should return empty
+            genres = mapper.extract_genres_from_metadata(sentence, "zz_test")
+            assert len(genres) == 0, f"Expected empty, got {genres}"
+
+        finally:
+            patterns_path.unlink()
+
     def test_multiple_capture_groups_combined(self):
         """Test combining multiple capture groups for split matches."""
         import tempfile
