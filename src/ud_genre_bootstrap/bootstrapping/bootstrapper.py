@@ -107,12 +107,8 @@ class GenreBootstrapper:
         embeddings_by_tb = {}
         cache_dir = self.config.embeddings.cache_dir
 
-        # Iterate over all treebanks and splits
-        for tb_code, split, dataset in self.data_loader.iter_all_treebanks():
-            # Skip if filtering by treebank and this isn't in the list
-            if treebank_filter and tb_code not in treebank_filter:
-                continue
-
+        # Iterate over filtered treebanks and splits
+        for tb_code, split, dataset in self.data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
             # Try loading from cache first
             if cache_dir:
                 cached = self.embedding_generator.load_embeddings(

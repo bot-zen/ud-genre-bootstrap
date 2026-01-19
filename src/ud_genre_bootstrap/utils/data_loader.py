@@ -282,17 +282,22 @@ class UDDataLoader:
             return self._load_local_treebank(treebank_code, split, local_path)
 
     def iter_all_treebanks(
-        self, split: Optional[str] = None
+        self, split: Optional[str] = None, treebank_filter: Optional[List[str]] = None
     ) -> Iterator[Tuple[str, str, Dataset]]:
         """Iterate over all treebanks.
 
         Args:
             split: If specified, only yield this split; otherwise yield all splits
+            treebank_filter: If specified, only yield these treebank codes
 
         Yields:
             Tuple of (treebank_code, split_name, dataset)
         """
         treebank_codes = self.get_treebank_codes()
+
+        # Filter treebanks if specified
+        if treebank_filter:
+            treebank_codes = [tb for tb in treebank_codes if tb in treebank_filter]
 
         for tb_code in treebank_codes:
             splits_to_load = [split] if split else ["train", "dev", "test"]
