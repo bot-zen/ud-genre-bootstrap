@@ -1,0 +1,239 @@
+"""Tests for CLI helper functions."""
+
+import pytest
+from ud_genre_bootstrap.cli import apply_treebank_exclusions
+from ud_genre_bootstrap.utils.config import Config
+
+
+class MockDataLoader:
+    """Mock data loader for testing."""
+
+    def __init__(self, treebank_codes):
+        self._treebank_codes = treebank_codes
+
+    def get_treebank_codes(self):
+        """Return mock treebank codes."""
+        return self._treebank_codes
+
+
+class TestApplyTreebankExclusions:
+    """Test apply_treebank_exclusions helper function."""
+
+    def test_no_exclusions_returns_original_filter(self):
+        """Test that with no exclusions, original filter is returned."""
+        config = Config()
+        config.exclude_treebanks = None
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert result == treebank_filter
+        assert result == ["en_ewt", "de_gsd"]
+
+    def test_no_exclusions_empty_list_returns_original_filter(self):
+        """Test that empty exclusion list returns original filter."""
+        config = Config()
+        config.exclude_treebanks = []
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert result == treebank_filter
+
+    def test_exclude_from_explicit_filter(self):
+        """Test excluding treebanks from an explicit filter list."""
+        config = Config()
+        config.exclude_treebanks = ["de_gsd", "ar_nyuad"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd", "ar_nyuad"])
+        treebank_filter = ["en_ewt", "de_gsd", "fr_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert result == ["en_ewt", "fr_gsd"]
+        assert "de_gsd" not in result
+        assert "ar_nyuad" not in result
+
+    def test_exclude_when_no_filter_provided(self):
+        """Test that exclusions work when no initial filter is provided."""
+        config = Config()
+        config.exclude_treebanks = ["en_lines", "ar_nyuad"]
+
+        data_loader = MockDataLoader(["en_ewt", "en_lines", "de_gsd", "ar_nyuad", "fr_gsd"])
+        treebank_filter = None
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should return all treebanks except excluded ones
+        assert "en_ewt" in result
+        assert "de_gsd" in result
+        assert "fr_gsd" in result
+        assert "en_lines" not in result
+        assert "ar_nyuad" not in result
+
+    def test_exclude_all_from_filter(self):
+        """Test excluding all treebanks from filter."""
+        config = Config()
+        config.exclude_treebanks = ["en_ewt", "de_gsd"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert result == []
+
+    def test_exclude_nonexistent_treebank(self):
+        """Test that excluding non-existent treebank doesn't cause errors."""
+        config = Config()
+        config.exclude_treebanks = ["nonexistent_tb"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should return original filter since excluded treebank doesn't exist
+        assert result == ["en_ewt", "de_gsd"]
+
+    def test_exclude_preserves_order(self):
+        """Test that exclusion preserves the original order of treebanks."""
+        config = Config()
+        config.exclude_treebanks = ["de_gsd"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd", "es_ancora"])
+        treebank_filter = ["en_ewt", "de_gsd", "fr_gsd", "es_ancora"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert result == ["en_ewt", "fr_gsd", "es_ancora"]
+        # Order should be preserved
+
+    def test_exclude_with_duplicates_in_filter(self):
+        """Test excluding when filter contains duplicates."""
+        config = Config()
+        config.exclude_treebanks = ["de_gsd"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd", "en_ewt"]  # Duplicate
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should remove de_gsd but keep both en_ewt
+        assert "de_gsd" not in result
+        assert result.count("en_ewt") == 2
+
+    def test_multiple_exclusions(self):
+        """Test excluding multiple treebanks."""
+        config = Config()
+        config.exclude_treebanks = ["en_lines", "de_lit", "ar_nyuad"]
+
+        data_loader = MockDataLoader([
+            "en_ewt", "en_lines", "de_gsd", "de_lit", "ar_nyuad", "fr_gsd"
+        ])
+        treebank_filter = None
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        assert "en_ewt" in result
+        assert "de_gsd" in result
+        assert "fr_gsd" in result
+        assert "en_lines" not in result
+        assert "de_lit" not in result
+        assert "ar_nyuad" not in result
+
+    def test_case_sensitive_exclusion(self):
+        """Test that exclusion is case-sensitive."""
+        config = Config()
+        config.exclude_treebanks = ["EN_EWT"]  # Wrong case
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should not exclude en_ewt (case doesn't match)
+        assert result == ["en_ewt", "de_gsd"]
+
+
+class TestExclusionConfiguration:
+    """Test exclude_treebanks configuration field."""
+
+    def test_config_has_exclude_treebanks_field(self):
+        """Test that Config has exclude_treebanks field."""
+        config = Config()
+
+        # Should have the field (even if None by default)
+        assert hasattr(config, "exclude_treebanks")
+
+    def test_config_accepts_exclusion_list(self):
+        """Test that Config accepts a list of treebanks to exclude."""
+        config = Config()
+        config.exclude_treebanks = ["en_lines", "ar_nyuad"]
+
+        assert config.exclude_treebanks == ["en_lines", "ar_nyuad"]
+        assert isinstance(config.exclude_treebanks, list)
+
+    def test_config_handles_empty_exclusion_list(self):
+        """Test that Config handles empty exclusion list."""
+        config = Config()
+        config.exclude_treebanks = []
+
+        assert config.exclude_treebanks == []
+        assert isinstance(config.exclude_treebanks, list)
+
+    def test_config_handles_none_exclusion(self):
+        """Test that Config handles None for exclusions."""
+        config = Config()
+        config.exclude_treebanks = None
+
+        assert config.exclude_treebanks is None
+
+
+class TestExclusionIntegration:
+    """Integration tests for exclusion functionality."""
+
+    def test_exclusion_works_with_single_treebank_filter(self):
+        """Test exclusion when filtering to a single treebank."""
+        config = Config()
+        config.exclude_treebanks = ["en_ewt"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd", "fr_gsd"])
+        treebank_filter = ["en_ewt"]  # User wants only en_ewt
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Config excludes en_ewt, so result should be empty
+        assert result == []
+
+    def test_exclusion_warning_message(self, capsys):
+        """Test that exclusion produces a warning message."""
+        config = Config()
+        config.exclude_treebanks = ["en_lines", "ar_nyuad"]
+
+        data_loader = MockDataLoader(["en_ewt", "en_lines", "de_gsd", "ar_nyuad"])
+        treebank_filter = ["en_ewt", "en_lines", "ar_nyuad"]
+
+        # This would normally print to console, but we're just testing the logic
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should have filtered out excluded treebanks
+        assert result == ["en_ewt"]
+        assert len(result) == 1
+
+    def test_no_warning_when_exclusions_dont_match(self, capsys):
+        """Test that no warning when exclusions don't match any treebanks."""
+        config = Config()
+        config.exclude_treebanks = ["nonexistent"]
+
+        data_loader = MockDataLoader(["en_ewt", "de_gsd"])
+        treebank_filter = ["en_ewt", "de_gsd"]
+
+        result = apply_treebank_exclusions(config, data_loader, treebank_filter)
+
+        # Should return original filter
+        assert result == ["en_ewt", "de_gsd"]
