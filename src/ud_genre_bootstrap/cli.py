@@ -693,6 +693,10 @@ def evaluate(
         # Create list of all unique treebank IDs being evaluated (for embedding generation)
         evaluated_treebank_ids = list(set(split['treebank'] for split in virtual_splits))
 
+        # Pre-generate embeddings once (shared across all folds)
+        console.print(f"\n[yellow]Generating/loading embeddings for {len(evaluated_treebank_ids)} treebanks...[/yellow]")
+        embeddings_by_tb_shared = bootstrapper._generate_embeddings(treebank_filter=evaluated_treebank_ids)
+
         # Create bootstrapper function for cross-validation
         def run_bootstrap(visible_split_ids: List[str]) -> Dict[str, str]:
             """Run bootstrap with only visible virtual splits and predict hidden ones.
@@ -703,15 +707,17 @@ def evaluate(
             Returns:
                 Dict mapping virtual_split_id to predicted genre
             """
-            # Get embeddings for all treebanks being evaluated
-            embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=evaluated_treebank_ids)
+            # Use pre-generated embeddings (shared across folds)
+            embeddings_by_tb = embeddings_by_tb_shared
 
             # Filter embeddings to create virtual split embeddings
             # For each virtual split, we need to filter the embeddings to only include sentences from that genre
             virtual_embeddings_by_tb = {}
             virtual_treebank_clusters = {}
 
-            for split_info in virtual_splits:
+            console.print(f"[yellow]Clustering {len(virtual_splits)} virtual splits for cross-validation...[/yellow]")
+
+            for idx, split_info in enumerate(virtual_splits, 1):
                 tb_code = split_info['treebank']
                 split_name = split_info['split']
                 genre = split_info['genre']
@@ -742,6 +748,10 @@ def evaluate(
                             'embedding': filtered_embeddings,
                             'sent_id': filtered_sent_ids,
                         }
+
+                        # Show progress for clustering
+                        if idx % 10 == 0 or idx == len(virtual_splits):
+                            console.print(f"[blue]  [{idx}/{len(virtual_splits)}] Clustering {virtual_split_id} ({len(filtered_sent_ids)} sentences)[/blue]")
 
                         # Cluster this virtual split (it's single-genre, so n_genres=1)
                         cluster_result = bootstrapper.clusterer.cluster_treebank(
