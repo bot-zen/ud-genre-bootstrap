@@ -343,6 +343,17 @@ def cluster(
             json.dump(cluster_stats, f, indent=2)
         console.print(f"[green]✓ Saved cluster statistics:[/green] {stats_file}")
 
+        # Save full cluster state for reuse by label command
+        import pickle
+        cluster_state = {
+            'treebank_clusters': bootstrapper.treebank_clusters,
+            'embeddings_by_tb': embeddings_by_tb,  # Include embeddings for cluster centroids
+        }
+        state_file = output_dir / "cluster_state.pkl"
+        with open(state_file, 'wb') as f:
+            pickle.dump(cluster_state, f)
+        console.print(f"[green]✓ Saved cluster state:[/green] {state_file}")
+
         # Save embeddings for visualization (optional, can be large)
         console.print(f"[blue]Embeddings already cached at:[/blue] {cfg.embeddings.cache_dir if cfg.embeddings.cache_dir else 'not configured'}")
 
@@ -365,10 +376,20 @@ def label(
         exists=True,
         dir_okay=False,
     ),
+    clusters: Optional[Path] = typer.Option(
+        None,
+        "--clusters",
+        help="Path to directory containing cluster_state.pkl (from cluster command)",
+        exists=True,
+        dir_okay=True,
+    ),
 ):
     """Label clusters using bootstrap algorithm.
 
     Applies the bootstrapping schedule to assign genre labels to clusters.
+
+    If --clusters is provided, loads pre-computed cluster state instead of
+    regenerating embeddings and re-clustering (much faster).
     """
     console.print("\n[bold cyan]Bootstrap Genre Labeling[/bold cyan]")
     console.print("=" * 60)
@@ -378,15 +399,31 @@ def label(
 
         bootstrapper = GenreBootstrapper(cfg)
 
-        # Run through clustering
-        console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
-        embeddings_by_tb = bootstrapper._generate_embeddings()
+        # Check if we should load pre-computed cluster state
+        cluster_state_path = None
+        if clusters:
+            cluster_state_path = clusters / "cluster_state.pkl"
+            if not cluster_state_path.exists():
+                console.print(f"[yellow]Warning: cluster_state.pkl not found in {clusters}, will regenerate clusters[/yellow]")
+                cluster_state_path = None
 
-        console.print("\n[yellow]Clustering treebanks...[/yellow]")
-        bootstrapper._cluster_treebanks(embeddings_by_tb)
+        if cluster_state_path:
+            # Load pre-computed cluster state
+            console.print(f"\n[blue]Loading pre-computed cluster state from {cluster_state_path}...[/blue]")
+            embeddings_by_tb = bootstrapper.load_cluster_state(cluster_state_path)
 
-        console.print("\n[yellow]Computing cluster embeddings...[/yellow]")
-        bootstrapper._compute_cluster_embeddings(embeddings_by_tb)
+            console.print("\n[yellow]Computing cluster embeddings...[/yellow]")
+            bootstrapper._compute_cluster_embeddings(embeddings_by_tb)
+        else:
+            # Run through clustering from scratch
+            console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
+            embeddings_by_tb = bootstrapper._generate_embeddings()
+
+            console.print("\n[yellow]Clustering treebanks...[/yellow]")
+            bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+            console.print("\n[yellow]Computing cluster embeddings...[/yellow]")
+            bootstrapper._compute_cluster_embeddings(embeddings_by_tb)
 
         # Create schedule and label
         console.print("\n[yellow]Creating bootstrap schedule...[/yellow]")

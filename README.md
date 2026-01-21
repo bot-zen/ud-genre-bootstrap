@@ -93,6 +93,12 @@ ud-genre-bootstrap cluster --embeddings embeddings/ --output clusters/
 ud-genre-bootstrap label --clusters clusters/ --output genres/
 ud-genre-bootstrap evaluate --genres genres/ --output evaluation/
 
+# Efficient workflow: cluster command saves state, label command loads it
+ud-genre-bootstrap cluster --config config.yaml --treebank en_ewt
+# Creates: output/clusters/cluster_state.pkl (contains clusters + embeddings)
+ud-genre-bootstrap label --config config.yaml --clusters output/clusters/
+# Loads pre-computed state, skips expensive re-clustering
+
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
 

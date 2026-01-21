@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Cluster state save/load functionality for efficient label command execution
+  - `cluster` command now saves full cluster state to `cluster_state.pkl`
+  - `label` command accepts `--clusters` option to load pre-computed state
+  - Skips expensive embedding generation and re-clustering when loading state
+  - Significantly speeds up iterative workflow (cluster once, label multiple times)
 - CUDA-accelerated visualization support via `viz-cuda` optional dependency group
   - Includes cuML for GPU-accelerated UMAP
   - Includes CuPy for GPU-accelerated NumPy operations

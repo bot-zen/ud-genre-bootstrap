@@ -114,6 +114,35 @@ class GenreBootstrapper:
         logger.info("Bootstrap pipeline complete")
         return results
 
+    def load_cluster_state(self, cluster_state_path: Path) -> Dict:
+        """Load pre-computed cluster state from disk.
+
+        This allows the label command to skip the expensive clustering step
+        and directly use previously computed clusters.
+
+        Args:
+            cluster_state_path: Path to cluster_state.pkl file
+
+        Returns:
+            Dictionary with embeddings_by_tb for computing cluster embeddings
+        """
+        import pickle
+
+        logger.info(f"Loading cluster state from {cluster_state_path}")
+
+        with open(cluster_state_path, 'rb') as f:
+            cluster_state = pickle.load(f)
+
+        # Restore treebank clusters
+        self.treebank_clusters = cluster_state['treebank_clusters']
+        embeddings_by_tb = cluster_state['embeddings_by_tb']
+
+        logger.info(
+            f"Loaded cluster state for {len(self.treebank_clusters)} treebank splits"
+        )
+
+        return embeddings_by_tb
+
     def _generate_embeddings(self, treebank_filter: Optional[List[str]] = None, overwrite: bool = False) -> Dict:
         """Generate embeddings for all treebanks.
 
