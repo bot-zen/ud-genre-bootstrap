@@ -512,6 +512,7 @@ def evaluate(
         genre_mapper = GenreMapper(
             genre_mapping_path=mapping_path,
             metadata_patterns_path=patterns_path,
+            canonical_genres=cfg.genre_extraction.canonical_genres,
         )
 
         # Get all treebank metadata
@@ -980,6 +981,7 @@ def test_genres(
         genre_mapper = GenreMapper(
             genre_mapping_path=mapping_path,
             metadata_patterns_path=patterns_path,
+            canonical_genres=cfg.genre_extraction.canonical_genres,
         )
 
         # Determine which treebanks to test

@@ -10,8 +10,8 @@ import json
 class GenreMapper:
     """Handle genre extraction and mapping to canonical UD genres."""
 
-    # Canonical UD genre labels
-    CANONICAL_GENRES = {
+    # Default canonical UD genre labels (can be overridden via config)
+    DEFAULT_CANONICAL_GENRES = {
         "academic",
         "blog",
         "email",
@@ -33,15 +33,23 @@ class GenreMapper:
         self,
         genre_mapping_path: Optional[Path] = None,
         metadata_patterns_path: Optional[Union[Path, List[Path]]] = None,
+        canonical_genres: Optional[List[str]] = None,
     ):
         """Initialize genre mapper.
 
         Args:
             genre_mapping_path: Path to JSON with non-standard -> UD genre mappings
             metadata_patterns_path: Path or list of paths to JSON files with sentence-level genre patterns
+            canonical_genres: Optional list of canonical genre labels (overrides default set)
         """
         self.genre_mappings = self._load_genre_mappings(genre_mapping_path)
         self.metadata_patterns = self._load_metadata_patterns(metadata_patterns_path)
+
+        # Use provided canonical genres or fall back to default
+        if canonical_genres is not None:
+            self.canonical_genres = set(canonical_genres)
+        else:
+            self.canonical_genres = self.DEFAULT_CANONICAL_GENRES
 
     def _load_genre_mappings(self, path: Optional[Path]) -> Dict[str, str]:
         """Load genre mappings from JSON file.
@@ -121,7 +129,7 @@ class GenreMapper:
 
         # Priority 3: Already canonical (no mapping needed)
         # This is now only reached if there's no explicit mapping
-        if genre in self.CANONICAL_GENRES:
+        if genre in self.canonical_genres:
             return genre
 
         # No mapping found, return as-is
@@ -272,4 +280,4 @@ class GenreMapper:
         Returns:
             True if canonical, False otherwise
         """
-        return genre in self.CANONICAL_GENRES
+        return genre in self.canonical_genres

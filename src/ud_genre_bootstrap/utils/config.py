@@ -45,6 +45,7 @@ class GenreExtractionConfig:
 
     mapping_path: Optional[str] = None
     patterns_path: Optional[Union[str, List[str]]] = None
+    canonical_genres: Optional[List[str]] = None  # Override default canonical genre set
 
 
 @dataclass

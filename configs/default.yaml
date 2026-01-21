@@ -42,6 +42,19 @@ genre_extraction:
   #   - "configs/metadata_patterns.json"
   #   - "configs/pud-patterns.json"
 
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
+
 evaluation:
   enabled: true
 
