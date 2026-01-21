@@ -95,6 +95,9 @@ ud-genre-bootstrap evaluate --genres genres/ --output evaluation/
 
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
+
+# Use GPU acceleration for clustering (requires viz-cuda installation)
+ud-genre-bootstrap cluster --config config.yaml --use-gpu
 ```
 
 ### Using Python API
@@ -185,6 +188,7 @@ clustering:
   method: "gmm"
   level: "treebank"
   seed: 42
+  device: "auto"  # Use GPU if available, or "cuda"/"cpu" to force
 
 bootstrapping:
   min_confidence: 0.8
