@@ -158,19 +158,25 @@ class GenreBootstrapper:
         embeddings_by_tb = {}
         cache_dir = self.config.embeddings.cache_dir
 
+        # Count total treebanks for progress reporting
+        all_treebanks = list(self.data_loader.iter_all_treebanks(treebank_filter=treebank_filter))
+        total_count = len(all_treebanks)
+        logger.info(f"Processing embeddings for {total_count} treebank split(s)")
+
         # Iterate over filtered treebanks and splits
-        for tb_code, split, dataset in self.data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
+        for idx, (tb_code, split, dataset) in enumerate(all_treebanks, 1):
             # Try loading from cache first (unless overwrite is enabled)
             if cache_dir and not overwrite:
                 cached = self.embedding_generator.load_embeddings(
                     tb_code, split, Path(cache_dir)
                 )
                 if cached is not None:
+                    logger.info(f"[{idx}/{total_count}] Loaded cached embeddings for {tb_code}:{split} ({len(cached['sent_id'])} sentences)")
                     embeddings_by_tb[(tb_code, split)] = cached
                     continue
 
             # Generate embeddings
-            logger.info(f"Embedding {tb_code} {split}: {len(dataset)} sentences")
+            logger.info(f"[{idx}/{total_count}] Generating embeddings for {tb_code}:{split} ({len(dataset)} sentences)")
             result = self.embedding_generator.embed_treebank(
                 treebank_code=tb_code,
                 split=split,
@@ -190,7 +196,10 @@ class GenreBootstrapper:
         # Group by clustering level
         if self.config.clustering.level == "treebank":
             # Cluster each treebank independently
-            for (tb_code, split), emb_data in embeddings_by_tb.items():
+            total_treebanks = len(embeddings_by_tb)
+            logger.info(f"Clustering {total_treebanks} treebank split(s)")
+
+            for idx, ((tb_code, split), emb_data) in enumerate(embeddings_by_tb.items(), 1):
                 # Try to extract genres from actual sentences first (more accurate)
                 # This respects genre extraction patterns and mappings
                 genres_from_sentences = set()
@@ -217,8 +226,13 @@ class GenreBootstrapper:
                 n_genres = len(genres)
 
                 if n_genres == 0:
-                    logger.warning(f"{tb_code} has no genre metadata, skipping")
+                    logger.warning(f"[{idx}/{total_treebanks}] {tb_code}:{split} has no genre metadata, skipping")
                     continue
+
+                logger.info(
+                    f"[{idx}/{total_treebanks}] Clustering {tb_code}:{split} "
+                    f"({len(emb_data['embedding'])} sentences, {n_genres} genres: {', '.join(genres)})"
+                )
 
                 cluster_result = self.clusterer.cluster_treebank(
                     embeddings=emb_data["embedding"],
@@ -245,12 +259,21 @@ class GenreBootstrapper:
         Args:
             embeddings_by_tb: Pre-computed embeddings
         """
-        for (tb_code, split), tb_info in self.treebank_clusters.items():
+        total_treebanks = len(self.treebank_clusters)
+        logger.info(f"Computing cluster embeddings for {total_treebanks} treebank split(s)")
+
+        for idx, ((tb_code, split), tb_info) in enumerate(self.treebank_clusters.items(), 1):
             genres = tb_info["genres"]
             genre_combination = tuple(sorted(genres))
 
             cluster_result = tb_info["cluster_result"]
             emb_data = embeddings_by_tb[(tb_code, split)]
+
+            n_clusters = len(cluster_result["clusters"])
+            logger.info(
+                f"[{idx}/{total_treebanks}] Computing embeddings for {tb_code}:{split} "
+                f"({n_clusters} clusters, genres: {', '.join(genres)})"
+            )
 
             # Compute mean embedding for each cluster
             for cluster_id, cluster_info in cluster_result["clusters"].items():
