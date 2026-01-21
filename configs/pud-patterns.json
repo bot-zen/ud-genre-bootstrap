@@ -4,115 +4,155 @@
 
   "ar_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "cs_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "de_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "en_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "es_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "fi_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "fr_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
+      "genre": "$1"
+    }
+  ],
+  "gl_pud": [
+    {
+      "_description": "Galician-PUD",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
   ],
   "hi_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "id_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
+      "genre": "$1"
+    }
+  ],
+  "is_pud": [
+    {
+      "_description": "Icelandic-PUD",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
   ],
   "it_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "ja_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
+      "genre": "$1"
+    }
+  ],
+  "ja_pudluw": [
+    {
+      "_description": "Japanese-PUDLUW (Long Unit Word)",
+      "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
     }
   ],
   "ko_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "pl_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
-      "genre": "$1"
+      "pattern": "# sent_id = ([nw])[0-9]+",
+      "genre": "$1",
+      "genre_mapping": {
+         "nonfiction": "news"
+      }
     }
   ],
   "pt_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "ru_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
+    }
+  ],
+  "ru_syntagrus": [
+    {
+      "genre_mapping": {
+        "journalism": null
+      }
     }
   ],
   "sv_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "th_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ],
   "tr_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
+    }
+  ],
+  "yi_yitb": [
+    {
+      "genre_mapping": {
+        "spoken,": "spoken",
+        "proverb": "blog",
+        "grammar-examples/learner-essays": "web"
+      }
     }
   ],
   "zh_pud": [
     {
-      "pattern": "# sent_id = ([nw])",
+      "pattern": "# sent_id = ([nw])[0-9]+",
       "genre": "$1"
     }
   ]

@@ -64,5 +64,5 @@ output:
   hf_token: "${HF_TOKEN}"  # From environment variable
 
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

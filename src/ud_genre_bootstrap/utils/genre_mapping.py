@@ -115,11 +115,12 @@ class GenreMapper:
             if tb_key in self.genre_mappings:
                 return self.genre_mappings[tb_key]
 
-        # Priority 2: Global mapping
+        # Priority 2: Global mapping (even if genre is canonical, mapping takes precedence)
         if genre in self.genre_mappings:
             return self.genre_mappings[genre]
 
         # Priority 3: Already canonical (no mapping needed)
+        # This is now only reached if there's no explicit mapping
         if genre in self.CANONICAL_GENRES:
             return genre
 
@@ -198,26 +199,27 @@ class GenreMapper:
                             if pattern:
                                 match = re.search(pattern, comment)
                                 if match:
-                                    if genre_mapping:
-                                        # Use genre_mapping dict to map captured value
-                                        # If not in inline mapping, add raw value for global normalization
-                                        captured = match.group(1) if match.groups() else None
-                                        if captured:
-                                            if captured in genre_mapping:
-                                                # Use inline mapping
-                                                genres.append(genre_mapping[captured])
-                                            else:
-                                                # Not in inline mapping, add raw value
-                                                # It will be normalized by global genre_mappings later
-                                                genres.append(captured)
-                                    elif genre_template:
+                                    # First, construct genre value from template (if any)
+                                    if genre_template:
                                         # Substitute capture groups in genre template
                                         genre_value = genre_template
                                         # Replace $1, $2, etc. with captured groups
                                         for i, group in enumerate(match.groups(), 1):
                                             if group:
                                                 genre_value = genre_value.replace(f"${i}", group)
-                                        genres.append(genre_value)
+                                    else:
+                                        # No template, use first capture group
+                                        genre_value = match.group(1) if match.groups() else None
+
+                                    # Then, apply genre_mapping if it exists
+                                    if genre_value:
+                                        if genre_mapping and genre_value in genre_mapping:
+                                            # Use inline mapping
+                                            genres.append(genre_mapping[genre_value])
+                                        else:
+                                            # Not in inline mapping, add raw value
+                                            # It will be normalized by global genre_mappings later
+                                            genres.append(genre_value)
                         elif isinstance(pattern_dict, str):
                             # Simple string matching
                             if pattern_dict in comment:

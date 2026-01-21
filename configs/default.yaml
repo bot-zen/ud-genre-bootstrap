@@ -3,6 +3,12 @@
 ud_version: "2.17"
 ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
 
+# Optional: Exclude specific treebanks from all operations
+# exclude_treebanks:
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
+
 embeddings:
   model: "xlm-roberta-base"
   pooling: "mean"  # mean, cls
@@ -45,6 +51,7 @@ evaluation:
     stratify_by: "genre"
     group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
+    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
 
   cluster_metrics:
     - "silhouette"

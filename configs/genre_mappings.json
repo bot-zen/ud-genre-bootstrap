@@ -15,32 +15,34 @@
   "weblogs": "blog",
   "blog-post": "blog",
 
-  "answers": "social",
-  "qa": "social",
-  "question-answer": "social",
-
-  "reviews": "reviews",
-  "review": "reviews",
-
-  "newspaper": "news",
-  "newsgroup": "news",
-  "news-article": "news",
-
-  "wikipedia": "wiki",
-  "wiki-article": "wiki",
-
-  "legal-doc": "legal",
-  "law": "legal",
-
-  "spoken-conv": "spoken",
-  "conversation": "spoken",
-  "interview": "spoken",
-
   "fiction-novel": "fiction",
   "literature": "fiction",
 
   "government-doc": "government",
   "official": "government",
+
+  "legal-doc": "legal",
+  "law": "legal",
+
+  "newspaper": "news",
+  "newsgroup": "news",
+  "news-article": "news",
+
+  "non-fiction": "nonfiction",
+
+  "reviews": "reviews",
+  "review": "reviews",
+
+  "answers": "social",
+  "qa": "social",
+  "question-answer": "social",
+
+  "spoken-conv": "spoken",
+  "conversation": "spoken",
+  "interview": "spoken",
+
+  "wikipedia": "wiki",
+  "wiki-article": "wiki",
 
   "_comment_pud": "PUD treebanks use single-letter codes in sent_id",
   "n": "news",

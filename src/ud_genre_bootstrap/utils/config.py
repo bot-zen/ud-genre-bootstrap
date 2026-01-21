@@ -56,6 +56,7 @@ class MetadataValidationConfig:
     stratify_by: str = "genre"
     group_by: str = "language"  # "language", "treebank", or None
     coverage_threshold: float = 0.95  # Minimum sentence-level metadata coverage
+    min_genre_sentences: int = 100  # Minimum sentences per genre for virtual splits
 
 
 @dataclass
@@ -105,6 +106,7 @@ class Config:
 
     ud_version: str = "2.17"
     ud_source: str = "hf://commul/universal_dependencies"
+    exclude_treebanks: List[str] = field(default_factory=list)  # Treebank codes to exclude
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     bootstrapping: BootstrappingConfig = field(default_factory=BootstrappingConfig)
@@ -140,6 +142,7 @@ class Config:
         return cls(
             ud_version=config_dict.get("ud_version", "2.17"),
             ud_source=config_dict.get("ud_source", "hf://commul/universal_dependencies"),
+            exclude_treebanks=config_dict.get("exclude_treebanks", []),
             embeddings=embeddings,
             clustering=clustering,
             bootstrapping=bootstrapping,

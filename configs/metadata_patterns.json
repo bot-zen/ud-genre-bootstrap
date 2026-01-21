@@ -28,7 +28,7 @@
     {
       "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
       "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'academic/written'",
-      "pattern": "# sent_id = ([a-z])\\d+([a-z])-.*",
+      "pattern": "# sent_id = ([a-z])[0-9]+([a-z])-",
       "genre": "$1$2",
       "genre_mapping": {
           "aw": "government",
@@ -210,39 +210,6 @@
         "QA-society-question": "social",
         "nonfiction-academic-encycl": "academic",
         "fiction-kids": "fiction"
-      }
-    }
-  ],
-
-  "gl_pud": [
-    {
-      "_description": "Galician-PUD",
-      "pattern": "# sent_id = ([a-z]+)[0-9]",
-      "genre": "$1"
-    }
-  ],
-
-  "is_pud": [
-    {
-      "_description": "Icelandic-PUD",
-      "pattern": "# sent_id = ([a-z]+)[0-9]",
-      "genre": "$1"
-    }
-  ],
-
-  "ja_pudluw": [
-    {
-      "_description": "Japanese-PUDLUW (Long Unit Word)",
-      "pattern": "# sent_id = ([a-z]+)[0-9]",
-      "genre": "$1"
-    }
-  ],
-
-  "pl_pud": [
-    {
-      "_description": "Polish-PUD",
-      "genre_mapping": {
-         "nonfiction": "news"
       }
     }
   ]
