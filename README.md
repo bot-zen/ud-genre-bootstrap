@@ -195,6 +195,8 @@ genre_extraction:
   # Optional: custom genre mappings and patterns
   mapping_path: "configs/genre_mappings.json"
   patterns_path: "configs/metadata_patterns.json"
+  # Optional: override default canonical genre set
+  canonical_genres: ["news", "wiki", "fiction", "blog", "legal", "spoken"]
 
 evaluation:
   enabled: true

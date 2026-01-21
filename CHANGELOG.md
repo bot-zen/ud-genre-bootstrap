@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Terminal display as Rich table with highlighted diagonal
   - PNG heatmap saved to `evaluation/confusion_matrix.png`
   - Aggregates predictions across all cross-validation folds
+- Configurable canonical genre set via `genre_extraction.canonical_genres`
+  - Override default UD genre taxonomy with custom genre set
+  - Falls back to default set if not specified
 
 ### Changed
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
