@@ -162,6 +162,11 @@ def embed(
         "--push",
         help="Push embeddings to HuggingFace Hub after generation",
     ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Overwrite existing cached embeddings",
+    ),
 ):
     """Generate sentence embeddings for UD treebanks.
 
@@ -188,6 +193,9 @@ def embed(
         # Apply config exclusions
         treebank_filter = apply_treebank_exclusions(cfg, bootstrapper.data_loader, treebank_filter)
 
+        if overwrite:
+            console.print("[yellow]⚠ Overwrite mode enabled - will regenerate all embeddings[/yellow]")
+
         if treebank_filter:
             if len(treebank_filter) == 1:
                 console.print(f"\n[yellow]Generating embeddings for {treebank_filter[0]}...[/yellow]")
@@ -196,7 +204,7 @@ def embed(
         else:
             console.print("\n[yellow]Generating embeddings for all treebanks...[/yellow]")
 
-        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_filter)
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_filter, overwrite=overwrite)
 
         console.print(f"\n[bold green]✓ Generated embeddings for {len(embeddings_by_tb)} treebank splits[/bold green]")
 

@@ -112,13 +112,14 @@ class GenreBootstrapper:
         logger.info("Bootstrap pipeline complete")
         return results
 
-    def _generate_embeddings(self, treebank_filter: Optional[List[str]] = None) -> Dict:
+    def _generate_embeddings(self, treebank_filter: Optional[List[str]] = None, overwrite: bool = False) -> Dict:
         """Generate embeddings for all treebanks.
 
         Checks cache first if configured, generates and caches otherwise.
 
         Args:
             treebank_filter: Optional list of treebank codes to process
+            overwrite: If True, regenerate embeddings even if cached versions exist
 
         Returns:
             Dictionary: {(treebank_code, split): {'sent_ids': [...], 'embeddings': array}}
@@ -128,8 +129,8 @@ class GenreBootstrapper:
 
         # Iterate over filtered treebanks and splits
         for tb_code, split, dataset in self.data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
-            # Try loading from cache first
-            if cache_dir:
+            # Try loading from cache first (unless overwrite is enabled)
+            if cache_dir and not overwrite:
                 cached = self.embedding_generator.load_embeddings(
                     tb_code, split, Path(cache_dir)
                 )
