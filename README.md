@@ -99,6 +99,11 @@ ud-genre-bootstrap cluster --config config.yaml --treebank en_ewt
 ud-genre-bootstrap label --config config.yaml --clusters output/clusters/
 # Loads pre-computed state, skips expensive re-clustering
 
+# Incremental re-clustering: update only specific treebanks
+# Useful when you change genre mappings for specific treebanks
+ud-genre-bootstrap cluster --config config.yaml --clusters output/clusters/ --treebank en_ewt
+# Loads existing clusters, re-clusters only en_ewt, keeps others unchanged
+
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
 

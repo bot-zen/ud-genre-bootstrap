@@ -159,6 +159,32 @@
     }
   ],
 
+  "gsw_divital": [
+    {
+      "genre_mapping": {
+        "encyclopedia": null,
+        "short": null,
+        "anecdote": null,
+        "guide": null,
+        "recipe": null,
+        "comedy": null,
+        "drama": null,
+        "tale": null,
+        "charter": null,
+        "fable": null,
+        "parable": null,
+        "poetic": null,
+        "novel": null,
+        "realistic": null,
+        "epistolary": null,
+        "tragicomedy": null,
+        "other": null,
+        "song": null
+      }
+    }
+  ],
+
+
   "pl_lfg": [
     { 
       "genre_mapping": {
@@ -210,6 +236,22 @@
         "QA-society-question": "social",
         "nonfiction-academic-encycl": "academic",
         "fiction-kids": "fiction"
+      }
+    }
+  ],
+
+  "tt_nmctt": [
+    {
+      "genre_mapping": {    
+        "culture": null,
+        "ecology": null,
+        "health": null,
+        "incident": null,
+        "religion": null,
+        "science": null,
+        "society": null,
+        "tatar": null,
+        "tatar_world": null
       }
     }
   ]

@@ -38,6 +38,13 @@
       "genre": "$1"
     }
   ],
+  "fr_poitevindivital": [
+    {
+      "genre_mapping": {
+         "press": "nonfiction"
+      }
+    }
+  ],
   "fr_pud": [
     {
       "pattern": "# sent_id = ([nw])[0-9]+",
@@ -49,6 +56,13 @@
       "_description": "Galician-PUD",
       "pattern": "# sent_id = ([a-z]+)[0-9]",
       "genre": "$1"
+    }
+  ],
+  "gsw_divital": [
+    {
+      "genre_mapping": {
+         "tale": "poetry"
+      }
     }
   ],
   "hi_pud": [

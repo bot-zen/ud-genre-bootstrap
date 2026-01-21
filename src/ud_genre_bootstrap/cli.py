@@ -235,15 +235,26 @@ def cluster(
         "-t",
         help="Specific treebank(s) to cluster (e.g., en_ewt or en_ewt,de_gsd). If not specified, clusters all.",
     ),
+    clusters: Optional[Path] = typer.Option(
+        None,
+        "--clusters",
+        help="Path to existing cluster directory. If provided, loads existing clusters and only re-clusters specified --treebank(s).",
+        exists=True,
+        dir_okay=True,
+    ),
     use_gpu: bool = typer.Option(
         False,
         "--use-gpu",
-        help="Use GPU acceleration for GMM clustering (requires cuML)",
+        help="Use GPU acceleration for clustering (requires cuML for K-Means)",
     ),
 ):
     """Cluster treebank sentences into genre groups.
 
-    Uses GMM clustering to group sentences based on embeddings.
+    Uses GMM or K-Means clustering to group sentences based on embeddings.
+
+    When --clusters is provided with --treebank, only re-clusters the specified
+    treebank(s) and keeps all other clusters unchanged. Useful for updating
+    clusters after changing genre mappings for specific treebanks.
     """
     console.print("\n[bold cyan]UD Treebank Clustering[/bold cyan]")
     console.print("=" * 60)
@@ -265,19 +276,56 @@ def cluster(
         # Apply config exclusions
         treebank_filter = apply_treebank_exclusions(cfg, bootstrapper.data_loader, treebank_filter)
 
+        # Load existing cluster state if --clusters is provided
+        existing_embeddings_by_tb = {}
+        existing_treebank_clusters = {}
+        if clusters:
+            cluster_state_path = clusters / "cluster_state.pkl"
+            if cluster_state_path.exists():
+                console.print(f"\n[blue]Loading existing cluster state from {cluster_state_path}...[/blue]")
+                existing_embeddings_by_tb = bootstrapper.load_cluster_state(cluster_state_path)
+                existing_treebank_clusters = dict(bootstrapper.treebank_clusters)
+                console.print(f"[green]✓ Loaded {len(existing_treebank_clusters)} existing cluster(s)[/green]")
+
+                if not treebank_filter:
+                    console.print(f"[yellow]⚠ Warning: --clusters provided but no --treebank specified.[/yellow]")
+                    console.print(f"[yellow]  Will re-cluster all treebanks. Use --treebank to selectively update.[/yellow]")
+            else:
+                console.print(f"[yellow]⚠ Warning: cluster_state.pkl not found in {clusters}[/yellow]")
+
         if treebank_filter:
             if len(treebank_filter) == 1:
-                console.print(f"\n[yellow]Clustering {treebank_filter[0]}...[/yellow]")
+                action = "Re-clustering" if existing_treebank_clusters else "Clustering"
+                console.print(f"\n[yellow]{action} {treebank_filter[0]}...[/yellow]")
             else:
-                console.print(f"\n[yellow]Clustering {len(treebank_filter)} treebanks: {', '.join(treebank_filter[:5])}{'...' if len(treebank_filter) > 5 else ''}[/yellow]")
+                action = "Re-clustering" if existing_treebank_clusters else "Clustering"
+                console.print(f"\n[yellow]{action} {len(treebank_filter)} treebanks: {', '.join(treebank_filter[:5])}{'...' if len(treebank_filter) > 5 else ''}[/yellow]")
         else:
             console.print("\n[yellow]Clustering all treebanks...[/yellow]")
 
+        # Generate/load embeddings (only for treebanks being clustered)
         embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_filter)
 
-        # Cluster treebanks
+        # Cluster treebanks (only the filtered ones)
         console.print("\n[yellow]Clustering treebanks...[/yellow]")
         bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        # Merge with existing clusters if we loaded state
+        if existing_treebank_clusters:
+            # Identify which treebanks were re-clustered
+            reclustered_keys = set(bootstrapper.treebank_clusters.keys())
+
+            # Add back all non-reclustered treebanks
+            for key, value in existing_treebank_clusters.items():
+                if key not in reclustered_keys:
+                    bootstrapper.treebank_clusters[key] = value
+                    # Also restore embeddings for non-reclustered treebanks
+                    if key in existing_embeddings_by_tb:
+                        embeddings_by_tb[key] = existing_embeddings_by_tb[key]
+
+            n_kept = len(existing_treebank_clusters) - len(reclustered_keys)
+            n_updated = len(reclustered_keys)
+            console.print(f"[blue]Updated {n_updated} treebank(s), kept {n_kept} unchanged[/blue]")
 
         console.print(f"\n[bold green]✓ Clustered {len(bootstrapper.treebank_clusters)} treebank splits[/bold green]")
 

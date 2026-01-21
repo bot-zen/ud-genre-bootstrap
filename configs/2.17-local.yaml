@@ -1,9 +1,13 @@
 # Default configuration for UD Genre Bootstrap
 
-
-
 ud_version: "2.17"
 ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
+
+# Optional: Exclude specific treebanks from all operations
+# exclude_treebanks:
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
 
 embeddings:
   model: "xlm-roberta-base"
@@ -17,6 +21,8 @@ clustering:
   method: "gmm"  # gmm, kmeans
   level: "treebank"  # treebank, language, all
   seed: 42
+  device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
+                  # Note: GMM not GPU-accelerated (cuML limitation), always uses CPU
 
 bootstrapping:
   min_confidence: 0.8

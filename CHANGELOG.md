@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Incremental re-clustering for selective treebank updates**
+  - `cluster` command now accepts `--clusters` option to load existing state
+  - Combined with `--treebank`, allows re-clustering specific treebanks only
+  - Keeps all other clusters unchanged and merges results
+  - Useful for updating clusters after changing genre mappings
+  - Example: `cluster --clusters output/ --treebank en_ewt` (updates only en_ewt)
 - **K-Means clustering with GPU acceleration via cuML**
   - New `KMeansClusterer` class with GPU support
   - Configurable via `clustering.method: "kmeans"` in config
