@@ -92,6 +92,9 @@ ud-genre-bootstrap embed --model xlm-roberta-base --output embeddings/
 ud-genre-bootstrap cluster --embeddings embeddings/ --output clusters/
 ud-genre-bootstrap label --clusters clusters/ --output genres/
 ud-genre-bootstrap evaluate --genres genres/ --output evaluation/
+
+# Force regenerate embeddings (overwrite cache)
+ud-genre-bootstrap embed --config config.yaml --overwrite
 ```
 
 ### Using Python API

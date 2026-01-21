@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helper function `apply_treebank_exclusions()` for treebank filtering
 - Export of `all_genres.parquet` from `label` command
 - Display functions for bootstrap schedule and evaluation results
+- `--overwrite` flag for `embed` command to force regeneration of cached embeddings
 
 ### Changed
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
