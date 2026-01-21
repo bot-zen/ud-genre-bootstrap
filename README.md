@@ -59,6 +59,20 @@ uv pip install -e ../ud-hf-parquet-tools
 uv pip install -e ".[dev]"
 ```
 
+### Optional: CUDA-Accelerated Visualization
+
+For GPU-accelerated UMAP visualization (requires NVIDIA GPU + CUDA):
+
+```bash
+# Install with CUDA support
+uv pip install -e ".[viz-cuda]"
+
+# Or for CPU-only visualization
+uv pip install -e ".[viz]"
+```
+
+The `viz-cuda` extra includes cuML and CuPy for significantly faster dimensionality reduction on large datasets.
+
 ## Quick Start
 
 ### Using the CLI
@@ -102,6 +116,44 @@ print(f"Accuracy: {results['accuracy']:.2%}")
 # Export to HuggingFace
 bootstrapper.push_to_hub("commul/ud-genres", revision="2.15")
 ```
+
+### Visualization
+
+Visualize cluster assignments and genre labels in 2D using UMAP or t-SNE:
+
+```bash
+# Visualize with sentence-level genre labels (after running 'label' command)
+ud-genre-bootstrap visualize-clusters \
+    --clusters output/ud-v2.15/genres/clusters \
+    --config configs/default.yaml \
+    --color-by genre
+
+# Color by cluster assignments instead
+ud-genre-bootstrap visualize-clusters \
+    --clusters output/ud-v2.15/genres/clusters \
+    --config configs/default.yaml \
+    --color-by cluster
+
+# Use GPU-accelerated UMAP (requires viz-cuda installation)
+ud-genre-bootstrap visualize-clusters \
+    --clusters output/ud-v2.15/genres/clusters \
+    --config configs/default.yaml \
+    --use-gpu
+
+# Filter to specific treebanks
+ud-genre-bootstrap visualize-clusters \
+    --clusters output/ud-v2.15/genres/clusters \
+    --config configs/default.yaml \
+    --treebank en_ewt,de_gsd
+```
+
+The visualization creates an interactive HTML plot showing:
+- **Genre coloring**: Each point colored by its assigned genre (default)
+- **Cluster coloring**: Points colored by cluster ID
+- **Treebank coloring**: Points colored by source treebank
+- **Hover information**: Shows sentence ID, genre, cluster, and treebank for each point
+
+**Note**: The visualization uses sentence-level genre assignments from `all_genres.parquet` (created by the `label` command). If this file doesn't exist, it falls back to treebank-level metadata.
 
 ## Configuration
 
@@ -148,11 +200,17 @@ evaluation:
     k: 5
     stratify_by: "genre"
     group_by: "language"
+    min_genre_sentences: 100  # Minimum sentences per genre for evaluation
 
 output:
   genres_path: "output/ud-v2.15/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   push_to_hub: true
+
+# Optional: Exclude specific treebanks from processing
+exclude_treebanks:
+  - "en_lines"  # Example: exclude problematic treebanks
+  - "ar_nyuad"
 ```
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
@@ -161,20 +219,52 @@ output:
 
 ### Genre Classifications
 
-Parquet files mirror the UD structure:
+The bootstrap labeling produces two main output files:
+
+#### 1. Sentence-Level Genre Assignments (`all_genres.parquet`)
+
+Contains one genre per sentence after GMM+L bootstrap labeling:
 
 ```python
-# Load genre predictions
 import pandas as pd
-df = pd.read_parquet("output/ud-v2.15/genres/UD_English-EWT/en_ewt-ud-train.parquet")
+df = pd.read_parquet("output/ud-v2.15/genres/all_genres.parquet")
 
 # Columns:
-# - sent_id: Join key (e.g., "en_ewt-ud-train#1")
-# - genre: Predicted genre label or None
-# - confidence: Bootstrap confidence [0-1]
-# - method: "metadata", "bootstrap-labeled", "bootstrap-inferred", "bootstrap-failed"
+# - sent_id: Sentence identifier (e.g., "en_ewt-ud-train-00001")
+# - genre: Single genre label assigned by bootstrap (e.g., "news", "wiki")
+# - confidence: Cosine similarity to genre centroid [0-1]
+# - method: "bootstrap-labeled" or "bootstrap-inferred" (low confidence)
 
-# Join with original UD data
+# Example usage
+print(df.head())
+#                    sent_id  genre  confidence          method
+# 0  en_ewt-ud-train-00001   news      0.8523  bootstrap-labeled
+# 1  en_ewt-ud-train-00002   news      0.7891  bootstrap-labeled
+# 2  de_gsd-ud-test-00042    wiki      0.4321  bootstrap-inferred
+```
+
+#### 2. Cluster Assignments (`clusters/cluster_assignments.parquet`)
+
+Contains cluster IDs before genre labeling:
+
+```python
+df_clusters = pd.read_parquet("output/ud-v2.15/genres/clusters/cluster_assignments.parquet")
+
+# Columns:
+# - treebank: Treebank code (e.g., "en_ewt")
+# - split: train/dev/test
+# - sent_id: Sentence identifier
+# - cluster_id: Cluster number (0 to n_genres-1)
+# - confidence: GMM assignment confidence
+
+# Join with genre assignments
+df_combined = df_clusters.merge(df, on='sent_id')
+```
+
+#### 3. Join with UD Data
+
+```python
+# Load genre predictions with original UD data
 from datasets import load_dataset
 ud = load_dataset("commul/universal_dependencies", "en_ewt", split="train", revision="2.15")
 ud_with_genres = ud.to_pandas().merge(df, on="sent_id")
@@ -210,6 +300,79 @@ Results are saved in `output/evaluation/`:
 - `confusion_matrix.png` - Visual confusion matrix
 - `cluster_quality.json` - Unsupervised cluster metrics
 - `convergence_report.json` - Bootstrap statistics
+
+### Cross-Validation
+
+The `evaluate` command performs k-fold cross-validation using **all available splits** (train, dev, test) from treebanks with sentence-level genre metadata:
+
+```bash
+ud-genre-bootstrap evaluate \
+    --config configs/default.yaml \
+    --n-folds 5 \
+    --group-by language
+```
+
+**Key features**:
+- Uses all splits since we only use text content and genre metadata (not UD annotations)
+- Creates virtual single-genre splits from each treebank split
+- Supports stratification by genre and grouping by language/treebank
+- Reports cross-lingual genre identification accuracy
+
+## Diagnostic Output
+
+The tool provides detailed diagnostic logging to help verify the GMM+L algorithm is working correctly:
+
+### Bootstrap Schedule Summary
+
+Shows the progression of genre discovery during bootstrapping:
+
+```
+Environment 1: 5 known, 12 predictable, 8 disjunct
+  ✓ New known genres: fiction, legal
+  → Can predict these combinations: ('news', 'blog'), ('wiki', 'reviews'), ...
+  ✗ Still disjunct: ('spoken', 'medical'), ...
+```
+
+### Cross-Lingual Genre Assignment Report
+
+Critical diagnostic showing whether genres are identified across languages:
+
+```
+================================================================================
+CROSS-LINGUAL GENRE ASSIGNMENT REPORT
+================================================================================
+
+Genre: NEWS
+  Found in 5 language(s), 12 cluster(s), 450 sentence(s)
+    en: 3 cluster(s), 120 sent(s), avg_conf=0.850
+    de: 2 cluster(s), 80 sent(s), avg_conf=0.820
+    fr: 4 cluster(s), 150 sent(s), avg_conf=0.840
+
+CROSS-LINGUAL CONSISTENCY CHECK:
+✓ Found 8 genre(s) spanning multiple languages:
+  - news: en, de, fr, es, it
+  - fiction: en, fr, de
+  - wiki: en, de, fr, it, es, fi
+```
+
+**Warning signs**:
+- If no genres span multiple languages, clustering may be separating by language rather than genre
+- Low confidence scores indicate weak genre signals
+- Many "bootstrap-inferred" assignments suggest the model is uncertain
+
+### Label Assignment Details
+
+Shows similarity scores for each cluster assignment:
+
+```
+Cluster c2 (150 sents) → news (conf=0.850, top3: news:0.850, blog:0.720, reviews:0.650)
+⚠ Cluster c5 in de_gsd:test → wiki (LOW conf=0.432, top3: wiki:0.432, news:0.428, fiction:0.401)
+```
+
+This helps identify:
+- Which genres are easily distinguishable
+- Which genres are confusable
+- Where the model lacks confidence
 
 ## Project Structure
 

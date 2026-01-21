@@ -8,19 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial project structure
-- Core module skeletons for embeddings, clustering, bootstrapping, and evaluation
-- CLI interface with Typer
-- Configuration system with YAML support
-- HuggingFace integration for datasets and embeddings
-- Apache 2.0 license
-- Documentation and README
+- CUDA-accelerated visualization support via `viz-cuda` optional dependency group
+  - Includes cuML for GPU-accelerated UMAP
+  - Includes CuPy for GPU-accelerated NumPy operations
+  - Configured NVIDIA PyPI index in `[tool.uv]`
+- Sentence-level genre assignment visualization
+  - Loads `all_genres.parquet` for actual bootstrap-assigned genres
+  - `--color-by` parameter to switch between genre, cluster, or treebank coloring
+  - Interactive tooltips showing all metadata
+- Enhanced diagnostic logging and reporting
+  - Cross-lingual genre assignment report showing genres spanning multiple languages
+  - Bootstrap schedule summary table showing progression
+  - Label assignment logging with top-3 similarity scores
+  - Low-confidence warnings for uncertain assignments
+- Configuration support for excluding specific treebanks via `exclude_treebanks`
+- Helper function `apply_treebank_exclusions()` for treebank filtering
+- Export of `all_genres.parquet` from `label` command
+- Display functions for bootstrap schedule and evaluation results
 
 ### Changed
-- Modernized from 2021 paper implementation
-- Switched to HuggingFace Datasets ecosystem
-- Updated to Python 3.12
-- Added support for multiple embedding models
+- Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
+- Evaluation uses ALL available splits (train, dev, test) for maximum genre coverage
+  - Removed train-only treebank restrictions
+  - Processes all splits per treebank to maximize data usage
+- Enhanced scheduler logging with genre combination distribution
+- Improved bootstrapper logging with similarity scores and confidence reporting
+- Updated genre mappings and metadata patterns
+- Improved configuration files (default.yaml, 2.17-local.yaml)
+
+### Fixed
+- Missing `json` import in CLI visualization command
+- Visualization showing comma-separated genres instead of single-genre assignments
 
 ## [0.1.0] - 2026-01-17
 
