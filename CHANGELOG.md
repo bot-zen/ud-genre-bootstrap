@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Export of `all_genres.parquet` from `label` command
 - Display functions for bootstrap schedule and evaluation results
 - `--overwrite` flag for `embed` command to force regeneration of cached embeddings
+- Confusion matrix visualization in `evaluate` command
+  - Terminal display as Rich table with highlighted diagonal
+  - PNG heatmap saved to `evaluation/confusion_matrix.png`
+  - Aggregates predictions across all cross-validation folds
 
 ### Changed
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
