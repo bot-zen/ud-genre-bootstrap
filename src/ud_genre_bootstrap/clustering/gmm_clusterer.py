@@ -4,8 +4,6 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.mixture import GaussianMixture
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +16,7 @@ class GMMClusterer:
         n_components: Optional[int] = None,
         random_state: int = 42,
         pca_components: int = 0,
+        device: str = "auto",
     ):
         """Initialize GMM clusterer.
 
@@ -25,12 +24,73 @@ class GMMClusterer:
             n_components: Number of clusters (if None, inferred from data)
             random_state: Random seed
             pca_components: If > 0, apply PCA before clustering
+            device: Device to use ("auto", "cuda", or "cpu")
         """
         self.n_components = n_components
         self.random_state = random_state
         self.pca_components = pca_components
+        self.device = self._determine_device(device)
+        self.use_gpu = self.device == "cuda"
+
+        # Import appropriate libraries based on device
+        self._import_libraries()
+
         self.pca = None
         self.gmm = None
+
+    def _determine_device(self, device: str) -> str:
+        """Determine which device to use.
+
+        Args:
+            device: User-specified device ("auto", "cuda", or "cpu")
+
+        Returns:
+            Device string ("cuda" or "cpu")
+        """
+        if device == "cpu":
+            return "cpu"
+
+        if device in ("auto", "cuda"):
+            try:
+                import cupy as cp
+                # Try to initialize CUDA
+                cp.cuda.Device(0).compute_capability
+                if device == "auto":
+                    logger.info("GPU detected, using CUDA for GMM clustering")
+                return "cuda"
+            except (ImportError, Exception):
+                if device == "cuda":
+                    logger.warning("CUDA requested but not available, falling back to CPU")
+                return "cpu"
+
+        return "cpu"
+
+    def _import_libraries(self):
+        """Import appropriate GMM and PCA libraries based on device."""
+        if self.use_gpu:
+            try:
+                from cuml.mixture import GaussianMixture as CuGaussianMixture
+                from cuml.decomposition import PCA as CuPCA
+                import cupy as cp
+
+                self.GaussianMixture = CuGaussianMixture
+                self.PCA = CuPCA
+                self.cp = cp
+                logger.info("Using cuML (GPU-accelerated) for GMM clustering")
+            except ImportError as e:
+                logger.warning(f"cuML not available ({e}), falling back to CPU. Install with: uv pip install .[viz-cuda]")
+                self.use_gpu = False
+                self.device = "cpu"
+                # Fall through to CPU imports
+
+        if not self.use_gpu:
+            from sklearn.mixture import GaussianMixture
+            from sklearn.decomposition import PCA
+
+            self.GaussianMixture = GaussianMixture
+            self.PCA = PCA
+            self.cp = None
+            logger.info("Using scikit-learn (CPU) for GMM clustering")
 
     def fit(self, embeddings: np.ndarray, n_genres: int) -> np.ndarray:
         """Fit GMM to embeddings.
@@ -45,8 +105,15 @@ class GMMClusterer:
         n_components = n_genres if self.n_components is None else self.n_components
 
         logger.info(
-            f"Fitting GMM with {n_components} components on {len(embeddings)} samples"
+            f"Fitting GMM with {n_components} components on {len(embeddings)} samples "
+            f"(device: {self.device})"
         )
+
+        # Convert to GPU array if using CUDA
+        if self.use_gpu:
+            embeddings_input = self.cp.asarray(embeddings)
+        else:
+            embeddings_input = embeddings
 
         # Apply PCA if requested
         if self.pca_components > 0:
@@ -57,22 +124,29 @@ class GMMClusterer:
                 )
                 self.pca_components = n_components
 
-            self.pca = PCA(n_components=self.pca_components, random_state=self.random_state)
-            embeddings = self.pca.fit_transform(embeddings)
-            logger.info(f"Applied PCA: {embeddings.shape[1]} components")
+            self.pca = self.PCA(n_components=self.pca_components, random_state=self.random_state)
+            embeddings_input = self.pca.fit_transform(embeddings_input)
+            logger.info(f"Applied PCA: {embeddings_input.shape[1]} components")
 
         # Fit GMM
-        self.gmm = GaussianMixture(
+        self.gmm = self.GaussianMixture(
             n_components=n_components,
             random_state=self.random_state,
             verbose=1,
         )
-        self.gmm.fit(embeddings)
+        self.gmm.fit(embeddings_input)
 
         # Get cluster probabilities
-        cluster_probs = self.gmm.predict_proba(embeddings)
+        cluster_probs = self.gmm.predict_proba(embeddings_input)
 
-        logger.info(f"GMM fit complete. BIC: {self.gmm.bic(embeddings):.2f}")
+        # Convert back to CPU if using GPU
+        if self.use_gpu:
+            cluster_probs = self.cp.asnumpy(cluster_probs)
+            bic_value = float(self.cp.asnumpy(self.gmm.bic(embeddings_input)))
+        else:
+            bic_value = self.gmm.bic(embeddings_input)
+
+        logger.info(f"GMM fit complete. BIC: {bic_value:.2f}")
 
         return cluster_probs
 
@@ -88,12 +162,23 @@ class GMMClusterer:
         if self.gmm is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
+        # Convert to GPU array if using CUDA
+        if self.use_gpu:
+            embeddings_input = self.cp.asarray(embeddings)
+        else:
+            embeddings_input = embeddings
+
         # Apply PCA if it was used during fitting
         if self.pca is not None:
-            embeddings = self.pca.transform(embeddings)
+            embeddings_input = self.pca.transform(embeddings_input)
 
-        cluster_probs = self.gmm.predict_proba(embeddings)
+        cluster_probs = self.gmm.predict_proba(embeddings_input)
         cluster_ids = cluster_probs.argmax(axis=1)
+
+        # Convert back to CPU if using GPU
+        if self.use_gpu:
+            cluster_ids = self.cp.asnumpy(cluster_ids)
+            cluster_probs = self.cp.asnumpy(cluster_probs)
 
         return cluster_ids, cluster_probs
 
@@ -150,4 +235,10 @@ class GMMClusterer:
         if self.gmm is None:
             raise ValueError("Model not fitted.")
 
-        return self.gmm.means_
+        centroids = self.gmm.means_
+
+        # Convert back to CPU if using GPU
+        if self.use_gpu:
+            centroids = self.cp.asnumpy(centroids)
+
+        return centroids

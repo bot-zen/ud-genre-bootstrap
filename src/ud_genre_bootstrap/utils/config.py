@@ -27,6 +27,7 @@ class ClusteringConfig:
     method: str = "gmm"
     level: str = "treebank"
     seed: int = 42
+    device: str = "auto"  # "auto", "cuda", "cpu"
 
 
 @dataclass

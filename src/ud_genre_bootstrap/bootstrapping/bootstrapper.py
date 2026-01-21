@@ -63,6 +63,7 @@ class GenreBootstrapper:
 
         self.clusterer = GMMClusterer(
             random_state=config.clustering.seed,
+            device=config.clustering.device,
         )
 
         self.scheduler = BootstrapScheduler(

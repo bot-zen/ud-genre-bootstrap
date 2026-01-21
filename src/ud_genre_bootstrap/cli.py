@@ -235,6 +235,11 @@ def cluster(
         "-t",
         help="Specific treebank(s) to cluster (e.g., en_ewt or en_ewt,de_gsd). If not specified, clusters all.",
     ),
+    use_gpu: bool = typer.Option(
+        False,
+        "--use-gpu",
+        help="Use GPU acceleration for GMM clustering (requires cuML)",
+    ),
 ):
     """Cluster treebank sentences into genre groups.
 
@@ -245,6 +250,10 @@ def cluster(
 
     try:
         cfg = load_config_from_path(config)
+
+        # Override device setting if --use-gpu flag is provided
+        if use_gpu:
+            cfg.clustering.device = "cuda"
 
         bootstrapper = GenreBootstrapper(cfg)
 
