@@ -101,6 +101,10 @@ class GenreBootstrapper:
         logger.info("Step 5: Labeling clusters")
         self._label_clusters(schedule)
 
+        # Step 5.5: Generate cross-lingual assignment report
+        logger.info("Step 5.5: Generating cross-lingual assignment report")
+        self._generate_cross_lingual_report()
+
         # Step 6: Export results
         logger.info("Step 6: Exporting results")
         results = self._export_results()
@@ -155,13 +159,29 @@ class GenreBootstrapper:
         if self.config.clustering.level == "treebank":
             # Cluster each treebank independently
             for (tb_code, split), emb_data in embeddings_by_tb.items():
-                # Get genres and normalize them using genre mapper
-                raw_genres = self.data_loader.get_treebank_genres(tb_code)
-                genres = [
-                    self.genre_mapper.normalize_genre(g, tb_code) for g in raw_genres
-                ]
-                # Remove duplicates after normalization
-                genres = list(set(genres))
+                # Try to extract genres from actual sentences first (more accurate)
+                # This respects genre extraction patterns and mappings
+                genres_from_sentences = set()
+                try:
+                    dataset = self.data_loader.load_treebank(tb_code, split)
+                    for sentence in dataset:
+                        extracted = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+                        genres_from_sentences.update(extracted)
+                except Exception:
+                    pass  # Fall back to treebank-level metadata
+
+                if genres_from_sentences:
+                    # Use genres extracted from actual sentences
+                    genres = list(genres_from_sentences)
+                else:
+                    # Fallback: Get genres from treebank-level metadata and normalize
+                    raw_genres = self.data_loader.get_treebank_genres(tb_code)
+                    genres = [
+                        self.genre_mapper.normalize_genre(g, tb_code) for g in raw_genres
+                    ]
+                    # Remove duplicates after normalization
+                    genres = list(set(genres))
+
                 n_genres = len(genres)
 
                 if n_genres == 0:
@@ -300,17 +320,27 @@ class GenreBootstrapper:
         """
         min_confidence = self.config.bootstrapping.min_confidence
 
+        # Track statistics for this environment
+        labels_assigned = 0
+        labels_high_confidence = 0
+        labels_low_confidence = 0
+
         # Iterate through genre combinations that can be predicted
         for genre_combination in environment['predict']:
             if genre_combination not in self.genre_combination_clusters:
                 continue
 
             # Get all clusters for this genre combination
+            tb_cluster_count = len(self.genre_combination_clusters[genre_combination])
+            logger.info(f"  Labeling {tb_cluster_count} treebank(s) with genre combination {genre_combination}")
+
             for (tb_code, split), clusters in self.genre_combination_clusters[genre_combination].items():
-                logger.debug(f"Labeling {tb_code} {split} with genres {genre_combination}")
+                logger.debug(f"    Processing {tb_code}:{split} ({len(clusters)} clusters)")
 
                 for cluster in clusters:
                     cluster_emb = cluster['embedding']
+                    cluster_id = cluster['cluster_id']
+                    n_sentences = len(cluster['sent_ids'])
 
                     # Compute cosine similarity to each known genre
                     similarities = {}
@@ -324,20 +354,123 @@ class GenreBootstrapper:
                         best_genre = max(similarities, key=similarities.get)
                         confidence = similarities[best_genre]
 
+                        # Sort similarities for logging
+                        sorted_sims = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+                        top_3 = ", ".join([f"{g}:{s:.3f}" for g, s in sorted_sims[:3]])
+
                         # Only label if confidence exceeds threshold
                         if confidence >= min_confidence:
                             method = "bootstrap-labeled"
+                            labels_high_confidence += 1
+                            logger.debug(
+                                f"      Cluster c{cluster_id} ({n_sentences} sents) → {best_genre} "
+                                f"(conf={confidence:.3f}, top3: {top_3})"
+                            )
                         else:
                             # Low confidence - mark as inferred
                             method = "bootstrap-inferred"
-                            logger.debug(
-                                f"Low confidence ({confidence:.3f}) for cluster "
-                                f"{cluster['cluster_id']} in {tb_code}"
+                            labels_low_confidence += 1
+                            logger.info(
+                                f"      ⚠ Cluster c{cluster_id} in {tb_code}:{split} → {best_genre} "
+                                f"(LOW conf={confidence:.3f}, top3: {top_3})"
                             )
+
+                        labels_assigned += 1
 
                         # Store labels for all sentences in this cluster
                         for sent_id in cluster['sent_ids']:
                             self.final_labels[sent_id] = (best_genre, confidence, method)
+
+        # Log summary for this environment
+        logger.info(
+            f"  Summary: {labels_assigned} clusters labeled "
+            f"({labels_high_confidence} high conf, {labels_low_confidence} low conf)"
+        )
+
+    def _generate_cross_lingual_report(self):
+        """Generate a report showing cross-lingual genre assignments.
+
+        This helps verify if GMM+L is correctly identifying the same genres
+        across different languages.
+        """
+        from collections import defaultdict
+
+        # Group assignments by assigned genre
+        genre_assignments = defaultdict(lambda: defaultdict(list))
+
+        # Collect cluster assignments grouped by genre
+        for genre_combo, treebank_clusters in self.genre_combination_clusters.items():
+            for (tb_code, split), clusters in treebank_clusters.items():
+                # Extract language code from treebank
+                lang_code = tb_code.split('_')[0]
+
+                for cluster in clusters:
+                    # Find the assigned genre for sentences in this cluster
+                    if cluster['sent_ids']:
+                        first_sent = cluster['sent_ids'][0]
+                        if first_sent in self.final_labels:
+                            assigned_genre, confidence, method = self.final_labels[first_sent]
+                            genre_assignments[assigned_genre][lang_code].append({
+                                'treebank': tb_code,
+                                'split': split,
+                                'cluster_id': cluster['cluster_id'],
+                                'n_sentences': len(cluster['sent_ids']),
+                                'confidence': confidence,
+                                'original_genres': genre_combo,
+                            })
+
+        # Log the cross-lingual report
+        logger.info("\n" + "=" * 80)
+        logger.info("CROSS-LINGUAL GENRE ASSIGNMENT REPORT")
+        logger.info("=" * 80)
+
+        for genre in sorted(genre_assignments.keys()):
+            langs = genre_assignments[genre]
+            total_clusters = sum(len(clusters) for clusters in langs.values())
+            total_sentences = sum(
+                sum(c['n_sentences'] for c in clusters)
+                for clusters in langs.values()
+            )
+
+            logger.info(f"\nGenre: {genre.upper()}")
+            logger.info(f"  Found in {len(langs)} language(s), {total_clusters} cluster(s), {total_sentences} sentence(s)")
+
+            # Show per-language breakdown
+            for lang in sorted(langs.keys()):
+                clusters = langs[lang]
+                n_clusters = len(clusters)
+                n_sentences = sum(c['n_sentences'] for c in clusters)
+                avg_conf = sum(c['confidence'] for c in clusters) / n_clusters if n_clusters > 0 else 0
+
+                logger.info(f"    {lang}: {n_clusters} cluster(s), {n_sentences} sent(s), avg_conf={avg_conf:.3f}")
+
+                # Show details for each cluster
+                for cluster_info in clusters[:3]:  # Show first 3 clusters per language
+                    logger.debug(
+                        f"      - {cluster_info['treebank']}:{cluster_info['split']} "
+                        f"c{cluster_info['cluster_id']} ({cluster_info['n_sentences']} sents, "
+                        f"conf={cluster_info['confidence']:.3f}, "
+                        f"orig={cluster_info['original_genres']})"
+                    )
+                if len(clusters) > 3:
+                    logger.debug(f"      ... and {len(clusters)-3} more cluster(s)")
+
+        logger.info("\n" + "=" * 80)
+
+        # Cross-lingual consistency check
+        logger.info("\nCROSS-LINGUAL CONSISTENCY CHECK:")
+        multi_lingual_genres = {g: langs for g, langs in genre_assignments.items() if len(langs) > 1}
+
+        if multi_lingual_genres:
+            logger.info(f"✓ Found {len(multi_lingual_genres)} genre(s) spanning multiple languages:")
+            for genre in sorted(multi_lingual_genres.keys()):
+                langs = list(multi_lingual_genres[genre].keys())
+                logger.info(f"  - {genre}: {', '.join(sorted(langs))}")
+        else:
+            logger.warning("✗ No genres found spanning multiple languages!")
+            logger.warning("  This suggests clustering may be separating by language rather than genre.")
+
+        logger.info("=" * 80 + "\n")
 
     def _export_results(self) -> Dict:
         """Export final genre labels to parquet files.

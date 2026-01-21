@@ -50,6 +50,15 @@ class BootstrapScheduler:
         iteration = 0
 
         logger.info(f"Starting with {len(known_genres)} known genres: {sorted(known_genres)}")
+        logger.info(f"Total genre combinations to resolve: {len(genre_combinations)}")
+        logger.info(f"All unique genres in dataset: {sorted(all_genres)}")
+
+        # Log distribution of genre combination sizes
+        combo_sizes = {}
+        for combo in genre_combinations:
+            size = len(combo)
+            combo_sizes[size] = combo_sizes.get(size, 0) + 1
+        logger.info(f"Genre combination distribution: {dict(sorted(combo_sizes.items()))}")
 
         # Iterate until no more progress or max iterations
         while prev_num_known != len(known_genres) and iteration < self.max_iterations:
@@ -100,7 +109,15 @@ class BootstrapScheduler:
             )
 
             if len(new_known_genres) > 0:
-                logger.info(f"  New known genres: {sorted(new_known_genres)}")
+                logger.info(f"  ✓ New known genres: {sorted(new_known_genres)}")
+
+            if len(environment['predict']) > 0:
+                logger.info(f"  → Can predict these combinations: {environment['predict'][:5]}" +
+                           (f" ... (+{len(environment['predict'])-5} more)" if len(environment['predict']) > 5 else ""))
+
+            if len(environment['disjunct']) > 0:
+                logger.info(f"  ✗ Still disjunct: {environment['disjunct'][:3]}" +
+                           (f" ... (+{len(environment['disjunct'])-3} more)" if len(environment['disjunct']) > 3 else ""))
 
         # Check if we successfully resolved everything
         if len(schedule) > 0 and len(schedule[-1]["disjunct"]) > 0:
