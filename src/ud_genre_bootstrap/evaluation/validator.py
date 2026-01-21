@@ -262,11 +262,15 @@ class CrossValidator:
         conf_matrix = confusion_matrix(all_true, all_pred)
         class_report = classification_report(all_true, all_pred, output_dict=True)
 
+        # Get unique genre labels in sorted order for confusion matrix axes
+        genre_labels = sorted(set(all_true))
+
         return {
             "mean_accuracy": float(np.mean(accuracies)),
             "std_accuracy": float(np.std(accuracies)),
             "overall_accuracy": float(overall_accuracy),
             "confusion_matrix": conf_matrix.tolist(),
+            "genre_labels": genre_labels,
             "classification_report": class_report,
             "fold_accuracies": accuracies,
             "num_folds": len(fold_results),

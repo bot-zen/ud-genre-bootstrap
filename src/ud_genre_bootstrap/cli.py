@@ -862,6 +862,45 @@ def evaluate(
         console.print(f"\n[yellow]Running {n_folds_val}-fold cross-validation...[/yellow]")
         results = validator.k_fold_validate(virtual_splits, run_bootstrap)
 
+        # Save confusion matrix as PNG if output path specified
+        if cfg.output.genres_path and "confusion_matrix" in results and "genre_labels" in results:
+            try:
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+                import numpy as np
+
+                output_dir = Path(cfg.output.genres_path) / "evaluation"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                conf_matrix = np.array(results["confusion_matrix"])
+                genre_labels = results["genre_labels"]
+
+                # Create heatmap
+                plt.figure(figsize=(10, 8))
+                sns.heatmap(
+                    conf_matrix,
+                    annot=True,
+                    fmt='d',
+                    cmap='Blues',
+                    xticklabels=genre_labels,
+                    yticklabels=genre_labels,
+                    cbar_kws={'label': 'Count'}
+                )
+                plt.xlabel('Predicted Genre')
+                plt.ylabel('True Genre')
+                plt.title(f'Confusion Matrix - {results["num_folds"]}-Fold Cross-Validation')
+                plt.tight_layout()
+
+                # Save
+                confusion_matrix_path = output_dir / "confusion_matrix.png"
+                plt.savefig(confusion_matrix_path, dpi=150, bbox_inches='tight')
+                plt.close()
+
+                console.print(f"[blue]Confusion matrix saved to:[/blue] {confusion_matrix_path}")
+            except ImportError as e:
+                console.print(f"[yellow]Warning: Could not save confusion matrix PNG. Install visualization dependencies with: uv pip install .[viz][/yellow]")
+                logger.warning(f"Failed to save confusion matrix: {e}")
+
         # Display results
         _display_evaluation_results(results)
 
@@ -1568,6 +1607,35 @@ def _display_evaluation_results(results: dict):
                     f"{metrics['f1-score']:.3f}",
                     str(metrics['support']),
                 )
+
+        console.print(table)
+
+    # Confusion Matrix (if available)
+    if "confusion_matrix" in results and "genre_labels" in results:
+        console.print("\n[bold]Confusion Matrix:[/bold]")
+
+        conf_matrix = results["confusion_matrix"]
+        genre_labels = results["genre_labels"]
+
+        # Create Rich table
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("True \\ Predicted", style="cyan")
+
+        # Add column for each predicted genre
+        for pred_genre in genre_labels:
+            table.add_column(pred_genre, justify="right", style="yellow")
+
+        # Add row for each true genre
+        for i, true_genre in enumerate(genre_labels):
+            row = [true_genre]
+            for j in range(len(genre_labels)):
+                count = conf_matrix[i][j]
+                # Highlight diagonal (correct predictions)
+                if i == j:
+                    row.append(f"[bold green]{count}[/bold green]")
+                else:
+                    row.append(str(count))
+            table.add_row(*row)
 
         console.print(table)
 
