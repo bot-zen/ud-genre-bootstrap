@@ -312,18 +312,16 @@ def cluster(
 
         # Merge with existing clusters if we loaded state
         if existing_treebank_clusters:
-            # Identify which treebanks were re-clustered
-            reclustered_keys = set(bootstrapper.treebank_clusters.keys())
+            # Identify which treebanks were re-clustered (those we have new embeddings for)
+            reclustered_keys = set(embeddings_by_tb.keys())
 
-            # Add back all non-reclustered treebanks
-            for key, value in existing_treebank_clusters.items():
-                if key not in reclustered_keys:
-                    bootstrapper.treebank_clusters[key] = value
-                    # Also restore embeddings for non-reclustered treebanks
-                    if key in existing_embeddings_by_tb:
-                        embeddings_by_tb[key] = existing_embeddings_by_tb[key]
+            # Restore embeddings for all non-reclustered treebanks
+            # (clusters are already in bootstrapper.treebank_clusters from the loaded state)
+            for key in bootstrapper.treebank_clusters.keys():
+                if key not in reclustered_keys and key in existing_embeddings_by_tb:
+                    embeddings_by_tb[key] = existing_embeddings_by_tb[key]
 
-            n_kept = len(existing_treebank_clusters) - len(reclustered_keys)
+            n_kept = len(bootstrapper.treebank_clusters) - len(reclustered_keys)
             n_updated = len(reclustered_keys)
             console.print(f"[blue]Updated {n_updated} treebank(s), kept {n_kept} unchanged[/blue]")
 
