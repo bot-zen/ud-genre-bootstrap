@@ -102,9 +102,12 @@ ud-genre-bootstrap label --config config.yaml --clusters output/clusters/
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
 
-# Note: GPU clustering infrastructure is ready, but GMM not yet GPU-accelerated
-# (cuML doesn't support Gaussian Mixture Models - falls back to CPU)
+# GPU-accelerated K-Means clustering (recommended for GPU)
+# Set method: "kmeans" in config.yaml for GPU acceleration
 ud-genre-bootstrap cluster --config config.yaml --use-gpu
+
+# Note: GMM is CPU-only (cuML doesn't support Gaussian Mixture Models)
+# Use K-Means for GPU acceleration
 ```
 
 ### Using Python API
@@ -192,10 +195,11 @@ embeddings:
   device: "cuda"
 
 clustering:
-  method: "gmm"
+  method: "kmeans"  # "kmeans" (GPU-accelerated) or "gmm" (CPU-only)
   level: "treebank"
   seed: 42
   device: "auto"  # Use GPU if available, or "cuda"/"cpu" to force
+  # Note: K-Means supports GPU via cuML, GMM is CPU-only
 
 bootstrapping:
   min_confidence: 0.8

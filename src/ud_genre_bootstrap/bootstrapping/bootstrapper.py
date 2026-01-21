@@ -10,6 +10,7 @@ from scipy.spatial import distance
 
 from ud_genre_bootstrap.bootstrapping.scheduler import BootstrapScheduler
 from ud_genre_bootstrap.clustering.gmm_clusterer import GMMClusterer
+from ud_genre_bootstrap.clustering.kmeans_clusterer import KMeansClusterer
 from ud_genre_bootstrap.embeddings.generator import EmbeddingGenerator
 from ud_genre_bootstrap.utils.config import Config
 from ud_genre_bootstrap.utils.data_loader import UDDataLoader
@@ -61,10 +62,25 @@ class GenreBootstrapper:
             device=config.embeddings.device,
         )
 
-        self.clusterer = GMMClusterer(
-            random_state=config.clustering.seed,
-            device=config.clustering.device,
-        )
+        # Select clusterer based on configuration
+        clustering_method = config.clustering.method.lower()
+        if clustering_method == "kmeans":
+            logger.info("Using K-Means clustering")
+            self.clusterer = KMeansClusterer(
+                random_state=config.clustering.seed,
+                device=config.clustering.device,
+            )
+        elif clustering_method == "gmm":
+            logger.info("Using GMM clustering")
+            self.clusterer = GMMClusterer(
+                random_state=config.clustering.seed,
+                device=config.clustering.device,
+            )
+        else:
+            raise ValueError(
+                f"Unknown clustering method: {clustering_method}. "
+                f"Supported methods: 'gmm', 'kmeans'"
+            )
 
         self.scheduler = BootstrapScheduler(
             max_iterations=config.bootstrapping.max_iterations,

@@ -18,11 +18,11 @@ embeddings:
   cache_dir: null  # Optional: directory to cache embeddings (e.g., "cache/embeddings")
 
 clustering:
-  method: "gmm"  # gmm, kmeans
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
   level: "treebank"  # treebank, language, all
   seed: 42
   device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
-                  # Note: GMM not GPU-accelerated (cuML limitation), always uses CPU
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
 
 bootstrapping:
   min_confidence: 0.8
