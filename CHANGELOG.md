@@ -33,11 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable canonical genre set via `genre_extraction.canonical_genres`
   - Override default UD genre taxonomy with custom genre set
   - Falls back to default set if not specified
-- GPU-accelerated GMM clustering via cuML
+- GPU clustering infrastructure (note: GMM not yet GPU-accelerated)
   - `--use-gpu` flag for `cluster` command
   - `device` configuration in `clustering` section ("auto", "cuda", "cpu")
-  - Automatic fallback to CPU if CUDA not available
-  - Requires `viz-cuda` extra for cuML and CuPy
+  - Framework ready for GPU algorithms (currently falls back to CPU for GMM)
+  - Note: cuML does not support Gaussian Mixture Models (only KMeans, DBSCAN, HDBSCAN)
+  - Future: Consider adding GPU-accelerated KMeans as alternative clustering method
 
 ### Changed
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata

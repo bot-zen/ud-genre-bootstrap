@@ -96,7 +96,8 @@ ud-genre-bootstrap evaluate --genres genres/ --output evaluation/
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
 
-# Use GPU acceleration for clustering (requires viz-cuda installation)
+# Note: GPU clustering infrastructure is ready, but GMM not yet GPU-accelerated
+# (cuML doesn't support Gaussian Mixture Models - falls back to CPU)
 ud-genre-bootstrap cluster --config config.yaml --use-gpu
 ```
 

@@ -68,20 +68,17 @@ class GMMClusterer:
     def _import_libraries(self):
         """Import appropriate GMM and PCA libraries based on device."""
         if self.use_gpu:
-            try:
-                from cuml.mixture import GaussianMixture as CuGaussianMixture
-                from cuml.decomposition import PCA as CuPCA
-                import cupy as cp
-
-                self.GaussianMixture = CuGaussianMixture
-                self.PCA = CuPCA
-                self.cp = cp
-                logger.info("Using cuML (GPU-accelerated) for GMM clustering")
-            except ImportError as e:
-                logger.warning(f"cuML not available ({e}), falling back to CPU. Install with: uv pip install .[viz-cuda]")
-                self.use_gpu = False
-                self.device = "cpu"
-                # Fall through to CPU imports
+            # NOTE: cuML does not currently support GaussianMixture
+            # See: https://github.com/rapidsai/cuml/issues
+            # Available GPU algorithms: KMeans, DBSCAN, HDBSCAN, AgglomerativeClustering
+            logger.warning(
+                "GPU acceleration requested but cuML does not support Gaussian Mixture Models. "
+                "Falling back to CPU (scikit-learn). "
+                "For GPU clustering, consider using KMeans instead of GMM."
+            )
+            self.use_gpu = False
+            self.device = "cpu"
+            # Fall through to CPU imports
 
         if not self.use_gpu:
             from sklearn.mixture import GaussianMixture
