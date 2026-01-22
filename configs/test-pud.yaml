@@ -30,6 +30,7 @@ include_treebanks:
   - "sv_pud"
   - "th_pud"
   - "tr_pud"
+  - "it_postwita"
 
 # Optional: Exclude specific treebanks from all operations
 # exclude_treebanks:

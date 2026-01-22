@@ -118,16 +118,20 @@ class GenreBootstrapper:
         logger.info("Step 4: Creating bootstrap schedule")
         schedule = self._create_schedule()
 
-        # Step 5: Label clusters according to schedule
-        logger.info("Step 5: Labeling clusters")
+        # Step 5: Label single-genre treebanks (trivial labeling)
+        logger.info("Step 5: Labeling single-genre treebanks")
+        self._label_single_genre_treebanks()
+
+        # Step 6: Label multi-genre clusters according to schedule
+        logger.info("Step 6: Labeling multi-genre clusters via bootstrap")
         self._label_clusters(schedule)
 
-        # Step 5.5: Generate cross-lingual assignment report
-        logger.info("Step 5.5: Generating cross-lingual assignment report")
+        # Step 6.5: Generate cross-lingual assignment report
+        logger.info("Step 6.5: Generating cross-lingual assignment report")
         self._generate_cross_lingual_report()
 
-        # Step 6: Export results
-        logger.info("Step 6: Exporting results")
+        # Step 7: Export results
+        logger.info("Step 7: Exporting results")
         results = self._export_results()
 
         logger.info("Bootstrap pipeline complete")
@@ -336,6 +340,41 @@ class GenreBootstrapper:
                 logger.warning("Some genre combinations cannot be resolved")
 
         return schedule
+
+    def _label_single_genre_treebanks(self):
+        """Label all sentences from single-genre treebanks.
+
+        Single-genre treebanks (e.g., PoSTWITA with only 'social') should have
+        all their sentences trivially labeled with that genre at 100% confidence.
+        This step runs before bootstrap labeling.
+        """
+        labeled_count = 0
+        treebanks_labeled = 0
+
+        for (tb_code, split), tb_info in self.treebank_clusters.items():
+            genres = tb_info['genres']
+
+            # Only process single-genre treebanks
+            if len(genres) == 1:
+                genre = genres[0]
+                cluster_result = tb_info['cluster_result']
+
+                # Get all sentence IDs from all clusters
+                for cluster_id, cluster_info in cluster_result['clusters'].items():
+                    for sent_id in cluster_info['sent_ids']:
+                        # Label with 100% confidence (known single-genre treebank)
+                        self.final_labels[sent_id] = (genre, 1.0, 'single-genre-treebank')
+                        labeled_count += 1
+
+                treebanks_labeled += 1
+                n_sentences = sum(len(c['sent_ids']) for c in cluster_result['clusters'].values())
+                logger.info(
+                    f"  Labeled {tb_code}:{split} with '{genre}' ({n_sentences} sentences)"
+                )
+
+        logger.info(
+            f"Labeled {labeled_count} sentences from {treebanks_labeled} single-genre treebank(s)"
+        )
 
     def _label_clusters(self, schedule: List[Dict]):
         """Label clusters according to bootstrap schedule.
