@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 def export_metadata_genres(config_path: Path, output_path: Path, treebank_filter: list = None):
     """Export genre labels from metadata for all sentences.
 
+    Uses the same logic as the bootstrapper:
+    1. Extract genres from sentence-level metadata (e.g., PUD patterns)
+    2. Fall back to treebank-level metadata for single-genre treebanks (e.g., PoSTWITA)
+
     Args:
         config_path: Path to config file
         output_path: Output path for all_genres.parquet
@@ -56,30 +60,65 @@ def export_metadata_genres(config_path: Path, output_path: Path, treebank_filter
     for tb_code, split, dataset in data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
         logger.info(f"Processing {tb_code}:{split} ({len(dataset)} sentences)")
 
-        for idx, sentence in enumerate(dataset):
-            sent_id = sentence.get('sent_id', f'{tb_code}_{split}_{idx}')
+        # First pass: check if treebank has sentence-level metadata
+        # (Same logic as bootstrapper._cluster_treebanks())
+        genres_from_sentences = set()
+        for sent in dataset:
+            sent_genres = genre_mapper.extract_genres_from_metadata(sent, tb_code)
+            genres_from_sentences.update(sent_genres)
 
-            # Extract genres from metadata
-            genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+        # Determine treebank-level genres
+        if not genres_from_sentences:
+            # No sentence-level metadata, use treebank-level
+            tb_metadata = data_loader.get_treebank_metadata(tb_code)
+            treebank_genres = tb_metadata.get('genre', [])
+            if isinstance(treebank_genres, str):
+                treebank_genres = [treebank_genres]
+        else:
+            treebank_genres = sorted(genres_from_sentences)
 
-            if genres:
-                # Use first genre if multiple (most should have exactly one)
-                genre = genres[0]
+        # Check if this is a single-genre treebank
+        is_single_genre = len(treebank_genres) == 1
 
+        if is_single_genre:
+            # Single-genre treebank: label all sentences with that genre
+            single_genre = treebank_genres[0]
+            logger.info(f"  Single-genre treebank: all sentences labeled as '{single_genre}'")
+
+            for idx, sentence in enumerate(dataset):
+                sent_id = sentence.get('sent_id', f'{tb_code}_{split}_{idx}')
                 all_genre_data.append({
                     'sent_id': sent_id,
-                    'genre': genre,
-                    'confidence': 1.0,  # Metadata-based = 100% confidence
-                    'method': 'metadata',
+                    'genre': single_genre,
+                    'confidence': 1.0,
+                    'method': 'single-genre-treebank',
                 })
-            else:
-                # No metadata found
-                all_genre_data.append({
-                    'sent_id': sent_id,
-                    'genre': None,
-                    'confidence': 0.0,
-                    'method': 'missing',
-                })
+        else:
+            # Multi-genre treebank: extract from sentence metadata
+            for idx, sentence in enumerate(dataset):
+                sent_id = sentence.get('sent_id', f'{tb_code}_{split}_{idx}')
+
+                # Extract genres from metadata
+                genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+
+                if genres:
+                    # Use first genre if multiple (most should have exactly one)
+                    genre = genres[0]
+
+                    all_genre_data.append({
+                        'sent_id': sent_id,
+                        'genre': genre,
+                        'confidence': 1.0,  # Metadata-based = 100% confidence
+                        'method': 'metadata',
+                    })
+                else:
+                    # No metadata found
+                    all_genre_data.append({
+                        'sent_id': sent_id,
+                        'genre': None,
+                        'confidence': 0.0,
+                        'method': 'missing',
+                    })
 
     # Create DataFrame
     df = pd.DataFrame(all_genre_data)
