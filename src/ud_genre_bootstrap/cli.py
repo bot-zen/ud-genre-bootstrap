@@ -96,6 +96,12 @@ def run(
         "-o",
         help="Output directory for results",
     ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Specific treebank(s) to process (e.g., en_ewt or en_ewt,de_gsd). If not specified, uses all treebanks or config include_treebanks.",
+    ),
 ):
     """Run the full bootstrapping pipeline.
 
@@ -116,6 +122,21 @@ def run(
         console.print("\n[yellow]Initializing bootstrapper...[/yellow]")
         bootstrapper = GenreBootstrapper(cfg)
 
+        # Parse treebank filter (comma-separated)
+        # CLI flag takes precedence over config
+        treebank_filter = None
+        if treebank:
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+            console.print(f"[blue]Processing treebanks:[/blue] {', '.join(treebank_filter)}")
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            console.print(f"[blue]Processing treebanks from config:[/blue] {', '.join(treebank_filter)}")
+        else:
+            console.print("[blue]Processing all treebanks[/blue]")
+
+        # Apply config exclusions
+        treebank_filter = apply_treebank_exclusions(cfg, bootstrapper.data_loader, treebank_filter)
+
         # Run pipeline
         with Progress(
             SpinnerColumn(),
@@ -123,7 +144,7 @@ def run(
             console=console,
         ) as progress:
             task = progress.add_task("Running bootstrap pipeline...", total=None)
-            results = bootstrapper.fit()
+            results = bootstrapper.fit(treebank_filter=treebank_filter)
 
         # Display results
         console.print("\n[bold green]✓ Pipeline complete![/bold green]")
@@ -186,9 +207,13 @@ def embed(
         bootstrapper = GenreBootstrapper(cfg)
 
         # Parse treebank filter (comma-separated)
+        # CLI flag takes precedence over config
         treebank_filter = None
         if treebank:
             treebank_filter = [tb.strip() for tb in treebank.split(",")]
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            console.print(f"[blue]Using treebanks from config:[/blue] {', '.join(treebank_filter)}")
 
         # Apply config exclusions
         treebank_filter = apply_treebank_exclusions(cfg, bootstrapper.data_loader, treebank_filter)

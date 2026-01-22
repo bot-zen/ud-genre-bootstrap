@@ -5,6 +5,32 @@
 ud_version: "2.17"
 ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
 
+# Optional: Include only specific treebanks (None = all treebanks)
+# CLI --treebank flag overrides this setting
+include_treebanks:
+  - "ar_pud"
+  - "zh_pud"
+  - "cs_pud"
+  - "en_pud"
+  - "fi_pud"
+  - "fr_pud"
+  - "gl_pud"
+  - "de_pud"
+  - "hi_pud"
+  - "is_pud"
+  - "id_pud"
+  - "it_pud"
+  - "ja_pud"
+  - "ja_pudluw"
+  - "ko_pud"
+  - "pl_pud"
+  - "pt_pud"
+  - "ru_pud"
+  - "es_pud"
+  - "sv_pud"
+  - "th_pud"
+  - "tr_pud"
+
 # Optional: Exclude specific treebanks from all operations
 # exclude_treebanks:
 #   - "got_proiel"  # Gothic (very old language)
@@ -12,7 +38,7 @@ ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or
 #   - "la_proiel"   # Latin
 
 embeddings:
-  model: "multilingual-e5-large-instruct"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
+  model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
   pooling: "mean"  # mean, cls
   batch_size: 64
   layer: -1  # -1 for last layer

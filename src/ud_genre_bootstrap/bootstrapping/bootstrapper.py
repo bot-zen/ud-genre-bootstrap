@@ -91,8 +91,11 @@ class GenreBootstrapper:
         self.genre_combination_clusters: Dict = defaultdict(dict)
         self.final_labels: Dict = {}  # {sent_id: (genre, confidence, method)}
 
-    def fit(self) -> Dict:
+    def fit(self, treebank_filter: Optional[List[str]] = None) -> Dict:
         """Run the full bootstrapping pipeline.
+
+        Args:
+            treebank_filter: Optional list of treebank codes to process
 
         Returns:
             Dictionary with results and statistics
@@ -101,7 +104,7 @@ class GenreBootstrapper:
 
         # Step 1: Embed all treebanks
         logger.info("Step 1: Generating embeddings")
-        embeddings_by_tb = self._generate_embeddings()
+        embeddings_by_tb = self._generate_embeddings(treebank_filter=treebank_filter)
 
         # Step 2: Cluster each treebank
         logger.info("Step 2: Clustering treebanks")
