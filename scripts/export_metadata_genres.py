@@ -70,10 +70,13 @@ def export_metadata_genres(config_path: Path, output_path: Path, treebank_filter
         # Determine treebank-level genres
         if not genres_from_sentences:
             # No sentence-level metadata, use treebank-level
-            tb_metadata = data_loader.get_treebank_metadata(tb_code)
-            treebank_genres = tb_metadata.get('genre', [])
-            if isinstance(treebank_genres, str):
-                treebank_genres = [treebank_genres]
+            raw_genres = data_loader.get_treebank_genres(tb_code)
+            # Normalize genres using genre mapper (same as bootstrapper)
+            treebank_genres = [
+                genre_mapper.normalize_genre(g, tb_code) for g in raw_genres
+            ]
+            # Remove duplicates after normalization
+            treebank_genres = list(set(treebank_genres))
         else:
             treebank_genres = sorted(genres_from_sentences)
 
