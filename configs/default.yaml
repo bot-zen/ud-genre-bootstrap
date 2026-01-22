@@ -3,6 +3,13 @@
 ud_version: "2.17"
 ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
 
+# Optional: Include only specific treebanks (None = all treebanks)
+# CLI --treebank flag overrides this setting
+# include_treebanks:
+#   - "en_ewt"
+#   - "de_gsd"
+#   - "fr_gsd"
+
 # Optional: Exclude specific treebanks from all operations
 # exclude_treebanks:
 #   - "got_proiel"  # Gothic (very old language)

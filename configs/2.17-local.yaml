@@ -10,7 +10,7 @@ ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or
 #   - "la_proiel"   # Latin
 
 embeddings:
-  model: "xlm-roberta-base"
+  model: "xlm-roberta-base"  # "multilingual-e5-large-instruct"
   pooling: "mean"  # mean, cls
   batch_size: 64
   layer: -1  # -1 for last layer
@@ -18,11 +18,11 @@ embeddings:
   cache_dir: "/tmp/ud-genre-bootstrap_cache/embeddings"
 
 clustering:
-  method: "gmm"  # gmm, kmeans
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
   level: "treebank"  # treebank, language, all
   seed: 42
   device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
-                  # Note: GMM not GPU-accelerated (cuML limitation), always uses CPU
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
 
 bootstrapping:
   min_confidence: 0.8
@@ -41,6 +41,19 @@ genre_extraction:
     - "configs/metadata_patterns.json"
     - "configs/pud-patterns.json"
 
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
+
 evaluation:
   enabled: true
 
@@ -48,7 +61,9 @@ evaluation:
     method: "kfold"  # kfold, holdout
     k: 5
     stratify_by: "genre"
-    group_by: "language"  # Don't split same language across folds
+    group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
+    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
 
   cluster_metrics:
     - "silhouette"
@@ -70,5 +85,5 @@ output:
   hf_token: "${HF_TOKEN}"  # From environment variable
 
 logging:
-  level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

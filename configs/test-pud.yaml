@@ -3,47 +3,89 @@
 # Genre is encoded in sent_id: 'n' = news, 'w' = wiki
 
 ud_version: "2.17"
-ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
 
-genre_extraction:
-  mapping_path: "configs/genre_mappings.example.json"
-  patterns_path: "configs/pud-patterns.json"
+# Optional: Exclude specific treebanks from all operations
+# exclude_treebanks:
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
 
 embeddings:
-  model: "xlm-roberta-base"
-  pooling: "mean"
+  model: "multilingual-e5-large-instruct"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
+  pooling: "mean"  # mean, cls
   batch_size: 64
-  layer: -1
-  device: "auto"
+  layer: -1  # -1 for last layer
+  device: "auto"  # auto, cuda, cpu
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/pud-embeddings"
 
 clustering:
-  method: "gmm"
-  level: "treebank"
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  level: "treebank"  # treebank, language, all
   seed: 42
+  device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
 
 bootstrapping:
   min_confidence: 0.8
   max_iterations: 10
   fail_on_incomplete: false
-  unresolved_handling: "null"
+  unresolved_handling: "null"  # null, omit, string:UNKNOWN
+
+genre_extraction:
+  # Optional: Map non-standard genre labels to canonical UD genres
+  # See configs/genre_mappings.example.json for format
+  mapping_path: "configs/genre_mappings.json"
+
+  # Optional: Define patterns for extracting genres from sentence metadata
+  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
+  patterns_path:
+    - "configs/metadata_patterns.json"
+    - "configs/pud-patterns.json"
+
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
 
 evaluation:
   enabled: true
+
   metadata_validation:
-    method: "kfold"
+    method: "kfold"  # kfold, holdout
     k: 5
     stratify_by: "genre"
-    group_by: "language"
+    group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
+    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
+
+  cluster_metrics:
+    - "silhouette"
+    - "calinski_harabasz"
+    - "davies_bouldin"
+
+  convergence_metrics:
+    - "resolution_rate"
+    - "disjunct_combinations"
+    - "confidence_distribution"
 
 output:
-  genres_path: "output/ud-v2.17/genres/"
+  genres_path: "output/pud-v2.17/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   embeddings_revision: "2.17"
   genres_hf_repo: "commul/ud-genres"
   genres_revision: "2.17"
-  push_to_hub: false
-  hf_token: "${HF_TOKEN}"
+  push_to_hub: false  # Set to true when ready to publish
+  hf_token: "${HF_TOKEN}"  # From environment variable
 
 logging:
-  level: "INFO"
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

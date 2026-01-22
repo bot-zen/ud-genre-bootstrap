@@ -104,6 +104,15 @@ ud-genre-bootstrap label --config config.yaml --clusters output/clusters/
 ud-genre-bootstrap cluster --config config.yaml --clusters output/clusters/ --treebank en_ewt
 # Loads existing clusters, re-clusters only en_ewt, keeps others unchanged
 
+# Treebank filtering via config or CLI
+# Option 1: Set include_treebanks in config.yaml
+ud-genre-bootstrap cluster --config config.yaml
+# Uses treebanks specified in config
+
+# Option 2: Override with CLI flag
+ud-genre-bootstrap cluster --config config.yaml --treebank fr_gsd,es_gsd
+# CLI flag overrides config
+
 # Force regenerate embeddings (overwrite cache)
 ud-genre-bootstrap embed --config config.yaml --overwrite
 
@@ -192,6 +201,12 @@ Example `config.yaml`:
 ```yaml
 ud_version: "2.15"
 ud_source: "hf://commul/universal_dependencies"
+
+# Optional: Only process specific treebanks
+include_treebanks:
+  - "en_ewt"
+  - "de_gsd"
+  - "fr_gsd"
 
 embeddings:
   model: "xlm-roberta-base"

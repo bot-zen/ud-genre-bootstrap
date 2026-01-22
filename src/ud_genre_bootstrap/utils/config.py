@@ -108,6 +108,7 @@ class Config:
 
     ud_version: str = "2.17"
     ud_source: str = "hf://commul/universal_dependencies"
+    include_treebanks: Optional[List[str]] = None  # Treebank codes to include (None = all)
     exclude_treebanks: List[str] = field(default_factory=list)  # Treebank codes to exclude
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
@@ -144,6 +145,7 @@ class Config:
         return cls(
             ud_version=config_dict.get("ud_version", "2.17"),
             ud_source=config_dict.get("ud_source", "hf://commul/universal_dependencies"),
+            include_treebanks=config_dict.get("include_treebanks", None),
             exclude_treebanks=config_dict.get("exclude_treebanks", []),
             embeddings=embeddings,
             clustering=clustering,

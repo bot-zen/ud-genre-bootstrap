@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Treebank filtering via config file**
+  - New `include_treebanks` config option to specify which treebanks to process
+  - Works for cluster, label, and evaluate commands
+  - CLI `--treebank` flag takes precedence over config
+  - Useful for reproducible experiments on specific treebanks
 - **Incremental re-clustering for selective treebank updates**
   - `cluster` command now accepts `--clusters` option to load existing state
   - Combined with `--treebank`, allows re-clustering specific treebanks only

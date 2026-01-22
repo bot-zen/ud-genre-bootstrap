@@ -269,9 +269,13 @@ def cluster(
         bootstrapper = GenreBootstrapper(cfg)
 
         # Parse treebank filter (comma-separated)
+        # CLI flag takes precedence over config
         treebank_filter = None
         if treebank:
             treebank_filter = [tb.strip() for tb in treebank.split(",")]
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            console.print(f"[blue]Using treebanks from config:[/blue] {', '.join(treebank_filter)}")
 
         # Apply config exclusions
         treebank_filter = apply_treebank_exclusions(cfg, bootstrapper.data_loader, treebank_filter)
@@ -564,6 +568,7 @@ def evaluate(
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
 
         # Parse treebank filter (comma-separated)
+        # CLI flag takes precedence over config
         treebank_filter = None
         if treebank:
             treebank_filter = [tb.strip() for tb in treebank.split(",")]
@@ -571,6 +576,12 @@ def evaluate(
                 console.print(f"[blue]Evaluating:[/blue] {treebank_filter[0]}")
             else:
                 console.print(f"[blue]Evaluating {len(treebank_filter)} treebanks:[/blue] {', '.join(treebank_filter)}")
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            if len(treebank_filter) == 1:
+                console.print(f"[blue]Evaluating (from config):[/blue] {treebank_filter[0]}")
+            else:
+                console.print(f"[blue]Evaluating {len(treebank_filter)} treebanks (from config):[/blue] {', '.join(treebank_filter)}")
         else:
             console.print("[blue]Evaluating all treebanks[/blue]")
 
