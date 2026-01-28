@@ -206,10 +206,14 @@ class UDDataLoader:
 
                     # Extract sent_id
                     if line.startswith('# sent_id'):
-                        current_sentence['sent_id'] = line.split('=', 1)[1].strip()
+                        parts = line.split('=', 1)
+                        if len(parts) == 2:
+                            current_sentence['sent_id'] = parts[1].strip()
                     # Extract text
                     elif line.startswith('# text'):
-                        current_sentence['text'] = line.split('=', 1)[1].strip()
+                        parts = line.split('=', 1)
+                        if len(parts) == 2:
+                            current_sentence['text'] = parts[1].strip()
                     continue
 
                 # Token line
