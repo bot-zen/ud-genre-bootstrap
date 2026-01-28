@@ -1,0 +1,258 @@
+# Default configuration for UD Genre Bootstrap
+
+ud_version: "2.17"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
+
+# Optional: Include only specific treebanks (None = all treebanks)
+# CLI --treebank flag overrides this setting
+# for FILE in $(grep -l -iE "^Genre: [^ ]+$" ../../data/external/huggingface/universal_dependencies/tools/UD_repos/*/README.md ); \
+# do \
+#    echo $(dirname $FILE)/*test.conllu; \
+# done  \
+#   | sed -e "s/.*\///" \
+#   | sed -e "s/-ud-test.conllu//" \
+#   | grep -v '*' \
+#   | sed -e 's/^/- "/' -e 's/$/"/'
+include_treebanks:
+  - "abq_atb"
+  - "ab_abnc"
+  - "akk_pisandub"
+  - "sq_staf"
+  - "sq_tsa"
+  - "grc_perseus"
+  - "grc_ptnk"
+  - "hbo_ptnk"
+  - "ar_nyuad"
+  - "ar_padt"
+  - "az_tuecl"
+  - "eu_bdt"
+  - "bej_autogramm"
+  - "bn_bru"
+  - "sab_chibergis"
+  - "yue_hk"
+  - "cpg_tuecl"
+  - "ca_ancora"
+  - "ceb_gja"
+  - "ckb_mukri"
+  - "zh_beginner"
+  - "zh_cfl"
+  - "zh_gsd"
+  - "zh_gsdsimp"
+  - "zh_hk"
+  - "zh_patentchar"
+  - "ctn_ctntb"
+  - "lzh_tuecl"
+  - "cs_cltt"
+  - "cs_fictree"
+  - "cs_poetry"
+  - "en_childes"
+  - "en_ctetex"
+  - "en_esl"
+  - "en_eslspok"
+  - "en_littleprince"
+  - "en_pronouns"
+  - "myv_jr"
+  - "eo_cairo"
+  - "eo_prago"
+  - "fo_oft"
+  - "fi_ftb"
+  - "fr_alts"
+  - "fr_ftb"
+  - "fr_parisstories"
+  - "fr_poitevindivital"
+  - "fr_rhapsodie"
+  - "qfn_fame"
+  - "gl_treegal"
+  - "de_lit"
+  - "aln_gps"
+  - "got_proiel"
+  - "el_cretan"
+  - "el_gud"
+  - "el_messinian"
+  - "gn_oldtudet"
+  - "gu_gujtb"
+  - "gwi_tuecl"
+  - "ht_adolphe"
+  - "ht_autogramm"
+  - "ha_northernautogramm"
+  - "ha_southernautogramm"
+  - "he_htb"
+  - "he_iahltwiki"
+  - "qhe_hiencs"
+  - "hi_hdtb"
+  - "hit_hittb"
+  - "hu_szeged"
+  - "arh_chibergis"
+  - "ga_twittirish"
+  - "it_kiparlaforest"
+  - "it_markit"
+  - "it_old"
+  - "it_postwita"
+  - "it_twittiro"
+  - "it_valico"
+  - "koi_uh"
+  - "kpv_ikdp"
+  - "kpv_lattice"
+  - "ko_ksl"
+  - "ko_littleprince"
+  - "ky_tuecl"
+  - "ltg_cairo"
+  - "la_ittb"
+  - "lv_cairo"
+  - "lb_luxbank"
+  - "mk_mtb"
+  - "jaa_jarawara"
+  - "ml_ufal"
+  - "gun_dooley"
+  - "gun_thomas"
+  - "frm_altm"
+  - "pcm_nsc"
+  - "nap_rb"
+  - "yrk_tundra"
+  - "gya_autogramm"
+  - "cu_proiel"
+  - "orv_birchbark"
+  - "ang_cairo"
+  - "fro_altm"
+  - "pro_corag"
+  - "otk_clausal"
+  - "pad_tuecl"
+  - "pay_chibergis"
+  - "xpg_kul"
+  - "pt_bosque"
+  - "pt_dantestocks"
+  - "pt_petrogold"
+  - "pt_porttinari"
+  - "ro_art"
+  - "ro_moldoro"
+  - "ro_simonero"
+  - "ro_tuecl"
+  - "ru_gsd"
+  - "ru_poetry"
+  - "sa_ufal"
+  - "sa_vedic"
+  - "sr_set"
+  - "wuu_shud"
+  - "scn_stb"
+  - "sd_isra"
+  - "sl_sst"
+  - "sdh_garrusi"
+  - "es_ancora"
+  - "es_coser"
+  - "ssp_lse"
+  - "sv_old"
+  - "swl_sslc"
+  - "sv_swell"
+  - "tl_trg"
+  - "ta_mwtt"
+  - "ta_ttb"
+  - "eme_tudet"
+  - "qte_tect"
+  - "te_mtg"
+  - "tn_popapolelo"
+  - "qti_butr"
+  - "tr_framenet"
+  - "tr_gb"
+  - "qtd_sagt"
+  - "tr_kenet"
+  - "tr_tourism"
+  - "tr_tuecl"
+  - "xum_ikuvina"
+  - "ur_udtb"
+  - "ug_udt"
+  - "uz_tuecl"
+  - "uz_uzudt"
+  - "vep_vwt"
+  - "vi_tuecl"
+  - "vi_vtb"
+  - "wbp_ufal"
+  - "xav_xdt"
+  - "ess_sli"
+  - "say_autogramm"
+
+
+# Optional: Exclude specific treebanks from all operations
+# exclude_treebanks:
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
+
+embeddings:
+  model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
+  pooling: "mean"  # mean, cls
+  batch_size: 32
+  layer: -1  # -1 for last layer
+  device: "auto"  # auto, cuda, cpu
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/multilingual-e5-large-mean_32_-1_embeddings/"
+
+clustering:
+  method: "kmeans"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  level: "treebank"  # treebank, language, all
+  seed: 42
+  device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
+
+bootstrapping:
+  min_confidence: 0.8
+  max_iterations: 10
+  fail_on_incomplete: false
+  unresolved_handling: "null"  # null, omit, string:UNKNOWN
+
+genre_extraction:
+  # Optional: Map non-standard genre labels to canonical UD genres
+  # See configs/genre_mappings.example.json for format
+  mapping_path: "configs/genre_mappings.json"
+
+  # Optional: Define patterns for extracting genres from sentence metadata
+  # Can be a single file or a list of files (patterns are merged)
+  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
+  patterns_path:
+    - "configs/metadata_patterns.json"
+    - "configs/pud-patterns.json"
+
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
+
+evaluation:
+  enabled: true
+
+  metadata_validation:
+    method: "kfold"  # kfold, holdout
+    k: 5
+    stratify_by: "genre"
+    group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
+    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
+
+  cluster_metrics:
+    - "silhouette"
+    - "calinski_harabasz"
+    - "davies_bouldin"
+
+  convergence_metrics:
+    - "resolution_rate"
+    - "disjunct_combinations"
+    - "confidence_distribution"
+
+output:
+  genres_path: "output/2.17-single_genre/all/multilingual-e5-large-mean_32_-1_kmeans/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.17"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.17"
+  push_to_hub: false  # Set to true when ready to publish
+  hf_token: "${HF_TOKEN}"  # From environment variable
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

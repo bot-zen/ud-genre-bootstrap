@@ -29,6 +29,10 @@ class ClusteringConfig:
     seed: int = 42
     device: str = "auto"  # "auto", "cuda", "cpu"
 
+    # GMM-specific parameters
+    max_iter: int = 300  # Maximum EM iterations for GMM
+    reg_covar: float = 1e-4  # Covariance regularization for GMM
+
 
 @dataclass
 class BootstrappingConfig:
@@ -82,6 +86,27 @@ class EvaluationConfig:
 
 
 @dataclass
+class XGenreEvaluationConfig:
+    """Configuration for X-GENRE classifier evaluation."""
+
+    model: str = "classla/xlm-roberta-base-multilingual-text-genre-classifier"
+    batch_size: int = 32
+    device: str = "auto"  # "auto", "cuda", "cpu"
+    # Mapping from X-GENRE labels to UD canonical genres
+    genre_mapping: Dict[str, Optional[str]] = field(default_factory=lambda: {
+        "News": "news",
+        "Legal": "legal",
+        "Information/Explanation": "wiki",
+        "Forum": "social",
+        "Prose/Lyrical": "fiction",
+        "Opinion/Argumentation": "reviews",
+        "Instruction": "nonfiction",
+        "Promotion": "web",
+        "Other": None,  # No UD equivalent
+    })
+
+
+@dataclass
 class OutputConfig:
     """Configuration for output."""
 
@@ -115,6 +140,7 @@ class Config:
     bootstrapping: BootstrappingConfig = field(default_factory=BootstrappingConfig)
     genre_extraction: GenreExtractionConfig = field(default_factory=GenreExtractionConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    xgenre_evaluation: XGenreEvaluationConfig = field(default_factory=XGenreEvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
@@ -141,6 +167,7 @@ class Config:
 
         output = OutputConfig(**config_dict.get("output", {}))
         logging_cfg = LoggingConfig(**config_dict.get("logging", {}))
+        xgenre_evaluation = XGenreEvaluationConfig(**config_dict.get("xgenre_evaluation", {}))
 
         return cls(
             ud_version=config_dict.get("ud_version", "2.17"),
@@ -152,6 +179,7 @@ class Config:
             bootstrapping=bootstrapping,
             genre_extraction=genre_extraction,
             evaluation=evaluation,
+            xgenre_evaluation=xgenre_evaluation,
             output=output,
             logging=logging_cfg,
         )

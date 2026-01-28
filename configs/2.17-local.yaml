@@ -10,12 +10,12 @@ ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or
 #   - "la_proiel"   # Latin
 
 embeddings:
-  model: "xlm-roberta-base"  # "multilingual-e5-large-instruct"
+  model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
   pooling: "mean"  # mean, cls
   batch_size: 64
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
-  cache_dir: "/tmp/ud-genre-bootstrap_cache/embeddings"
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/xlm-roberta-base_embeddings/"
 
 clustering:
   method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)

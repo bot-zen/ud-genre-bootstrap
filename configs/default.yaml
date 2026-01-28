@@ -26,7 +26,8 @@ embeddings:
 
 clustering:
   method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
-  level: "treebank"  # treebank, language, all
+  level: "treebank"  # Clustering granularity: "treebank" (only option currently implemented)
+                     # Future: "language" (cluster all treebanks per language), "all" (cluster all treebanks together)
   seed: 42
   device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
                   # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
@@ -84,6 +85,26 @@ evaluation:
     - "resolution_rate"
     - "disjunct_combinations"
     - "confidence_distribution"
+
+# X-GENRE classifier evaluation settings
+# Used by the 'evaluate-xgenre' command to compare bootstrap labels against X-GENRE predictions
+xgenre_evaluation:
+  model: "classla/xlm-roberta-base-multilingual-text-genre-classifier"
+  batch_size: 32
+  device: "auto"  # "auto", "cuda", "cpu"
+
+  # Mapping from X-GENRE labels to UD canonical genres
+  # Customize this mapping to match your genre taxonomy
+  genre_mapping:
+    News: "news"
+    Legal: "legal"
+    Information/Explanation: "wiki"
+    Forum: "social"
+    Prose/Lyrical: "fiction"
+    Opinion/Argumentation: "reviews"
+    Instruction: "nonfiction"
+    Promotion: "web"
+    Other: null  # No UD equivalent (excluded from evaluation)
 
 output:
   genres_path: "output/ud-v2.17/genres/"

@@ -10,16 +10,10 @@
   "be_hse": [
     {
       "genre_mapping": {
-        "fiction": "fiction",
-        "legal": "legal",
-        "news": "news",
         "news-poll-question": "news",
-        "nonfiction": "nonfiction",
-        "poetry": "poetry",
         "social-media": "social",
         "social-media-poll-question": "social",
-        "social-media-poll-answer": "social",
-        "wiki": "wiki"
+        "social-media-poll-answer": "social"
       }
     }
   ],
@@ -123,6 +117,16 @@
     }
   ],
 
+  "egy_ujaen": [
+    {
+      "_comment": "Treebank genre: bible fiction nonfiction government; lang: Old_Egyptian; some content could also be academic",
+      "genre": "nonfiction",
+      "genre_mapping": {
+        "religious": "nonfiction"
+      }
+    }
+  ],
+
   "en_ewt": [
     {
       "pattern": "# sent_id = ([a-z]+)-",
@@ -158,9 +162,21 @@
       }
     }
   ],
+          
+  "fr_rhapsodie": [
+    {  
+      "_comment": "Treebank genre: spoken",
+      "genre": "spoken",
+      "genre_mapping": {
+        "discourse": "spoken",
+        "ritual/religious": "spoken"
+      } 
+    }   
+  ],
 
   "gsw_divital": [
     {
+      "_comment": "FIXME: Currently, we don't map but rather rely on automation...",
       "genre_mapping": {
         "encyclopedia": null,
         "short": null,
@@ -188,16 +204,10 @@
   "pl_lfg": [
     { 
       "genre_mapping": {
-         "news": "news",
-         "nonfiction": "nonfiction",
-         "social": "social",
-         "fiction": "fiction",
          "spoken (conversational)": "spoken",
          "spoken (media)": "spoken",
          "spoken (prepared)": "spoken",
-         "blog": "blog",
-         "academic": "nonfiction",
-         "legal": "legal"
+         "academic": "nonfiction"
       }
     }
   ],
@@ -242,16 +252,17 @@
 
   "tt_nmctt": [
     {
+      "_comment": "...[texts are] taken from the online news website Tatar-Inform",
       "genre_mapping": {    
-        "culture": null,
-        "ecology": null,
-        "health": null,
-        "incident": null,
-        "religion": null,
-        "science": null,
-        "society": null,
-        "tatar": null,
-        "tatar_world": null
+        "culture": "news",
+        "ecology": "news",
+        "health": "news",
+        "incident": "news",
+        "religion": "news",
+        "science": "news",
+        "society": "news",
+        "tatar": "news",
+        "tatar_world": "news"
       }
     }
   ]

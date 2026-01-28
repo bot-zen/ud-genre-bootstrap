@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Cluster quality metrics computation**
+  - Silhouette score, Calinski-Harabasz index, Davies-Bouldin index now computed during clustering
+  - Metrics saved in `cluster_statistics.json` for each treebank
+  - Available for multi-genre treebanks (single-genre treebanks skipped as they have only 1 cluster)
+  - Useful for evaluating clustering quality independently of bootstrap labeling
+- **Pairwise cluster separation metrics**
+  - Computes distances between all pairs of cluster centroids within each treebank
+  - Shows which clusters are well-separated vs. similar
+  - Includes mean, min, and max pairwise distances
+  - Saved in `cluster_statistics.json` under `metrics.pairwise_distances`
+- **Genre separation analysis**
+  - New step in bootstrap pipeline: analyzes how separable different genres are in embedding space
+  - Computes pairwise distances between genre centroids (e.g., "how far is 'news' from 'social'?")
+  - Displays distance matrix showing all genre pairs
+  - Reports closest and furthest genre pairs
+  - Saves to `genre_separation_metrics.json` in output directory
+  - Helps understand which genres are easily distinguishable vs. confusable
+- **X-GENRE classifier evaluation**
+  - New `evaluate-xgenre` command to compare bootstrap labels against X-GENRE predictions
+  - Uses pre-trained multilingual genre classifier as independent ground truth
+  - Only evaluates bootstrap-labeled sentences (excludes pre-existing metadata and single-genre treebanks)
+  - Provides accuracy, per-genre precision/recall/F1, and confusion matrix
+  - Customizable X-GENRE → UD genre mapping via `xgenre_evaluation.genre_mapping` config
+  - Respects `include_treebanks` filtering for consistent comparisons
+  - Saves detailed predictions, metrics (JSON), and confusion matrix visualization (PNG)
 - **Treebank filtering via config file**
   - New `include_treebanks` config option to specify which treebanks to process
   - Works for cluster, label, and evaluate commands
@@ -75,9 +100,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated genre mappings and metadata patterns
 - Improved configuration files (default.yaml, 2.17-local.yaml)
 
+### Changed
+- Refactored cluster results saving into shared `_save_cluster_results()` helper function
+  - Both `cluster` and `run` commands now use the same code path
+  - Eliminates code duplication and ensures consistent behavior
+- `visualize-clusters` command now takes default paths from `--config`
+  - `--clusters` is now optional and defaults to `{output.genres_path}/clusters/`
+  - `--embeddings` is now optional and defaults to `{embeddings.cache_dir}`
+  - `--use-gpu` is now optional and respects `clustering.device` from config (CLI flag overrides)
+  - Makes visualization workflow simpler: just specify `--config` instead of all paths and flags
+
 ### Fixed
 - Missing `json` import in CLI visualization command
 - Visualization showing comma-separated genres instead of single-genre assignments
+- `export_metadata_genres.py` script not respecting `include_treebanks` config option
+- `run` command not saving `cluster_assignments.parquet` file (now saves to `output/clusters/`)
+- Misleading documentation for `clustering.level` config option
+  - Clarified that only `"treebank"` is currently implemented
+  - Marked `"language"` and `"all"` as future options (not yet implemented)
+- GMM clustering failure on single-genre treebanks with few sentences
+  - Now skips clustering for single-genre treebanks (creates trivial single-cluster assignment)
+  - Prevents numerical errors when n_components=1 with small datasets
+  - More efficient: single-genre treebanks don't need clustering anyway
 
 ## [0.1.0] - 2026-01-17
 

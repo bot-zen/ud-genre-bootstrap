@@ -33,6 +33,11 @@ def export_metadata_genres(config_path: Path, output_path: Path, treebank_filter
     # Load config
     cfg = load_config(config_path)
 
+    # Apply treebank filter - CLI overrides config
+    if treebank_filter is None and cfg.include_treebanks:
+        treebank_filter = cfg.include_treebanks
+        logger.info(f"Using treebanks from config: {', '.join(treebank_filter)}")
+
     # Initialize components
     data_loader = UDDataLoader(
         ud_source=cfg.ud_source,

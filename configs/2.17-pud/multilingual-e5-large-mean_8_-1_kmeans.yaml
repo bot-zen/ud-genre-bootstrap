@@ -46,7 +46,7 @@ embeddings:
   cache_dir: "/tmp/ud-genre-bootstrap_cache/multilingual-e5-large-mean_8_-1_embeddings/"
 
 clustering:
-  method: "kmeans"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
   level: "treebank"  # Clustering granularity: "treebank" (only option currently implemented)
                      # Future: "language" (cluster all treebanks per language), "all" (cluster all treebanks together)
   seed: 42
@@ -54,7 +54,7 @@ clustering:
                   # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
 
 bootstrapping:
-  min_confidence: 0.99
+  min_confidence: 0.8
   max_iterations: 10
   fail_on_incomplete: false
   unresolved_handling: "null"  # null, omit, string:UNKNOWN
