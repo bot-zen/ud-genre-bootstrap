@@ -1484,8 +1484,12 @@ def test_genres(
 
         # Determine which treebanks to test
         if treebank:
-            # Parse comma-separated treebank list
+            # Parse comma-separated treebank list from CLI
             treebanks_to_test = [tb.strip() for tb in treebank.split(",")]
+        elif cfg.include_treebanks:
+            # Use treebanks from config if specified
+            treebanks_to_test = cfg.include_treebanks
+            console.print(f"[blue]Testing {len(treebanks_to_test)} treebanks from config[/blue]\n")
         else:
             # If patterns are defined, only test treebanks with patterns
             if genre_mapper.metadata_patterns:
@@ -1514,6 +1518,14 @@ def test_genres(
             else:
                 treebanks_to_test = data_loader.get_treebank_codes()[:10]
                 console.print(f"[yellow]No patterns defined. Testing first 10 treebanks.[/yellow]\n")
+
+        # Apply exclusions from config (unless specific treebank requested via CLI)
+        if cfg.exclude_treebanks and not treebank:
+            original_count = len(treebanks_to_test)
+            treebanks_to_test = [tb for tb in treebanks_to_test if tb not in cfg.exclude_treebanks]
+            excluded_count = original_count - len(treebanks_to_test)
+            if excluded_count > 0:
+                console.print(f"[dim]Excluded {excluded_count} treebanks from config exclusion list[/dim]\n")
 
         # Process each treebank
         for tb_code in treebanks_to_test:
