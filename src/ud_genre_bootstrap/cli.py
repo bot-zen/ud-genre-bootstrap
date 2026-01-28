@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.table import Table
 
 from ud_genre_bootstrap.bootstrapping import GenreBootstrapper
@@ -149,6 +149,23 @@ def run(
         # Display results
         console.print("\n[bold green]✓ Pipeline complete![/bold green]")
         _display_results(results)
+
+        # Save cluster results using shared helper function
+        # Note: Need to get embeddings_by_tb from cache since fit() doesn't return it
+        embeddings_by_tb = {}
+        for tb_key, info in bootstrapper.treebank_clusters.items():
+            # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
+            if len(tb_key) == 3:
+                tb_code, split, genre_tag = tb_key
+                # Virtual splits use parent treebank's embeddings
+            else:
+                tb_code, split = tb_key
+
+            cache_key = f"{tb_code}_{split}"
+            if hasattr(bootstrapper.embedding_generator, 'embedding_cache') and cache_key in bootstrapper.embedding_generator.embedding_cache:
+                embeddings_by_tb[(tb_code, split)] = bootstrapper.embedding_generator.embedding_cache[cache_key]
+
+        _save_cluster_results(bootstrapper, embeddings_by_tb, cfg.output.genres_path)
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -359,81 +376,19 @@ def cluster(
         # Display cluster statistics
         _display_cluster_stats(bootstrapper.treebank_clusters)
 
-        # Save cluster results
-        from pathlib import Path as PathLib
-        import json
-        import pandas as pd
-
-        output_dir = PathLib(cfg.output.genres_path) / "clusters"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        console.print(f"\n[yellow]Saving cluster results to {output_dir}...[/yellow]")
-
-        # Save cluster assignments as parquet
-        cluster_assignments = []
-        for (tb_code, split), info in bootstrapper.treebank_clusters.items():
-            cluster_result = info['cluster_result']
-            emb_data = embeddings_by_tb[(tb_code, split)]
-
-            for cluster_id, cluster_info in cluster_result['clusters'].items():
-                for sent_id in cluster_info['sent_ids']:
-                    cluster_assignments.append({
-                        'treebank': tb_code,
-                        'split': split,
-                        'sent_id': sent_id,
-                        'cluster_id': cluster_id,
-                        'confidence': cluster_info.get('confidence', None),
-                    })
-
-        if cluster_assignments:
-            df_assignments = pd.DataFrame(cluster_assignments)
-            assignments_file = output_dir / "cluster_assignments.parquet"
-            df_assignments.to_parquet(assignments_file, index=False)
-            console.print(f"[green]✓ Saved cluster assignments:[/green] {assignments_file}")
-
-        # Save cluster statistics as JSON
-        cluster_stats = {}
-        for (tb_code, split), info in bootstrapper.treebank_clusters.items():
-            key = f"{tb_code}_{split}"
-            cluster_result = info['cluster_result']
-
-            cluster_stats[key] = {
-                'treebank': tb_code,
-                'split': split,
-                'genres': list(info['genres']),
-                'n_clusters': len(cluster_result['clusters']),
-                'n_sentences': sum(len(c['sent_ids']) for c in cluster_result['clusters'].values()),
-                'clusters': {
-                    str(cid): {
-                        'size': len(cinfo['sent_ids']),
-                        'confidence': float(cinfo.get('confidence', 0.0)),
-                    }
-                    for cid, cinfo in cluster_result['clusters'].items()
-                },
-                'metrics': cluster_result.get('metrics', {}),
-            }
-
-        stats_file = output_dir / "cluster_statistics.json"
-        with open(stats_file, 'w') as f:
-            json.dump(cluster_stats, f, indent=2)
-        console.print(f"[green]✓ Saved cluster statistics:[/green] {stats_file}")
-
-        # Save full cluster state for reuse by label command
-        import pickle
-        cluster_state = {
-            'treebank_clusters': bootstrapper.treebank_clusters,
-            'embeddings_by_tb': embeddings_by_tb,  # Include embeddings for cluster centroids
-        }
-        state_file = output_dir / "cluster_state.pkl"
-        with open(state_file, 'wb') as f:
-            pickle.dump(cluster_state, f)
-        console.print(f"[green]✓ Saved cluster state:[/green] {state_file}")
+        # Save cluster results using shared helper function
+        _save_cluster_results(bootstrapper, embeddings_by_tb, cfg.output.genres_path)
 
         # Save embeddings for visualization (optional, can be large)
+        from pathlib import Path as PathLib
+        output_dir = PathLib(cfg.output.genres_path) / "clusters"
         console.print(f"[blue]Embeddings already cached at:[/blue] {cfg.embeddings.cache_dir if cfg.embeddings.cache_dir else 'not configured'}")
 
         console.print(f"\n[bold green]✓ Cluster results saved to {output_dir}[/bold green]")
-        console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --clusters {output_dir}")
+        if config:
+            console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --config {config}")
+        else:
+            console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --clusters {output_dir}")
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -552,34 +507,24 @@ def evaluate(
         "-k",
         help="Number of folds for cross-validation (overrides config)",
     ),
-    coverage_threshold: Optional[float] = typer.Option(
-        None,
-        "--coverage-threshold",
-        help="Minimum sentence-level metadata coverage to include treebank (overrides config)",
-    ),
-    stratify: Optional[str] = typer.Option(
-        None,
-        "--stratify",
-        help="Variable to stratify on - ensures each fold has similar distribution of this variable (default: 'genre', overrides config)",
-    ),
     group_by: Optional[str] = typer.Option(
         None,
         "--group-by",
         help="Variable to group by: 'treebank', 'language', or None (overrides config)",
     ),
 ):
-    """Evaluate bootstrap quality using cross-validation.
+    """Evaluate clustering + labeling on multi-genre treebanks.
 
-    Performs k-fold cross-validation to assess genre prediction accuracy.
+    Tests the actual problem the framework solves: clustering mixed sentences
+    and assigning genres. Reports sentence-level accuracy against ground truth
+    metadata.
 
-    Uses ALL available splits (train, dev, test) from all treebanks with
-    sentence-level genre metadata. Since we only use text content and genre
-    labels (not UD annotations), there's no restriction on using test splits.
-
-    Creates virtual single-genre splits from each treebank split with sufficient
-    sentences per genre, then performs k-fold CV over these virtual splits.
+    For each cross-validation fold:
+    - Training: Uses reference treebanks to build genre embeddings
+    - Testing: Clusters multi-genre treebanks and labels clusters
+    - Evaluation: Compares predicted genres vs. true genres for each sentence
     """
-    console.print("\n[bold cyan]Bootstrap Evaluation (Cross-Validation)[/bold cyan]")
+    console.print("\n[bold cyan]Clustering Evaluation (Sentence-Level)[/bold cyan]")
     console.print("=" * 60)
 
     try:
@@ -588,12 +533,9 @@ def evaluate(
         # Get evaluation config values (CLI overrides config)
         eval_cfg = cfg.evaluation.metadata_validation
         n_folds_val = n_folds if n_folds is not None else eval_cfg.k
-        coverage_threshold_val = coverage_threshold if coverage_threshold is not None else eval_cfg.coverage_threshold
-        stratify_val = stratify if stratify is not None else eval_cfg.stratify_by
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
 
         # Parse treebank filter (comma-separated)
-        # CLI flag takes precedence over config
         treebank_filter = None
         if treebank:
             treebank_filter = [tb.strip() for tb in treebank.split(",")]
@@ -610,17 +552,20 @@ def evaluate(
         else:
             console.print("[blue]Evaluating all treebanks[/blue]")
 
-        console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}, coverage>={coverage_threshold_val:.0%}")
+        console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}")
+        console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
 
-        # Initialize validator
-        validator = CrossValidator(
+        # Initialize clustering evaluator
+        from ud_genre_bootstrap.evaluation.validator import ClusteringEvaluator
+
+        evaluator = ClusteringEvaluator(
             n_folds=n_folds_val,
-            stratify_by=stratify_val,
             group_by=group_by_val,
+            min_confidence=cfg.bootstrapping.min_confidence,
         )
 
         # Load treebank metadata and genre mapper
-        console.print("\n[yellow]Loading treebank metadata and checking coverage...[/yellow]")
+        console.print("\n[yellow]Loading treebank metadata...[/yellow]")
         bootstrapper = GenreBootstrapper(cfg)
 
         # Initialize genre mapper for coverage checking
@@ -648,12 +593,9 @@ def evaluate(
 
         # Apply exclusions from config
         if cfg.exclude_treebanks:
-            excluded_count = len([tb for tb in all_treebank_data if tb['id'] in cfg.exclude_treebanks])
             all_treebank_data = [
                 tb for tb in all_treebank_data if tb['id'] not in cfg.exclude_treebanks
             ]
-            if excluded_count > 0:
-                console.print(f"[yellow]Excluded {excluded_count} treebanks from config: {', '.join(cfg.exclude_treebanks)}[/yellow]")
 
         # Filter by treebank if specified
         if treebank_filter:
@@ -661,345 +603,149 @@ def evaluate(
                 tb for tb in all_treebank_data if tb['id'] in treebank_filter
             ]
 
-        console.print(f"[blue]Checking {len(all_treebank_data)} treebanks...[/blue]")
+        console.print(f"[blue]Checking {len(all_treebank_data)} treebanks for multi-genre datasets...[/blue]")
 
-        # Get minimum sentences threshold
-        min_genre_sentences = eval_cfg.min_genre_sentences
+        # Identify multi-genre treebanks and collect sentence metadata
+        multi_genre_treebanks = []
+        sentence_metadata = {}  # Maps (tb_code, split, sent_id) -> genre
 
-        # Check sentence-level coverage and create virtual single-genre splits
-        # A treebank can contribute multiple virtual splits (one per genre)
-        virtual_splits = []  # List of dicts with virtual split info
-        virtual_split_sentence_ids = {}  # Maps (tb_code, split_name, genre) -> list of sent_ids
+        # Track statistics
+        stats = {
+            'checked': 0,
+            'single_genre': 0,
+            'multi_genre': 0,
+            'load_errors': 0,
+            'no_metadata': 0,
+        }
 
         for tb in all_treebank_data:
             tb_code = tb['id']
-
-            # Get all available splits for this treebank
             available_splits = bootstrapper.data_loader.get_available_splits(tb_code)
 
             if not available_splits:
-                logger.warning(f"No splits found for {tb_code}, skipping")
                 continue
 
-            # Use all available splits (train, dev, test) - no restrictions
-            # We're only using text content and genre metadata, not UD annotations
-            splits_to_check = available_splits
+            # Check each split for multi-genre content
+            for split_name in available_splits:
+                stats['checked'] += 1
 
-            # Process each available split to create virtual splits
-            for split_name in splits_to_check:
                 try:
                     dataset = bootstrapper.data_loader.load_treebank(tb_code, split_name)
                 except Exception as e:
                     logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
+                    stats['load_errors'] += 1
                     continue
 
-                # Extract genres for all sentences and group by genre
-                total_sentences = len(dataset)
-                genre_sentences = {}  # genre -> list of sent_ids
+                # Count genres in this split
+                genre_counts = {}
+                sent_count = 0
 
                 for idx, sentence in enumerate(dataset):
                     sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
                     genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
 
-                    # A sentence can have multiple genres, but we'll use the first one for simplicity
-                    # (most sentences should have exactly one genre after extraction)
                     if genres:
                         primary_genre = genres[0]
-                        if primary_genre not in genre_sentences:
-                            genre_sentences[primary_genre] = []
-                        genre_sentences[primary_genre].append(sent_id)
+                        genre_counts[primary_genre] = genre_counts.get(primary_genre, 0) + 1
+                        sentence_metadata[(tb_code, split_name, sent_id)] = primary_genre
+                        sent_count += 1
 
-                # Create virtual splits for each genre with sufficient sentences
-                for genre, sent_ids in genre_sentences.items():
-                    num_sentences = len(sent_ids)
+                # Classify this split
+                unique_genres = list(genre_counts.keys())
+                if len(unique_genres) == 0:
+                    stats['no_metadata'] += 1
+                elif len(unique_genres) == 1:
+                    stats['single_genre'] += 1
+                elif len(unique_genres) >= 2:
+                    stats['multi_genre'] += 1
+                    multi_genre_treebanks.append({
+                        'treebank': tb_code,
+                        'split': split_name,
+                        'genres': unique_genres,
+                        'language': tb['language'],
+                        'sentence_count': sent_count,
+                        'genre_counts': genre_counts,
+                    })
 
-                    if num_sentences >= min_genre_sentences:
-                        # Calculate coverage for this genre in this split
-                        coverage = num_sentences / total_sentences
+        if len(multi_genre_treebanks) == 0:
+            console.print("\n[bold yellow]⚠ No multi-genre treebanks found for clustering evaluation[/bold yellow]")
 
-                        # Create virtual split ID that includes the split type
-                        virtual_split_id = f"{tb_code}:{split_name}:{genre}"
+            # Display summary
+            console.print("\n[bold]Summary:[/bold]")
+            console.print(f"  • Checked: {stats['checked']} treebank splits")
+            console.print(f"  • Single-genre: {stats['single_genre']} (don't need clustering evaluation)")
+            console.print(f"  • Multi-genre: {stats['multi_genre']} (suitable for evaluation)")
+            if stats['no_metadata'] > 0:
+                console.print(f"  • No sentence metadata: {stats['no_metadata']}")
+            if stats['load_errors'] > 0:
+                console.print(f"  • Load errors: {stats['load_errors']}")
 
-                        virtual_splits.append({
-                            'id': virtual_split_id,
-                            'treebank': tb_code,
-                            'split': split_name,
-                            'genre': genre,
-                            'genres': [genre],  # Single genre for this virtual split
-                            'language': tb['language'],
-                            'coverage': coverage,
-                            'sentence_count': num_sentences,
-                        })
+            console.print("\n[dim]Clustering evaluation requires treebanks with:[/dim]")
+            console.print("[dim]  • 2+ genres in the same treebank split[/dim]")
+            console.print("[dim]  • Sentence-level genre metadata[/dim]")
+            console.print("\n[dim]Suggestions:[/dim]")
+            console.print("[dim]  • Use a config that includes multi-genre treebanks (e.g., PUD, PDTC)[/dim]")
+            console.print("[dim]  • Single-genre treebanks are trivially labeled and don't need clustering[/dim]")
+            console.print("\n[blue]Evaluation skipped - no suitable data available[/blue]")
+            raise typer.Exit(0)
 
-                        # Store sentence IDs for this virtual split
-                        virtual_split_sentence_ids[(tb_code, split_name, genre)] = sent_ids
-
-        console.print(f"[blue]Created {len(virtual_splits)} virtual single-genre splits from {len(all_treebank_data)} treebanks[/blue]")
-        console.print(f"[blue]Minimum {min_genre_sentences} sentences per genre required[/blue]")
-
-        if len(virtual_splits) < n_folds_val:
+        if len(multi_genre_treebanks) < n_folds_val:
             console.print(
-                f"\n[bold red]✗ Error:[/bold red] Not enough virtual splits "
-                f"({len(virtual_splits)}) for {n_folds_val}-fold cross-validation"
+                f"\n[bold yellow]⚠ Insufficient data for {n_folds_val}-fold cross-validation[/bold yellow]"
             )
-            raise typer.Exit(1)
+            console.print(f"[dim]Found {len(multi_genre_treebanks)} multi-genre treebanks, need at least {n_folds_val}[/dim]")
 
-        # Count splits by type
-        split_counts = {}
-        for s in virtual_splits:
-            split_type = s['split']
-            split_counts[split_type] = split_counts.get(split_type, 0) + 1
+            # Display summary
+            console.print("\n[bold]Summary:[/bold]")
+            console.print(f"  • Checked: {stats['checked']} treebank splits")
+            console.print(f"  • Single-genre: {stats['single_genre']} (skipped)")
+            console.print(f"  • Multi-genre: {stats['multi_genre']} (found, but need {n_folds_val} for {n_folds_val}-fold CV)")
+            if stats['no_metadata'] > 0:
+                console.print(f"  • No sentence metadata: {stats['no_metadata']}")
+            if stats['load_errors'] > 0:
+                console.print(f"  • Load errors: {stats['load_errors']}")
 
-        console.print(f"[blue]  Split distribution: {dict(sorted(split_counts.items()))}[/blue]")
+            console.print("\n[dim]Suggestions:[/dim]")
+            console.print(f"[dim]  • Reduce n-folds: --n-folds {len(multi_genre_treebanks)}[/dim]")
+            console.print("[dim]  • Include more treebanks in the config[/dim]")
+            console.print("[dim]  • Remove treebank filter to evaluate all available treebanks[/dim]")
+            console.print("\n[blue]Evaluation skipped - insufficient data for cross-validation[/blue]")
+            raise typer.Exit(0)
 
-        # Display virtual split summary
-        tb_table = Table(title="Virtual Single-Genre Splits for Evaluation", show_header=True, header_style="bold magenta")
-        tb_table.add_column("Virtual Split", style="cyan")
-        tb_table.add_column("Split", style="blue")
-        tb_table.add_column("Genre", style="green")
-        tb_table.add_column("Coverage", style="yellow", justify="right")
+        console.print(f"[blue]Found {len(multi_genre_treebanks)} multi-genre treebank splits for evaluation[/blue]")
+
+        # Display multi-genre treebanks
+        tb_table = Table(title="Multi-Genre Treebanks for Clustering Evaluation", show_header=True, header_style="bold magenta")
+        tb_table.add_column("Treebank:Split", style="cyan")
+        tb_table.add_column("Language", style="blue")
+        tb_table.add_column("Genres", style="green")
         tb_table.add_column("Sentences", style="magenta", justify="right")
 
-        for split in sorted(virtual_splits, key=lambda x: x['id']):
+        for tb_info in sorted(multi_genre_treebanks, key=lambda x: (x['treebank'], x['split'])):
             tb_table.add_row(
-                f"{split['treebank']}:{split['genre']}",
-                split['split'],
-                split['genre'],
-                f"{split['coverage']:.1%}",
-                str(split['sentence_count'])
+                f"{tb_info['treebank']}:{tb_info['split']}",
+                tb_info['language'],
+                ", ".join(sorted(tb_info['genres'])),
+                str(tb_info['sentence_count'])
             )
 
         console.print()
         console.print(tb_table)
 
-        # Create list of all unique treebank IDs being evaluated (for embedding generation)
-        evaluated_treebank_ids = list(set(split['treebank'] for split in virtual_splits))
+        # Generate embeddings for all multi-genre treebanks
+        console.print(f"\n[yellow]Generating/loading embeddings...[/yellow]")
+        treebank_ids_to_embed = list(set(tb['treebank'] for tb in multi_genre_treebanks))
+        embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_ids_to_embed)
 
-        # Pre-generate embeddings once (shared across all folds)
-        console.print(f"\n[yellow]Generating/loading embeddings for {len(evaluated_treebank_ids)} treebanks...[/yellow]")
-        embeddings_by_tb_shared = bootstrapper._generate_embeddings(treebank_filter=evaluated_treebank_ids)
+        # Run clustering evaluation
+        console.print(f"\n[yellow]Running {n_folds_val}-fold clustering evaluation...[/yellow]")
+        results = evaluator.k_fold_validate(
+            multi_genre_treebanks=multi_genre_treebanks,
+            sentence_metadata=sentence_metadata,
+            embeddings_by_tb=embeddings_by_tb,
+            clusterer=bootstrapper.clusterer,
+        )
 
-        # Create bootstrapper function for cross-validation
-        def run_bootstrap(visible_split_ids: List[str]) -> Dict[str, str]:
-            """Run bootstrap with only visible virtual splits and predict hidden ones.
-
-            Args:
-                visible_split_ids: List of virtual split IDs to use for training (e.g., ['en_ewt:blog', 'de_pud:news'])
-
-            Returns:
-                Dict mapping virtual_split_id to predicted genre
-            """
-            # Use pre-generated embeddings (shared across folds)
-            embeddings_by_tb = embeddings_by_tb_shared
-
-            # Filter embeddings to create virtual split embeddings
-            # For each virtual split, we need to filter the embeddings to only include sentences from that genre
-            virtual_embeddings_by_tb = {}
-            virtual_treebank_clusters = {}
-
-            console.print(f"[yellow]Clustering {len(virtual_splits)} virtual splits for cross-validation...[/yellow]")
-
-            for idx, split_info in enumerate(virtual_splits, 1):
-                tb_code = split_info['treebank']
-                split_name = split_info['split']
-                genre = split_info['genre']
-                virtual_split_id = split_info['id']
-
-                # Get the sentence IDs for this virtual split
-                allowed_sent_ids = set(virtual_split_sentence_ids[(tb_code, split_name, genre)])
-
-                # Filter embeddings for this treebank/split
-                if (tb_code, split_name) in embeddings_by_tb:
-                    emb_data = embeddings_by_tb[(tb_code, split_name)]
-
-                    # Find indices of sentences that belong to this virtual split
-                    indices = [
-                        i for i, sent_id in enumerate(emb_data['sent_id'])
-                        if sent_id in allowed_sent_ids
-                    ]
-
-                    if indices:
-                        # Create filtered embedding data
-                        import numpy as np
-                        filtered_embeddings = emb_data['embedding'][indices]
-                        filtered_sent_ids = [emb_data['sent_id'][i] for i in indices]
-
-                        # Store with virtual split key
-                        virtual_key = (virtual_split_id, split_name)
-                        virtual_embeddings_by_tb[virtual_key] = {
-                            'embedding': filtered_embeddings,
-                            'sent_id': filtered_sent_ids,
-                        }
-
-                        # Show progress for clustering
-                        if idx % 10 == 0 or idx == len(virtual_splits):
-                            console.print(f"[blue]  [{idx}/{len(virtual_splits)}] Clustering {virtual_split_id} ({len(filtered_sent_ids)} sentences)[/blue]")
-
-                        # Cluster this virtual split (it's single-genre, so n_genres=1)
-                        cluster_result = bootstrapper.clusterer.cluster_treebank(
-                            embeddings=filtered_embeddings,
-                            sent_ids=filtered_sent_ids,
-                            n_genres=1,  # Virtual splits are single-genre
-                        )
-
-                        virtual_treebank_clusters[virtual_key] = {
-                            'genres': [genre],
-                            'cluster_result': cluster_result,
-                        }
-
-            # Build genre_combination_clusters using virtual splits
-            from collections import defaultdict
-            genre_combination_clusters = defaultdict(dict)
-
-            for virtual_key, cluster_info in virtual_treebank_clusters.items():
-                genres = cluster_info['genres']
-                genre_combination = tuple(sorted(genres))
-
-                # Compute cluster embeddings
-                emb_data = virtual_embeddings_by_tb[virtual_key]
-                cluster_result = cluster_info['cluster_result']
-
-                cluster_list = []
-                for cluster_id, cluster_info_inner in cluster_result['clusters'].items():
-                    sent_ids = cluster_info_inner['sent_ids']
-                    indices = [
-                        i for i, sid in enumerate(emb_data['sent_id'])
-                        if sid in sent_ids
-                    ]
-
-                    if indices:
-                        import numpy as np
-                        cluster_emb = np.mean(emb_data['embedding'][indices], axis=0)
-                        cluster_list.append({
-                            'cluster_id': cluster_id,
-                            'sent_ids': sent_ids,
-                            'embedding': cluster_emb,
-                            'confidence': cluster_info_inner.get('confidence', 1.0),
-                        })
-
-                genre_combination_clusters[genre_combination][virtual_key] = cluster_list
-
-            # Filter to only visible splits
-            visible_clusters = {}
-            for genre_comb, splits_dict in genre_combination_clusters.items():
-                visible_split_data = {
-                    k: v for k, v in splits_dict.items()
-                    if k[0] in visible_split_ids
-                }
-                if visible_split_data:
-                    visible_clusters[genre_comb] = visible_split_data
-
-            # Temporarily override bootstrapper state
-            original_clusters = bootstrapper.genre_combination_clusters
-            original_treebank_clusters = bootstrapper.treebank_clusters
-            bootstrapper.genre_combination_clusters = visible_clusters
-            bootstrapper.treebank_clusters = virtual_treebank_clusters
-
-            try:
-                # Create schedule with visible splits only
-                schedule = bootstrapper._create_schedule()
-
-                # Label clusters (only labels multi-genre combinations if any)
-                bootstrapper._label_clusters(schedule)
-
-                # Compute mean embeddings for known genres from visible splits
-                from scipy.spatial import distance
-                known_genre_embeddings = {}
-
-                for genre_comb, splits_dict in visible_clusters.items():
-                    if len(genre_comb) == 1:  # Single-genre
-                        genre = genre_comb[0]
-                        # Collect all cluster embeddings for this genre from visible splits
-                        all_embeddings = []
-                        for cluster_list in splits_dict.values():
-                            for cluster in cluster_list:
-                                all_embeddings.append(cluster['embedding'])
-
-                        if all_embeddings:
-                            import numpy as np
-                            known_genre_embeddings[genre] = np.mean(all_embeddings, axis=0)
-
-                # Debug: Check what's visible vs hidden
-                num_visible = len(visible_split_ids)
-                num_total = len(virtual_treebank_clusters)
-                num_hidden = num_total - num_visible
-                console.print(f"[blue]  Fold stats: {num_visible} visible (train), {num_hidden} hidden (test) splits[/blue]")
-                console.print(f"[blue]  Known genres from training: {list(known_genre_embeddings.keys())}[/blue]")
-
-                # Predict genres for all virtual splits
-                predictions = {}
-                num_correct = 0
-                num_incorrect = 0
-                all_similarities = []  # Track all similarity scores for diagnostics
-
-                for virtual_key, info in virtual_treebank_clusters.items():
-                    virtual_split_id = virtual_key[0]
-                    true_genre = info['genres'][0]
-
-                    # If this is a visible split, use its ground truth genre
-                    if virtual_split_id in visible_split_ids:
-                        predictions[virtual_split_id] = true_genre
-                        continue
-
-                    # For hidden splits, predict based on cluster embedding similarity
-                    # WITHOUT using ground truth genre information
-                    if virtual_key in virtual_embeddings_by_tb:
-                        # Get embeddings for this hidden split
-                        emb_data = virtual_embeddings_by_tb[virtual_key]
-
-                        # Compute mean embedding for all sentences in this split
-                        import numpy as np
-                        split_mean_embedding = np.mean(emb_data['embedding'], axis=0)
-
-                        # Find most similar known genre
-                        best_genre = None
-                        best_similarity = -1
-                        similarities = {}
-
-                        for genre, genre_emb in known_genre_embeddings.items():
-                            similarity = 1 - distance.cosine(split_mean_embedding, genre_emb)
-                            similarities[genre] = similarity
-                            if similarity > best_similarity:
-                                best_similarity = similarity
-                                best_genre = genre
-
-                        if best_genre:
-                            predictions[virtual_split_id] = best_genre
-
-                            # Track accuracy and similarity margins
-                            if best_genre == true_genre:
-                                num_correct += 1
-                                correct_sim = similarities[best_genre]
-                                # Calculate margin (difference from second-best)
-                                sorted_sims = sorted(similarities.values(), reverse=True)
-                                margin = sorted_sims[0] - sorted_sims[1] if len(sorted_sims) > 1 else 1.0
-                                all_similarities.append((correct_sim, margin, True))
-                            else:
-                                num_incorrect += 1
-                                # Show first few errors
-                                if num_incorrect <= 3:
-                                    console.print(f"[yellow]  Misclassified: {virtual_split_id} predicted as {best_genre} (true: {true_genre}), sims: {similarities}[/yellow]")
-
-                # Show statistics
-                console.print(f"[blue]  Test predictions: {num_correct} correct, {num_incorrect} incorrect out of {num_hidden} hidden[/blue]")
-
-                if all_similarities:
-                    import numpy as np
-                    avg_sim = np.mean([s[0] for s in all_similarities])
-                    avg_margin = np.mean([s[1] for s in all_similarities])
-                    min_margin = np.min([s[1] for s in all_similarities])
-                    console.print(f"[blue]  Avg similarity: {avg_sim:.3f}, Avg margin: {avg_margin:.3f}, Min margin: {min_margin:.3f}[/blue]")
-
-                return predictions
-
-            finally:
-                # Restore original clusters
-                bootstrapper.genre_combination_clusters = original_clusters
-                bootstrapper.treebank_clusters = original_treebank_clusters
-
-        # Run cross-validation
-        console.print(f"\n[yellow]Running {n_folds_val}-fold cross-validation...[/yellow]")
-        results = validator.k_fold_validate(virtual_splits, run_bootstrap)
 
         # Save confusion matrix as PNG if output path specified
         if cfg.output.genres_path and "confusion_matrix" in results and "genre_labels" in results:
@@ -1027,11 +773,11 @@ def evaluate(
                 )
                 plt.xlabel('Predicted Genre')
                 plt.ylabel('True Genre')
-                plt.title(f'Confusion Matrix - {results["num_folds"]}-Fold Cross-Validation')
+                plt.title(f'Clustering Evaluation - {results["num_folds"]}-Fold CV (Sentence-Level)')
                 plt.tight_layout()
 
                 # Save
-                confusion_matrix_path = output_dir / "confusion_matrix.png"
+                confusion_matrix_path = output_dir / "confusion_matrix_clustering.png"
                 plt.savefig(confusion_matrix_path, dpi=150, bbox_inches='tight')
                 plt.close()
 
@@ -1046,6 +792,620 @@ def evaluate(
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
         logger.exception("Evaluation failed")
+        raise typer.Exit(1)
+
+
+@app.command()
+def coverage(
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to configuration file"
+    ),
+    treebank: Optional[str] = typer.Option(
+        None, "--treebank", "-t", help="Comma-separated list of treebank codes to analyze"
+    ),
+    threshold: float = typer.Option(
+        0.95, "--threshold", help="Coverage threshold for 'fully covered' (0.0-1.0)"
+    ),
+    only_full: bool = typer.Option(
+        False, "--only-full", help="Show only fully covered treebanks"
+    ),
+    only_partial: bool = typer.Option(
+        False, "--only-partial", help="Show only partially covered treebanks"
+    ),
+    show_splits: bool = typer.Option(
+        True, "--show-splits/--no-splits", help="Show per-split details"
+    ),
+    export: Optional[Path] = typer.Option(
+        None, "--export", "-o", help="Export coverage data to JSON file"
+    ),
+):
+    """Analyze sentence-level genre coverage across treebanks.
+
+    Reports which treebanks have sufficient sentence-level genre metadata
+    for evaluation and production use. Analyzes coverage across all splits
+    (train/dev/test) and identifies fully/partially covered treebanks.
+
+    Examples:
+        # Analyze all treebanks from config
+        ud-genre-bootstrap coverage --config myconfig.yaml
+
+        # Analyze specific treebanks
+        ud-genre-bootstrap coverage --treebank en_pud,de_pud,cs_pdtc
+
+        # Show only fully covered treebanks
+        ud-genre-bootstrap coverage --only-full --threshold 0.95
+
+        # Export coverage data
+        ud-genre-bootstrap coverage --export coverage.json
+    """
+    try:
+        console.print("\n[bold]Genre Coverage Analysis[/bold]")
+        console.print("=" * 60)
+
+        # Load configuration
+        cfg = load_config_from_path(config)
+        console.print(f"Loading config from: {config}")
+
+        # Initialize components
+        from ud_genre_bootstrap.bootstrapping.bootstrapper import GenreBootstrapper
+        from ud_genre_bootstrap.utils.genre_coverage import GenreCoverageAnalyzer
+
+        console.print("\n[yellow]Initializing coverage analyzer...[/yellow]")
+        bootstrapper = GenreBootstrapper(cfg)
+
+        analyzer = GenreCoverageAnalyzer(
+            data_loader=bootstrapper.data_loader,
+            genre_mapper=bootstrapper.genre_mapper,
+        )
+
+        # Determine which treebanks to analyze
+        if treebank:
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+            console.print(f"[blue]Analyzing {len(treebank_filter)} specified treebanks[/blue]")
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            console.print(f"[blue]Analyzing {len(treebank_filter)} treebanks from config[/blue]")
+        else:
+            # Get all treebanks from metadata
+            all_treebank_data = bootstrapper.data_loader.get_all_treebank_metadata()
+            treebank_filter = [tb['id'] for tb in all_treebank_data]
+            console.print(f"[blue]Analyzing all {len(treebank_filter)} treebanks[/blue]")
+
+        console.print(f"[blue]Coverage threshold: {threshold * 100:.0f}%[/blue]\n")
+
+        # Analyze treebanks
+        console.print("[yellow]Analyzing genre coverage...[/yellow]")
+        results = analyzer.analyze_treebanks(treebank_filter)
+
+        # Categorize treebanks
+        fully_covered = []
+        partially_covered = []
+        not_covered = []
+        ignored = []  # Treebanks with no successfully loaded splits
+
+        for tb_code, coverage in results.items():
+            if not coverage.splits:
+                # No splits were successfully loaded
+                ignored.append(tb_code)
+            elif coverage.is_fully_covered(threshold):
+                fully_covered.append((tb_code, coverage))
+            elif coverage.is_partially_covered(threshold):
+                partially_covered.append((tb_code, coverage))
+            else:
+                not_covered.append((tb_code, coverage))
+
+        # Display summary
+        console.print("\n[bold]Summary:[/bold]")
+        console.print(f"[green]✓ Fully covered:[/green] {len(fully_covered)} treebanks (all splits ≥{threshold*100:.0f}%)")
+        console.print(f"[yellow]⚠ Partially covered:[/yellow] {len(partially_covered)} treebanks (some splits ≥{threshold*100:.0f}%, some <{threshold*100:.0f}%)")
+        console.print(f"[red]✗ Not covered:[/red] {len(not_covered)} treebanks (all splits <{threshold*100:.0f}%)")
+        if ignored:
+            console.print(f"[dim]  Ignored: {len(ignored)} treebanks (load errors: {', '.join(sorted(ignored))})[/dim]")
+
+        # Get canonical genres for marking non-canonical ones
+        canonical_genres = set(analyzer.genre_mapper.canonical_genres) if analyzer.genre_mapper.canonical_genres else set()
+
+        # Display detailed tables based on filters
+        if only_full:
+            _display_fully_covered_table(fully_covered, show_splits, canonical_genres)
+        elif only_partial:
+            _display_partially_covered_table(partially_covered, threshold, show_splits, canonical_genres)
+        else:
+            # Show all categories
+            if fully_covered:
+                _display_fully_covered_table(fully_covered, show_splits, canonical_genres)
+
+            if partially_covered:
+                _display_partially_covered_table(partially_covered, threshold, show_splits, canonical_genres)
+
+            if not_covered and len(not_covered) <= 20:
+                _display_not_covered_table(not_covered, canonical_genres)
+            elif not_covered:
+                console.print(f"\n[dim]({len(not_covered)} treebanks without sufficient coverage - use --only-partial to see details)[/dim]")
+
+        # Export if requested
+        if export:
+            _export_coverage_data(results, export, threshold)
+            console.print(f"\n[blue]Coverage data exported to:[/blue] {export}")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Coverage analysis failed")
+        raise typer.Exit(1)
+
+
+def _display_fully_covered_table(fully_covered: list, show_splits: bool, canonical_genres: set):
+    """Display table of fully covered treebanks."""
+    from rich.table import Table
+
+    if not fully_covered:
+        return
+
+    table = Table(title="\nFully Covered Treebanks", show_header=True, header_style="bold green")
+    table.add_column("Treebank", style="cyan")
+    table.add_column("Splits", style="blue")
+    table.add_column("Sentences", style="magenta", justify="right")
+    table.add_column("Coverage", style="green", justify="right")
+    table.add_column("Genres", style="yellow")
+
+    has_non_canonical = False
+    for tb_code, coverage in sorted(fully_covered):
+        splits_str = ", ".join(coverage.all_splits)
+        # Mark non-canonical genres with asterisk
+        marked_genres = []
+        for genre in sorted(coverage.all_genres):
+            if genre not in canonical_genres:
+                marked_genres.append(f"*{genre}")
+                has_non_canonical = True
+            else:
+                marked_genres.append(genre)
+        genres_str = ", ".join(marked_genres)
+        table.add_row(
+            tb_code,
+            splits_str,
+            str(coverage.total_sentences),
+            f"{coverage.overall_coverage * 100:.1f}%",
+            genres_str,
+        )
+
+    console.print()
+    console.print(table)
+    if has_non_canonical:
+        console.print("[dim]* Non-canonical genre[/dim]")
+
+
+def _display_partially_covered_table(partially_covered: list, threshold: float, show_splits: bool, canonical_genres: set):
+    """Display table of partially covered treebanks."""
+    from rich.table import Table
+
+    if not partially_covered:
+        return
+
+    table = Table(title="\nPartially Covered Treebanks", show_header=True, header_style="bold yellow")
+    table.add_column("Treebank", style="cyan")
+    table.add_column("Covered Splits", style="green")
+    table.add_column("Uncovered Splits", style="red")
+    table.add_column("Overall Coverage", style="yellow", justify="right")
+    table.add_column("Genres", style="yellow")
+
+    has_non_canonical = False
+    for tb_code, coverage in sorted(partially_covered):
+        covered = ", ".join(coverage.get_covered_splits(threshold))
+        uncovered = ", ".join(coverage.get_uncovered_splits(threshold))
+        # Mark non-canonical genres with asterisk
+        marked_genres = []
+        for genre in sorted(coverage.all_genres):
+            if genre not in canonical_genres:
+                marked_genres.append(f"*{genre}")
+                has_non_canonical = True
+            else:
+                marked_genres.append(genre)
+        genres_str = ", ".join(marked_genres)
+        table.add_row(
+            tb_code,
+            covered or "—",
+            uncovered or "—",
+            f"{coverage.overall_coverage * 100:.1f}%",
+            genres_str,
+        )
+
+    console.print()
+    console.print(table)
+    if has_non_canonical:
+        console.print("[dim]* Non-canonical genre[/dim]")
+
+
+def _display_not_covered_table(not_covered: list, canonical_genres: set):
+    """Display table of treebanks without coverage."""
+    from rich.table import Table
+
+    if not not_covered:
+        return
+
+    table = Table(title="\nTreebanks Without Sufficient Coverage", show_header=True, header_style="bold red")
+    table.add_column("Treebank", style="cyan")
+    table.add_column("Splits", style="blue")
+    table.add_column("Coverage", style="red", justify="right")
+    table.add_column("Genres", style="yellow")
+
+    has_non_canonical = False
+    for tb_code, coverage in sorted(not_covered):
+        splits_str = ", ".join(coverage.all_splits)
+        # Mark non-canonical genres with asterisk
+        marked_genres = []
+        for genre in sorted(coverage.all_genres):
+            if genre not in canonical_genres:
+                marked_genres.append(f"*{genre}")
+                has_non_canonical = True
+            else:
+                marked_genres.append(genre)
+        genres_str = ", ".join(marked_genres)
+        table.add_row(
+            tb_code,
+            splits_str,
+            f"{coverage.overall_coverage * 100:.1f}%",
+            genres_str,
+        )
+
+    console.print()
+    console.print(table)
+    if has_non_canonical:
+        console.print("[dim]* Non-canonical genre[/dim]")
+
+
+def _export_coverage_data(results: dict, output_path: Path, threshold: float):
+    """Export coverage data to JSON file."""
+    import json
+
+    export_data = {
+        'threshold': threshold,
+        'treebanks': {},
+    }
+
+    for tb_code, coverage in results.items():
+        export_data['treebanks'][tb_code] = {
+            'splits': {
+                split_name: {
+                    'total_sentences': split_cov.total_sentences,
+                    'sentences_with_genre': split_cov.sentences_with_genre,
+                    'coverage': split_cov.coverage,
+                    'genres': sorted(split_cov.genres),
+                    'genre_counts': split_cov.genre_counts,
+                }
+                for split_name, split_cov in coverage.splits.items()
+            },
+            'overall': {
+                'total_sentences': coverage.total_sentences,
+                'sentences_with_genre': coverage.total_with_genre,
+                'coverage': coverage.overall_coverage,
+                'genres': sorted(coverage.all_genres),
+                'fully_covered': coverage.is_fully_covered(threshold),
+                'partially_covered': coverage.is_partially_covered(threshold),
+                'covered_splits': coverage.get_covered_splits(threshold),
+                'uncovered_splits': coverage.get_uncovered_splits(threshold),
+            }
+        }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w') as f:
+        json.dump(export_data, f, indent=2)
+
+
+@app.command()
+def evaluate_xgenre(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Specific treebank(s) to evaluate (e.g., en_ewt or en_ewt,de_gsd). If not specified, evaluates all bootstrap-labeled sentences.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output directory for X-GENRE evaluation results. Default: {output.genres_path}/xgenre_evaluation/",
+    ),
+):
+    """Evaluate bootstrap quality using X-GENRE classifier.
+
+    Compares bootstrap-labeled sentences (multi-genre treebanks) against
+    X-GENRE predictions. Only evaluates sentences labeled via bootstrap,
+    not pre-existing metadata or single-genre treebanks.
+
+    This provides an independent assessment of bootstrap labeling quality
+    using a pre-trained multilingual genre classifier as ground truth.
+    """
+    console.print("\n[bold cyan]X-GENRE Bootstrap Evaluation[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        cfg = load_config_from_path(config)
+
+        # Parse treebank filter
+        treebank_filter = None
+        if treebank:
+            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+        elif cfg.include_treebanks:
+            treebank_filter = cfg.include_treebanks
+            console.print(f"[blue]Using treebanks from config:[/blue] {', '.join(treebank_filter)}")
+
+        # Determine output directory
+        if output:
+            output_dir = Path(output)
+        else:
+            output_dir = Path(cfg.output.genres_path) / "xgenre_evaluation"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load bootstrap results
+        bootstrap_file = Path(cfg.output.genres_path) / "all_genres.parquet"
+        if not bootstrap_file.exists():
+            console.print(f"[bold red]✗ Error:[/bold red] Bootstrap results not found at {bootstrap_file}")
+            console.print("[yellow]Run 'label' or 'run' command first to generate bootstrap labels[/yellow]")
+            raise typer.Exit(1)
+
+        console.print(f"[blue]Loading bootstrap results from:[/blue] {bootstrap_file}")
+        import pandas as pd
+        df_bootstrap = pd.read_parquet(bootstrap_file)
+
+        # Filter to only bootstrap-labeled sentences (exclude metadata and single-genre treebanks)
+        console.print("\n[yellow]Filtering to bootstrap-labeled sentences only...[/yellow]")
+        df_bootstrap_only = df_bootstrap[df_bootstrap['method'] == 'bootstrap'].copy()
+
+        if len(df_bootstrap_only) == 0:
+            console.print("[bold red]✗ Error:[/bold red] No bootstrap-labeled sentences found")
+            console.print("[yellow]Bootstrap method only labels multi-genre treebanks via clustering[/yellow]")
+            raise typer.Exit(1)
+
+        # Apply treebank filter if specified
+        if treebank_filter:
+            # Extract treebank codes from sent_id (format: tb_code:split:sent_id or similar)
+            # We need to match against treebank codes in the sent_id
+            df_bootstrap_only['treebank'] = df_bootstrap_only['sent_id'].str.extract(r'^([a-z]{2,3}_[a-z]+)', expand=False)
+            df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['treebank'].isin(treebank_filter)]
+
+            if len(df_bootstrap_only) == 0:
+                console.print(f"[bold red]✗ Error:[/bold red] No bootstrap-labeled sentences found for specified treebanks")
+                raise typer.Exit(1)
+
+        console.print(f"[green]✓ Found {len(df_bootstrap_only)} bootstrap-labeled sentences[/green]")
+
+        # Show breakdown by bootstrap method
+        method_counts = df_bootstrap.groupby('method').size()
+        console.print("\n[cyan]Label method breakdown (all sentences):[/cyan]")
+        for method, count in method_counts.items():
+            console.print(f"  {method}: {count} ({count/len(df_bootstrap):.1%})")
+        console.print(f"[yellow]→ Evaluating only the {len(df_bootstrap_only)} bootstrap-labeled sentences[/yellow]")
+
+        # Load sentences from data loader to get text
+        console.print("\n[yellow]Loading sentence texts...[/yellow]")
+        from ud_genre_bootstrap.utils.data_loader import UDDataLoader
+
+        data_loader = UDDataLoader(
+            ud_source=cfg.ud_source,
+            ud_version=cfg.ud_version,
+        )
+
+        # Build sent_id -> text mapping
+        sent_id_to_text = {}
+        sent_id_to_treebank = {}
+
+        for tb_code, split, dataset in data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
+            for sentence in dataset:
+                sent_id = sentence.get('sent_id')
+                text = sentence.get('text', '')
+                if sent_id and text:
+                    sent_id_to_text[sent_id] = text
+                    sent_id_to_treebank[sent_id] = (tb_code, split)
+
+        # Filter df to only sentences we have text for
+        df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['sent_id'].isin(sent_id_to_text)]
+        console.print(f"[green]✓ Loaded texts for {len(df_bootstrap_only)} sentences[/green]")
+
+        if len(df_bootstrap_only) == 0:
+            console.print("[bold red]✗ Error:[/bold red] No sentence texts found")
+            raise typer.Exit(1)
+
+        # Load X-GENRE classifier
+        console.print(f"\n[yellow]Loading X-GENRE classifier: {cfg.xgenre_evaluation.model}[/yellow]")
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        import torch
+
+        # Determine device
+        device_str = cfg.xgenre_evaluation.device.lower()
+        if device_str == "auto":
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        elif device_str == "cuda":
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+
+        console.print(f"[blue]Using device:[/blue] {device}")
+
+        tokenizer = AutoTokenizer.from_pretrained(cfg.xgenre_evaluation.model)
+        model = AutoModelForSequenceClassification.from_pretrained(cfg.xgenre_evaluation.model)
+        model.to(device)
+        model.eval()
+
+        # X-GENRE label mapping
+        xgenre_labels = ['Other', 'Information/Explanation', 'News', 'Instruction',
+                         'Opinion/Argumentation', 'Forum', 'Prose/Lyrical', 'Legal', 'Promotion']
+
+        # Run X-GENRE predictions
+        console.print("\n[yellow]Running X-GENRE predictions...[/yellow]")
+        xgenre_predictions = []
+        batch_size = cfg.xgenre_evaluation.batch_size
+
+        texts = [sent_id_to_text[sid] for sid in df_bootstrap_only['sent_id']]
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Classifying sentences...", total=len(texts))
+
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i+batch_size]
+
+                inputs = tokenizer(batch_texts, padding=True, truncation=True, max_length=512, return_tensors="pt")
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    predictions = torch.argmax(outputs.logits, dim=-1)
+                    xgenre_predictions.extend([xgenre_labels[p.item()] for p in predictions])
+
+                progress.update(task, advance=len(batch_texts))
+
+        # Map X-GENRE labels to UD genres
+        console.print("\n[yellow]Mapping X-GENRE labels to UD genres...[/yellow]")
+        xgenre_mapped = [cfg.xgenre_evaluation.genre_mapping.get(label) for label in xgenre_predictions]
+
+        # Add predictions to dataframe
+        df_bootstrap_only['xgenre_label'] = xgenre_predictions
+        df_bootstrap_only['xgenre_mapped'] = xgenre_mapped
+
+        # Filter out sentences where X-GENRE predicted "Other" (no UD equivalent)
+        df_eval = df_bootstrap_only[df_bootstrap_only['xgenre_mapped'].notna()].copy()
+        console.print(f"[blue]Evaluating {len(df_eval)} sentences (excluded {len(df_bootstrap_only) - len(df_eval)} 'Other' predictions)[/blue]")
+
+        # Compute metrics
+        from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
+
+        y_true = df_eval['xgenre_mapped'].values
+        y_pred = df_eval['genre'].values
+
+        accuracy = accuracy_score(y_true, y_pred)
+
+        # Per-class metrics
+        precision, recall, f1, support = precision_recall_fscore_support(y_true, y_pred, average=None, labels=sorted(set(y_true)))
+
+        # Confusion matrix
+        labels = sorted(set(y_true) | set(y_pred))
+        conf_matrix = confusion_matrix(y_true, y_pred, labels=labels)
+
+        # Display results
+        console.print("\n[bold cyan]Evaluation Results[/bold cyan]")
+        console.print("=" * 60)
+        console.print(f"[green]Overall Accuracy:[/green] {accuracy:.3f}")
+        console.print(f"[blue]Evaluated sentences:[/blue] {len(df_eval)}")
+
+        # Per-genre results table
+        console.print("\n[bold]Per-Genre Results:[/bold]")
+        from rich.table import Table as RichTable
+
+        table = RichTable(show_header=True, header_style="bold magenta")
+        table.add_column("Genre", style="cyan")
+        table.add_column("Precision", justify="right", style="green")
+        table.add_column("Recall", justify="right", style="yellow")
+        table.add_column("F1-Score", justify="right", style="blue")
+        table.add_column("Support", justify="right")
+
+        for i, genre in enumerate(sorted(set(y_true))):
+            table.add_row(
+                genre,
+                f"{precision[i]:.3f}",
+                f"{recall[i]:.3f}",
+                f"{f1[i]:.3f}",
+                str(support[i])
+            )
+
+        console.print(table)
+
+        # Confusion matrix
+        console.print("\n[bold]Confusion Matrix:[/bold]")
+        console.print("[dim]Rows = X-GENRE (ground truth), Columns = Bootstrap (predictions)[/dim]")
+
+        cm_table = RichTable(show_header=True, header_style="bold magenta")
+        cm_table.add_column("X-GENRE \\ Bootstrap", style="cyan")
+
+        for label in labels:
+            cm_table.add_column(label, justify="right", style="yellow")
+
+        for i, true_label in enumerate(labels):
+            row = [true_label]
+            for j in range(len(labels)):
+                count = conf_matrix[i][j]
+                if i == j:
+                    row.append(f"[bold green]{count}[/bold green]")
+                else:
+                    row.append(str(count))
+            cm_table.add_row(*row)
+
+        console.print(cm_table)
+
+        # Save results
+        console.print(f"\n[yellow]Saving results to {output_dir}...[/yellow]")
+
+        # Save detailed predictions
+        predictions_file = output_dir / "xgenre_predictions.parquet"
+        df_eval.to_parquet(predictions_file, index=False)
+        console.print(f"[green]✓ Saved predictions:[/green] {predictions_file}")
+
+        # Save metrics as JSON
+        import json
+        metrics = {
+            "accuracy": float(accuracy),
+            "num_sentences": int(len(df_eval)),
+            "per_genre": {
+                genre: {
+                    "precision": float(precision[i]),
+                    "recall": float(recall[i]),
+                    "f1": float(f1[i]),
+                    "support": int(support[i])
+                }
+                for i, genre in enumerate(sorted(set(y_true)))
+            },
+            "confusion_matrix": conf_matrix.tolist(),
+            "labels": labels,
+        }
+
+        metrics_file = output_dir / "xgenre_metrics.json"
+        with open(metrics_file, 'w') as f:
+            json.dump(metrics, f, indent=2)
+        console.print(f"[green]✓ Saved metrics:[/green] {metrics_file}")
+
+        # Save confusion matrix as PNG
+        console.print("\n[yellow]Generating confusion matrix visualization...[/yellow]")
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            conf_matrix,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            xticklabels=labels,
+            yticklabels=labels,
+            cbar_kws={'label': 'Count'}
+        )
+        plt.xlabel('Bootstrap Prediction')
+        plt.ylabel('X-GENRE Ground Truth')
+        plt.title('Bootstrap vs X-GENRE Comparison')
+        plt.tight_layout()
+
+        cm_file = output_dir / "confusion_matrix.png"
+        plt.savefig(cm_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        console.print(f"[green]✓ Saved confusion matrix:[/green] {cm_file}")
+
+        console.print(f"\n[bold green]✓ X-GENRE evaluation complete![/bold green]")
+        console.print(f"[blue]Results saved to:[/blue] {output_dir}")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("X-GENRE evaluation failed")
         raise typer.Exit(1)
 
 
@@ -1244,26 +1604,24 @@ def info(
 
 @app.command()
 def visualize_clusters(
-    clusters: Path = typer.Option(
-        ...,
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        help="Path to configuration YAML file (provides default paths)",
+        exists=True,
+        dir_okay=False,
+    ),
+    clusters: Optional[Path] = typer.Option(
+        None,
         "--clusters",
         "-c",
-        help="Path to cluster output directory (contains cluster_assignments.parquet)",
-        exists=True,
-        dir_okay=True,
+        help="Path to cluster output directory (contains cluster_assignments.parquet). If not specified, uses output.genres_path/clusters/ from config.",
     ),
     embeddings: Optional[Path] = typer.Option(
         None,
         "--embeddings",
         "-e",
         help="Path to embeddings cache directory. If not specified, uses config.",
-    ),
-    config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        help="Path to configuration YAML file",
-        exists=True,
-        dir_okay=False,
     ),
     output: Optional[Path] = typer.Option(
         None,
@@ -1286,10 +1644,10 @@ def visualize_clusters(
         "--random-state",
         help="Random seed for reproducibility (disables parallelism in UMAP)",
     ),
-    use_gpu: bool = typer.Option(
-        False,
+    use_gpu: Optional[bool] = typer.Option(
+        None,
         "--use-gpu/--no-gpu",
-        help="Use GPU acceleration if available (requires cuML for UMAP)",
+        help="Use GPU acceleration if available (requires cuML for UMAP). If not specified, uses config clustering.device setting.",
     ),
     treebank: Optional[str] = typer.Option(
         None,
@@ -1307,6 +1665,14 @@ def visualize_clusters(
 
     Creates interactive plots showing how sentences cluster together.
     By default, colors points by genre to evaluate clustering quality.
+
+    Usage:
+        # Simple: just provide config (uses default paths)
+        uv run ud-genre-bootstrap visualize-clusters --config configs/default.yaml
+
+        # Override specific paths if needed
+        uv run ud-genre-bootstrap visualize-clusters --config configs/default.yaml --clusters output/custom/
+
     """
     console.print("\n[bold cyan]Cluster Visualization[/bold cyan]")
     console.print("=" * 60)
@@ -1317,8 +1683,30 @@ def visualize_clusters(
         import json
         from pathlib import Path as PathLib
 
+        # Load config to get default paths
+        cfg = None
+        if config:
+            cfg = load_config_from_path(config)
+
+        # Determine clusters directory - CLI overrides config
+        if clusters is None:
+            if cfg is None:
+                console.print("[bold red]✗ Error:[/bold red] Either --config or --clusters must be specified")
+                raise typer.Exit(1)
+
+            # Use default from config
+            clusters_dir = PathLib(cfg.output.genres_path) / "clusters"
+            console.print(f"[blue]Using default cluster directory from config:[/blue] {clusters_dir}")
+        else:
+            clusters_dir = PathLib(clusters)
+
+        # Validate clusters directory exists
+        if not clusters_dir.exists():
+            console.print(f"[bold red]✗ Error:[/bold red] Cluster directory does not exist: {clusters_dir}")
+            raise typer.Exit(1)
+
         # Load cluster assignments
-        assignments_file = PathLib(clusters) / "cluster_assignments.parquet"
+        assignments_file = clusters_dir / "cluster_assignments.parquet"
         if not assignments_file.exists():
             console.print(f"[bold red]✗ Error:[/bold red] Cluster assignments not found at {assignments_file}")
             raise typer.Exit(1)
@@ -1330,8 +1718,8 @@ def visualize_clusters(
         # Check both in the clusters directory and in the parent output directory
         genre_labels_file = None
         possible_paths = [
-            PathLib(clusters).parent / "all_genres.parquet",  # Parent of clusters dir
-            PathLib(clusters) / "all_genres.parquet",  # In clusters dir itself
+            clusters_dir.parent / "all_genres.parquet",  # Parent of clusters dir
+            clusters_dir / "all_genres.parquet",  # In clusters dir itself
         ]
 
         for path in possible_paths:
@@ -1352,7 +1740,7 @@ def visualize_clusters(
             console.print("[yellow]Run 'label' command first to get sentence-level genre assignments[/yellow]")
 
             # Fallback: Load cluster statistics to get treebank-level genre information
-            stats_file = PathLib(clusters) / "cluster_statistics.json"
+            stats_file = clusters_dir / "cluster_statistics.json"
             if stats_file.exists():
                 console.print(f"[blue]Loading cluster statistics from:[/blue] {stats_file}")
                 with open(stats_file, 'r') as f:
@@ -1381,21 +1769,46 @@ def visualize_clusters(
             else:
                 console.print(f"[blue]Filtered to {len(treebank_list)} treebanks:[/blue] {', '.join(treebank_list)}")
 
-        # Determine embeddings directory
+        # Determine embeddings directory - CLI overrides config
         if embeddings:
             emb_dir = PathLib(embeddings)
-        elif config:
-            cfg = load_config_from_path(config)
-            if cfg.embeddings.cache_dir:
-                emb_dir = PathLib(cfg.embeddings.cache_dir)
-            else:
-                console.print("[bold red]✗ Error:[/bold red] No embeddings cache directory configured")
-                raise typer.Exit(1)
+        elif cfg and cfg.embeddings.cache_dir:
+            emb_dir = PathLib(cfg.embeddings.cache_dir)
+            console.print(f"[blue]Using default embeddings directory from config:[/blue] {emb_dir}")
         else:
-            console.print("[bold red]✗ Error:[/bold red] Must specify --embeddings or --config")
+            console.print("[bold red]✗ Error:[/bold red] Must specify --embeddings or provide --config with embeddings.cache_dir")
             raise typer.Exit(1)
 
         console.print(f"[blue]Loading embeddings from:[/blue] {emb_dir}")
+
+        # Determine GPU usage - CLI flag overrides config
+        should_use_gpu = False
+        if use_gpu is not None:
+            # Explicit flag provided
+            should_use_gpu = use_gpu
+            if should_use_gpu:
+                console.print("[blue]GPU acceleration enabled via --use-gpu flag[/blue]")
+            else:
+                console.print("[blue]GPU acceleration disabled via --no-gpu flag[/blue]")
+        elif cfg and hasattr(cfg, 'clustering'):
+            # Use config device setting
+            device = cfg.clustering.device.lower()
+            if device == "cuda":
+                should_use_gpu = True
+                console.print("[blue]GPU acceleration enabled via config (clustering.device: cuda)[/blue]")
+            elif device == "auto":
+                # Auto-detect GPU
+                try:
+                    import cupy as cp
+                    cp.cuda.Device(0).compute_capability
+                    should_use_gpu = True
+                    console.print("[blue]GPU acceleration enabled via auto-detection (clustering.device: auto)[/blue]")
+                except (ImportError, Exception):
+                    should_use_gpu = False
+                    console.print("[blue]GPU not available, using CPU (clustering.device: auto)[/blue]")
+            else:
+                should_use_gpu = False
+                console.print(f"[blue]GPU acceleration disabled via config (clustering.device: {device})[/blue]")
 
         # Load embeddings for each treebank/split
         embeddings_list = []
@@ -1460,7 +1873,7 @@ def visualize_clusters(
 
         if method == "umap":
             try:
-                if use_gpu:
+                if should_use_gpu:
                     # Try to use cuML for GPU acceleration
                     try:
                         from cuml import UMAP as cumlUMAP
@@ -1476,9 +1889,9 @@ def visualize_clusters(
                     except ImportError:
                         console.print("[yellow]⚠ cuML not available, falling back to CPU UMAP[/yellow]")
                         console.print("[blue]Install cuML for GPU support: conda install -c rapidsai -c conda-forge cuml[/blue]")
-                        use_gpu = False
+                        should_use_gpu = False
 
-                if not use_gpu:
+                if not should_use_gpu:
                     # CPU UMAP
                     from umap import UMAP
 
@@ -1570,7 +1983,7 @@ def visualize_clusters(
             if output:
                 output_file = PathLib(output)
             else:
-                output_file = PathLib(clusters) / "visualization.html"
+                output_file = clusters_dir / "visualization.html"
 
             fig.write_html(str(output_file))
             console.print(f"[bold green]✓ Visualization saved to:[/bold green] {output_file}")
@@ -1622,7 +2035,7 @@ def visualize_clusters(
             if output:
                 output_file = PathLib(output)
             else:
-                output_file = PathLib(clusters) / "visualization.png"
+                output_file = clusters_dir / "visualization.png"
 
             plt.savefig(str(output_file), dpi=300, bbox_inches='tight')
             console.print(f"[bold green]✓ Visualization saved to:[/bold green] {output_file}")
@@ -1656,10 +2069,18 @@ def _display_cluster_stats(treebank_clusters: dict):
     table.add_column("Genres", style="yellow")
     table.add_column("Clusters", style="green")
 
-    for (tb_code, split), info in treebank_clusters.items():
+    for tb_key, info in treebank_clusters.items():
+        # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
+        if len(tb_key) == 3:
+            tb_code, split, genre_tag = tb_key
+            display_split = f"{split}:{genre_tag}"
+        else:
+            tb_code, split = tb_key
+            display_split = split
+
         genres = ", ".join(info["genres"])
         n_clusters = len(info["cluster_result"]["clusters"])
-        table.add_row(tb_code, split, genres, str(n_clusters))
+        table.add_row(tb_code, display_split, genres, str(n_clusters))
 
     console.print(table)
 
@@ -1710,6 +2131,96 @@ def _display_schedule_summary(schedule: list):
             console.print(f"  - {combo}")
         if len(final_env['disjunct']) > 5:
             console.print(f"  ... and {len(final_env['disjunct'])-5} more")
+
+
+def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str):
+    """Save cluster assignments and statistics to disk.
+
+    Args:
+        bootstrapper: GenreBootstrapper instance with treebank_clusters
+        embeddings_by_tb: Dictionary of embeddings by (treebank, split)
+        output_path: Base output path from config
+    """
+    from pathlib import Path as PathLib
+    import json
+    import pandas as pd
+
+    output_dir = PathLib(output_path) / "clusters"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"\n[yellow]Saving cluster results to {output_dir}...[/yellow]")
+
+    # Save cluster assignments as parquet
+    cluster_assignments = []
+    for tb_key, info in bootstrapper.treebank_clusters.items():
+        # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
+        if len(tb_key) == 3:
+            tb_code, split, genre_tag = tb_key
+        else:
+            tb_code, split = tb_key
+
+        cluster_result = info['cluster_result']
+
+        for cluster_id, cluster_info in cluster_result['clusters'].items():
+            for sent_id in cluster_info['sent_ids']:
+                cluster_assignments.append({
+                    'treebank': tb_code,
+                    'split': split,
+                    'sent_id': sent_id,
+                    'cluster_id': cluster_id,
+                    'confidence': cluster_info.get('confidence', None),
+                })
+
+    if cluster_assignments:
+        df_assignments = pd.DataFrame(cluster_assignments)
+        assignments_file = output_dir / "cluster_assignments.parquet"
+        df_assignments.to_parquet(assignments_file, index=False)
+        console.print(f"[green]✓ Saved cluster assignments:[/green] {assignments_file}")
+
+    # Save cluster statistics as JSON
+    cluster_stats = {}
+    for tb_key, info in bootstrapper.treebank_clusters.items():
+        # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
+        if len(tb_key) == 3:
+            tb_code, split, genre_tag = tb_key
+            key = f"{tb_code}_{split}_{genre_tag}"
+        else:
+            tb_code, split = tb_key
+            key = f"{tb_code}_{split}"
+
+        cluster_result = info['cluster_result']
+
+        cluster_stats[key] = {
+            'treebank': tb_code,
+            'split': split,
+            'genres': list(info['genres']),
+            'n_clusters': len(cluster_result['clusters']),
+            'n_sentences': sum(len(c['sent_ids']) for c in cluster_result['clusters'].values()),
+            'clusters': {
+                str(cid): {
+                    'size': len(cinfo['sent_ids']),
+                    'confidence': float(cinfo.get('confidence', 0.0)),
+                }
+                for cid, cinfo in cluster_result['clusters'].items()
+            },
+            'metrics': cluster_result.get('metrics', {}),
+        }
+
+    stats_file = output_dir / "cluster_statistics.json"
+    with open(stats_file, 'w') as f:
+        json.dump(cluster_stats, f, indent=2)
+    console.print(f"[green]✓ Saved cluster statistics:[/green] {stats_file}")
+
+    # Save cluster state (for label command)
+    import pickle
+    cluster_state = {
+        'treebank_clusters': bootstrapper.treebank_clusters,
+        'embeddings_by_tb': embeddings_by_tb,
+    }
+    state_file = output_dir / "cluster_state.pkl"
+    with open(state_file, 'wb') as f:
+        pickle.dump(cluster_state, f)
+    console.print(f"[green]✓ Saved cluster state:[/green] {state_file}")
 
 
 def _display_evaluation_results(results: dict):
