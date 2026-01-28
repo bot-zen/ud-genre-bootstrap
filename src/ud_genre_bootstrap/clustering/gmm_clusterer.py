@@ -17,6 +17,8 @@ class GMMClusterer:
         random_state: int = 42,
         pca_components: int = 0,
         device: str = "auto",
+        max_iter: int = 300,
+        reg_covar: float = 1e-4,
     ):
         """Initialize GMM clusterer.
 
@@ -25,10 +27,14 @@ class GMMClusterer:
             random_state: Random seed
             pca_components: If > 0, apply PCA before clustering
             device: Device to use ("auto", "cuda", or "cpu")
+            max_iter: Maximum number of EM iterations (default: 300)
+            reg_covar: Regularization added to diagonal of covariance (default: 1e-4)
         """
         self.n_components = n_components
         self.random_state = random_state
         self.pca_components = pca_components
+        self.max_iter = max_iter
+        self.reg_covar = reg_covar
         self.device = self._determine_device(device)
         self.use_gpu = self.device == "cuda"
 
@@ -128,6 +134,10 @@ class GMMClusterer:
         # Fit GMM
         self.gmm = self.GaussianMixture(
             n_components=n_components,
+            covariance_type='full',
+            init_params='kmeans',
+            max_iter=self.max_iter,
+            reg_covar=self.reg_covar,
             random_state=self.random_state,
             verbose=1,
         )
@@ -216,11 +226,22 @@ class GMMClusterer:
                 "confidence": cluster_probs[mask, cluster_id].mean(),
             }
 
+        # Compute cluster quality metrics
+        metrics = {}
+        if n_genres > 1:  # Need at least 2 clusters for metrics
+            try:
+                from ud_genre_bootstrap.evaluation.metrics import ClusterQualityMetrics
+                metrics = ClusterQualityMetrics.compute_all(embeddings, cluster_ids)
+                logger.debug(f"Cluster metrics: {metrics}")
+            except Exception as e:
+                logger.warning(f"Failed to compute cluster metrics: {e}")
+
         return {
             "n_clusters": n_genres,
             "cluster_ids": cluster_ids,
             "cluster_probs": cluster_probs,
             "clusters": clusters,
+            "metrics": metrics,
         }
 
     def get_cluster_centroids(self) -> np.ndarray:

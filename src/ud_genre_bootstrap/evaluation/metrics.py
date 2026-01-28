@@ -73,6 +73,76 @@ class ClusterQualityMetrics:
 
         return float(davies_bouldin_score(embeddings, labels))
 
+    @staticmethod
+    def compute_pairwise_centroid_distances(
+        embeddings: np.ndarray, labels: np.ndarray, metric: str = "cosine"
+    ) -> Dict:
+        """Compute pairwise distances between cluster centroids.
+
+        This shows how well-separated different clusters are from each other.
+        For example, "how far is the 'news' cluster from the 'social' cluster?"
+
+        Args:
+            embeddings: Sentence embeddings
+            labels: Cluster labels
+            metric: Distance metric ('cosine' or 'euclidean')
+
+        Returns:
+            Dictionary with:
+                - pairwise_matrix: 2D list of distances [cluster_i][cluster_j]
+                - cluster_ids: List of cluster IDs
+                - mean_distance: Average pairwise distance
+                - min_distance: Closest pair of clusters
+                - max_distance: Furthest pair of clusters
+        """
+        from scipy.spatial.distance import cosine, euclidean
+
+        unique_labels = sorted(np.unique(labels))
+        n_clusters = len(unique_labels)
+
+        if n_clusters < 2:
+            return {
+                "pairwise_matrix": [],
+                "cluster_ids": unique_labels.tolist(),
+                "mean_distance": 0.0,
+                "min_distance": 0.0,
+                "max_distance": 0.0,
+            }
+
+        # Compute cluster centroids
+        centroids = []
+        for label in unique_labels:
+            mask = labels == label
+            centroid = embeddings[mask].mean(axis=0)
+            centroids.append(centroid)
+
+        # Compute pairwise distances
+        distance_matrix = np.zeros((n_clusters, n_clusters))
+        for i in range(n_clusters):
+            for j in range(n_clusters):
+                if i == j:
+                    distance_matrix[i, j] = 0.0
+                else:
+                    if metric == "cosine":
+                        dist = cosine(centroids[i], centroids[j])
+                    elif metric == "euclidean":
+                        dist = euclidean(centroids[i], centroids[j])
+                    else:
+                        raise ValueError(f"Unknown metric: {metric}")
+                    distance_matrix[i, j] = dist
+
+        # Get upper triangle (excluding diagonal) for statistics
+        upper_triangle = distance_matrix[np.triu_indices(n_clusters, k=1)]
+
+        return {
+            "pairwise_matrix": distance_matrix.tolist(),
+            "cluster_ids": [int(label) for label in unique_labels],
+            "mean_distance": float(upper_triangle.mean()) if len(upper_triangle) > 0 else 0.0,
+            "min_distance": float(upper_triangle.min()) if len(upper_triangle) > 0 else 0.0,
+            "max_distance": float(upper_triangle.max()) if len(upper_triangle) > 0 else 0.0,
+            "metric": metric,
+        }
+
     @classmethod
     def compute_all(
         cls, embeddings: np.ndarray, labels: np.ndarray
@@ -86,10 +156,90 @@ class ClusterQualityMetrics:
         Returns:
             Dictionary of metric scores
         """
-        return {
+        metrics = {
             "silhouette": cls.compute_silhouette(embeddings, labels),
             "calinski_harabasz": cls.compute_calinski_harabasz(embeddings, labels),
             "davies_bouldin": cls.compute_davies_bouldin(embeddings, labels),
+        }
+
+        # Add pairwise centroid distances
+        pairwise = cls.compute_pairwise_centroid_distances(embeddings, labels)
+        metrics["pairwise_distances"] = pairwise
+
+        return metrics
+
+
+class GenreSeparationMetrics:
+    """Compute genre-level separation metrics across treebanks."""
+
+    @staticmethod
+    def compute_genre_centroid_distances(
+        genre_embeddings: Dict[str, np.ndarray], metric: str = "cosine"
+    ) -> Dict:
+        """Compute pairwise distances between genre centroids.
+
+        Shows how separable different genres are in the embedding space.
+        For example, "how far apart are 'news' and 'social' across all treebanks?"
+
+        Args:
+            genre_embeddings: Dictionary mapping genre names to their mean embeddings
+            metric: Distance metric ('cosine' or 'euclidean')
+
+        Returns:
+            Dictionary with:
+                - pairwise_matrix: 2D list of distances [genre_i][genre_j]
+                - genres: List of genre names
+                - mean_distance: Average pairwise distance
+                - min_pair: Closest pair of genres
+                - max_pair: Furthest pair of genres
+        """
+        from scipy.spatial.distance import cosine, euclidean
+
+        genres = sorted(genre_embeddings.keys())
+        n_genres = len(genres)
+
+        if n_genres < 2:
+            return {
+                "pairwise_matrix": [],
+                "genres": genres,
+                "mean_distance": 0.0,
+                "min_pair": None,
+                "max_pair": None,
+            }
+
+        # Compute pairwise distances
+        distance_matrix = np.zeros((n_genres, n_genres))
+        for i, genre_i in enumerate(genres):
+            for j, genre_j in enumerate(genres):
+                if i == j:
+                    distance_matrix[i, j] = 0.0
+                else:
+                    if metric == "cosine":
+                        dist = cosine(genre_embeddings[genre_i], genre_embeddings[genre_j])
+                    elif metric == "euclidean":
+                        dist = euclidean(genre_embeddings[genre_i], genre_embeddings[genre_j])
+                    else:
+                        raise ValueError(f"Unknown metric: {metric}")
+                    distance_matrix[i, j] = dist
+
+        # Find min/max pairs (excluding diagonal)
+        upper_triangle_indices = np.triu_indices(n_genres, k=1)
+        upper_triangle = distance_matrix[upper_triangle_indices]
+
+        min_idx = np.argmin(upper_triangle)
+        max_idx = np.argmax(upper_triangle)
+
+        # Convert flat index to 2D indices
+        min_i, min_j = upper_triangle_indices[0][min_idx], upper_triangle_indices[1][min_idx]
+        max_i, max_j = upper_triangle_indices[0][max_idx], upper_triangle_indices[1][max_idx]
+
+        return {
+            "pairwise_matrix": distance_matrix.tolist(),
+            "genres": genres,
+            "mean_distance": float(upper_triangle.mean()) if len(upper_triangle) > 0 else 0.0,
+            "min_pair": (genres[min_i], genres[min_j], float(distance_matrix[min_i, min_j])),
+            "max_pair": (genres[max_i], genres[max_j], float(distance_matrix[max_i, max_j])),
+            "metric": metric,
         }
 
 

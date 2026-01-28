@@ -296,11 +296,22 @@ class KMeansClusterer:
                 "confidence": cluster_probs[mask, cluster_id].mean(),
             }
 
+        # Compute cluster quality metrics
+        metrics = {}
+        if n_genres > 1:  # Need at least 2 clusters for metrics
+            try:
+                from ud_genre_bootstrap.evaluation.metrics import ClusterQualityMetrics
+                metrics = ClusterQualityMetrics.compute_all(embeddings, cluster_ids)
+                logger.debug(f"Cluster metrics: {metrics}")
+            except Exception as e:
+                logger.warning(f"Failed to compute cluster metrics: {e}")
+
         return {
             "n_clusters": n_genres,
             "cluster_ids": cluster_ids,
             "cluster_probs": cluster_probs,
             "clusters": clusters,
+            "metrics": metrics,
         }
 
     def get_cluster_centroids(self) -> np.ndarray:
