@@ -13,15 +13,18 @@ class GenreMapper:
     # Default canonical UD genre labels (can be overridden via config)
     DEFAULT_CANONICAL_GENRES = {
         "academic",
+        "bible",
         "blog",
         "email",
         "fiction",
         "government",
         "grammar-examples",
+        "learner-essays",
         "legal",
         "medical",
         "news",
         "nonfiction",
+        "poetry",
         "reviews",
         "social",
         "spoken",
