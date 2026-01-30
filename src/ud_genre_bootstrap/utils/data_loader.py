@@ -45,9 +45,6 @@ class UDDataLoader:
 
         # Try to find metadata in standard locations
         possible_paths = [
-            # Local UD data location
-            Path("/home/egon/Documents/work/phd/src/data/external/huggingface/universal_dependencies/metadata.json"),
-            Path("/home/egon/phd/src/data/external/huggingface/universal_dependencies/metadata.json"),
             # Relative to current directory
             Path("../huggingface/universal_dependencies/metadata.json"),
         ]
