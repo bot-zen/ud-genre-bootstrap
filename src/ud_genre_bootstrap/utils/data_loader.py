@@ -350,26 +350,3 @@ class UDDataLoader:
             })
 
         return treebank_data
-
-    def extract_sentence_text(self, sentence: Dict) -> str:
-        """Extract text from a UD sentence.
-
-        Args:
-            sentence: Sentence dictionary from dataset
-
-        Returns:
-            Sentence text as string
-        """
-        # Handle different text representations
-        if "text" in sentence:
-            return sentence["text"]
-
-        # Fallback: join tokens
-        if "tokens" in sentence:
-            return " ".join(sentence["tokens"])
-
-        # Another fallback: join form field
-        if "form" in sentence:
-            return " ".join(sentence["form"])
-
-        raise ValueError("Cannot extract text from sentence")
