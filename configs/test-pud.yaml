@@ -21,7 +21,6 @@ include_treebanks:
   - "id_pud"
   - "it_pud"
   - "ja_pud"
-  - "ja_pudluw"
   - "ko_pud"
   - "pl_pud"
   - "pt_pud"
@@ -30,6 +29,7 @@ include_treebanks:
   - "sv_pud"
   - "th_pud"
   - "tr_pud"
+  - "ja_pudluw"
 
 # Optional: Exclude specific treebanks from all operations
 # exclude_treebanks:

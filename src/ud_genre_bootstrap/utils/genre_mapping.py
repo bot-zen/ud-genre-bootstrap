@@ -37,6 +37,7 @@ class GenreMapper:
         genre_mapping_path: Optional[Path] = None,
         metadata_patterns_path: Optional[Union[Path, List[Path]]] = None,
         canonical_genres: Optional[List[str]] = None,
+        data_loader=None,
     ):
         """Initialize genre mapper.
 
@@ -44,9 +45,11 @@ class GenreMapper:
             genre_mapping_path: Path to JSON with non-standard -> UD genre mappings
             metadata_patterns_path: Path or list of paths to JSON files with sentence-level genre patterns
             canonical_genres: Optional list of canonical genre labels (overrides default set)
+            data_loader: Optional UDDataLoader for accessing treebank metadata
         """
         self.genre_mappings = self._load_genre_mappings(genre_mapping_path)
         self.metadata_patterns = self._load_metadata_patterns(metadata_patterns_path)
+        self.data_loader = data_loader
 
         # Use provided canonical genres or fall back to default
         if canonical_genres is not None:
@@ -152,9 +155,17 @@ class GenreMapper:
         """
         genres = []
 
+        default_genre = None
+
+        # Check if treebank has a single genre in metadata
+        if self.data_loader:
+            treebank_genres = self.data_loader.get_treebank_genres(treebank_code)
+            if len(treebank_genres) == 1:
+                # Single genre means all sentences have this genre
+                default_genre = treebank_genres[0]
+
         # Collect treebank-specific settings (without patterns)
         treebank_genre_mappings = {}
-        default_genre = None
         if treebank_code in self.metadata_patterns:
             for pattern_dict in self.metadata_patterns[treebank_code]:
                 if isinstance(pattern_dict, dict) and "pattern" not in pattern_dict:
@@ -163,6 +174,7 @@ class GenreMapper:
                         treebank_genre_mappings.update(pattern_dict["genre_mapping"])
 
                     # Default genre when no genre metadata exists
+                    # Pattern-based default takes precedence over metadata
                     if "genre" in pattern_dict:
                         default_genre = pattern_dict["genre"]
 

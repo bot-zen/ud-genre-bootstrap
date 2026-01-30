@@ -44,7 +44,7 @@
   "wikipedia": "wiki",
   "wiki-article": "wiki",
 
-  "_comment_pud": "PUD treebanks use single-letter codes in sent_id",
+  "_comment_pud": "PUD treebanks encode genre in sent_id: 'n' = news, 'w' = wiki",
   "n": "news",
   "w": "wiki",
 

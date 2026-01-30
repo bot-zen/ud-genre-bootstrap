@@ -9,6 +9,7 @@
 
   "be_hse": [
     {
+      "_description": "Belarusian-HSE",
       "genre_mapping": {
         "news-poll-question": "news",
         "social-media": "social",
@@ -21,7 +22,7 @@
   "cs_cac": [
     {
       "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
-      "_example": "# sent_id = a01w-... -> extracts 'aw' -> maps to 'academic/written'",
+      "_example": "# sent_id = a01w-... -> s20w identifies the source document, 'w':'written', '20':document id and 's':scientific, 'a':administrative, 'n':newspaper",
       "pattern": "# sent_id = ([a-z])[0-9]+([a-z])-",
       "genre": "$1$2",
       "genre_mapping": {
@@ -112,17 +113,17 @@
   "de_lit": [
     {
       "genre_mapping": {
-        "fragments": "nonfiction"
+        "fragments": "poetry"
       }
     }
   ],
 
   "egy_ujaen": [
     {
-      "_comment": "Treebank genre: bible fiction nonfiction government; lang: Old_Egyptian; some content could also be academic",
-      "genre": "nonfiction",
+      "_comment": "Treebank genre: bible fiction nonfiction government; Old Egyptian multiword expressions and sentences from the Pyramid Texts",
+      "genre": "poetry",
       "genre_mapping": {
-        "religious": "nonfiction"
+        "religious": "poetry"
       }
     }
   ],
@@ -133,8 +134,6 @@
       "genre": "$1",
       "genre_mapping": {
         "weblog": "blog",
-        "email": "email",
-        "reviews": "reviews",
         "newsgroup": "social",
         "answers": "social"
       }
@@ -163,6 +162,30 @@
     }
   ],
           
+  "fr_poitevindivital": [
+    {
+      "_description": "genre = tale; form = prose",
+      "pattern": "sent_id = (contesmarais|contemarais|coulun|leprincot|daudet_lundi_tr_pos|daudet_lettres_tr_po|LA.conllu|PierreLoup_Pos|Parabole|ventsnordét|gascougne)",
+      "genre": "fiction"
+    },
+    {
+      "_description": "genre = press; form = prose",
+      "pattern": "sent_id = feltin",
+      "genre": "news"
+    },
+    {
+      "_description": "genre = poetry; form = prose",
+      "pattern": "sent_id = fineamour",
+      "genre": "poetry"
+    },
+    {
+      "genre_mapping": {
+        "press": "news",
+        "tale": "fiction"
+      }
+    }
+  ],
+
   "fr_rhapsodie": [
     {  
       "_comment": "Treebank genre: spoken",
@@ -176,20 +199,20 @@
 
   "gsw_divital": [
     {
-      "_comment": "FIXME: Currently, we don't map but rather rely on automation...",
+      "_comment": "FIXME: Currently, we don't map all but rather rely on automation...",
       "genre_mapping": {
-        "encyclopedia": null,
+        "encyclopedia": "wiki",
         "short": null,
         "anecdote": null,
         "guide": null,
         "recipe": null,
         "comedy": null,
         "drama": null,
-        "tale": null,
+        "tale": "nonfiction",
         "charter": null,
         "fable": null,
         "parable": null,
-        "poetic": null,
+        "poetic": "poetry",
         "novel": null,
         "realistic": null,
         "epistolary": null,
@@ -197,9 +220,33 @@
         "other": null,
         "song": null
       }
+    },
+    {
+      "_description": "form = dialog",
+      "pattern": "sent_id = (ala_|thr_|litx_)",
+      "genre": "spoken"
+    },
+    {
+      "_description": "form = prose",
+      "pattern": "sent_id = (dpco_)",
+      "genre": "government"
+    },
+    {
+      "_description": "form = prose",
+      "pattern": "sent_id = (hrm_|olca_)",
+      "genre": "nonfiction"
+    },
+    {
+      "_description": "form = prose; genre = tale",
+      "pattern": "sent_id = (olca)",
+      "genre": "nonfiction"
+    },
+    {
+      "_description": "author = Wikipedia",
+      "pattern": "sent_id = wkp",
+      "genre": "wiki"
     }
   ],
-
 
   "pl_lfg": [
     { 
@@ -219,14 +266,18 @@
     }
   ],
 
-  "ru_taiga": [
+  "ru_syntagrus": [
     {
       "genre_mapping": {
-        "social": "social",
-        "poetry": "poetry",
-        "news": "news",
-        "fiction": "fiction",
-        "wiki": "wiki",
+        "journalism": null
+      }
+    }
+  ],
+
+  "ru_taiga": [
+    {
+      "_description": "Russian-Taiga",
+      "genre_mapping": {
         "QA-health-question": "social",
         "QA-health-answer-author": "social",
         "QA-health-answer": "social",
@@ -234,7 +285,6 @@
         "QA-travel-question": "social",
         "QA-travel-answer": "social",
         "review": "reviews",
-        "nonfiction": "nonfiction",
         "QA-countries-question": "social",
         "QA-lifestyle-question": "social",
         "QA-relax-question": "social",
@@ -265,5 +315,24 @@
         "tatar_world": "news"
       }
     }
-  ]
+  ],
+
+  "yi_yitb": [
+    {
+      "genre_mapping": {
+        "spoken,": "spoken",
+        "proverb": "blog",
+        "grammar-examples/learner-essays": "web"
+      }
+    }
+  ],
+
+  "pro_corag": [
+    {
+      "_description": "...which consists of academic texts from the oil & gas domain in Brazilian Portugues",
+      "genre": "legal"
+    }
+  ],
+
+  "_comment_end": ""
 }

@@ -53,6 +53,7 @@ class GenreBootstrapper:
             genre_mapping_path=mapping_path,
             metadata_patterns_path=patterns_path,
             canonical_genres=config.genre_extraction.canonical_genres,
+            data_loader=self.data_loader,
         )
 
         self.embedding_generator = EmbeddingGenerator(
