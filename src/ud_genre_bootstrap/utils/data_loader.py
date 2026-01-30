@@ -329,8 +329,6 @@ class UDDataLoader:
         # Extract genres from metadata
         if 'genre' in tb_meta:
             return tb_meta['genre']
-        elif 'genres' in tb_meta:
-            return tb_meta['genres']
 
         return []
 
