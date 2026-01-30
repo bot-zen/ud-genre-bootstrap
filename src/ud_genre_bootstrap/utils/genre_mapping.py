@@ -11,7 +11,7 @@ class GenreMapper:
     """Handle genre extraction and mapping to canonical UD genres."""
 
     # Default canonical UD genre labels (can be overridden via config)
-    DEFAULT_CANONICAL_GENRES = {
+    DEFAULT_UD_GENRES = {
         "academic",
         "bible",
         "blog",
@@ -52,7 +52,7 @@ class GenreMapper:
         if canonical_genres is not None:
             self.canonical_genres = set(canonical_genres)
         else:
-            self.canonical_genres = self.DEFAULT_CANONICAL_GENRES
+            self.canonical_genres = self.DEFAULT_UD_GENRES
 
     def _load_genre_mappings(self, path: Optional[Path]) -> Dict[str, str]:
         """Load genre mappings from JSON file.
