@@ -249,31 +249,6 @@ class GenreMapper:
         ]
         return list(set(normalized))  # Remove duplicates
 
-    def get_treebank_genres(
-        self, treebank_metadata: Dict, treebank_code: str
-    ) -> Set[str]:
-        """Get genres for a treebank from its metadata.
-
-        Args:
-            treebank_metadata: Treebank metadata dictionary
-            treebank_code: Treebank code
-
-        Returns:
-            Set of canonical genre labels
-        """
-        genres = set()
-
-        # Extract from metadata 'Genre' field
-        if "Genre" in treebank_metadata:
-            genre_str = treebank_metadata["Genre"]
-            # Genres may be space-separated
-            raw_genres = genre_str.split()
-            genres.update(
-                self.normalize_genre(g, treebank_code) for g in raw_genres
-            )
-
-        return genres
-
     def validate_genre(self, genre: str) -> bool:
         """Check if a genre is a canonical UD genre.
 
