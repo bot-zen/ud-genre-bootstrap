@@ -58,7 +58,7 @@ include_treebanks:
   - "en_pronouns"
   - "eo_cairo"
   - "fi_ftb"
-  - "fr_poitevindivital"
+  # - "fr_poitevindivital"
   - "el_gud"
   - "el_messinian"
   - "gn_oldtudet"

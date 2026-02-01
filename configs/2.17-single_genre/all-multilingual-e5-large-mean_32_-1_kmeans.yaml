@@ -59,7 +59,7 @@ include_treebanks:
   - "fr_alts"
   - "fr_ftb"
   - "fr_parisstories"
-  - "fr_poitevindivital"
+  # - "fr_poitevindivital"
   - "fr_rhapsodie"
   - "qfn_fame"
   - "gl_treegal"

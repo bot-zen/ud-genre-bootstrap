@@ -209,6 +209,9 @@ def load_config(config_path: Path | str) -> Config:
     # Expand environment variables
     config_dict = _expand_env_vars(config_dict)
 
+    # Expand config variable references
+    config_dict = _expand_config_variables(config_dict)
+
     return Config.from_dict(config_dict)
 
 
@@ -224,3 +227,88 @@ def _expand_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         else:
             result[key] = value
     return result
+
+
+def _flatten_config(config_dict: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """Flatten nested config dictionary for variable expansion.
+
+    Args:
+        config_dict: Nested config dictionary
+        prefix: Current prefix for nested keys
+
+    Returns:
+        Flattened dictionary with dot-separated keys
+
+    Example:
+        {"embeddings": {"model": "xlm"}} -> {"embeddings.model": "xlm"}
+    """
+    result = {}
+    for key, value in config_dict.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            result.update(_flatten_config(value, full_key))
+        else:
+            result[full_key] = value
+    return result
+
+
+def _expand_config_vars(value: str, flat_config: Dict[str, Any]) -> str:
+    """Expand config variable references in a string.
+
+    Args:
+        value: String that may contain {variable} placeholders
+        flat_config: Flattened config dictionary for lookups
+
+    Returns:
+        String with variables expanded
+
+    Example:
+        "output/{ud_version}/data" with {"ud_version": "2.17"} -> "output/2.17/data"
+    """
+    import re
+
+    # Find all {variable} patterns
+    pattern = r'\{([^}]+)\}'
+
+    def replace_var(match):
+        var_name = match.group(1)
+        if var_name in flat_config:
+            val = flat_config[var_name]
+            # Convert to string and handle special characters in paths
+            return str(val).replace('/', '_') if '/' in str(val) and 'model' in var_name else str(val)
+        return match.group(0)  # Return original if not found
+
+    return re.sub(pattern, replace_var, value)
+
+
+def _expand_config_variables(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Expand config variable references in specific fields.
+
+    This is applied after the config is loaded to expand references like:
+    - {ud_version}
+    - {embeddings.model}
+    - {clustering.method}
+    etc.
+
+    Args:
+        config_dict: Config dictionary with potential variable references
+
+    Returns:
+        Config dictionary with variables expanded in specific fields
+    """
+    # Flatten config for easy lookup
+    flat_config = _flatten_config(config_dict)
+
+    # Fields that support variable expansion
+    expandable_fields = [
+        ("embeddings", "cache_dir"),
+        ("output", "genres_path"),
+    ]
+
+    for section, field in expandable_fields:
+        if section in config_dict and field in config_dict[section]:
+            value = config_dict[section][field]
+            if isinstance(value, str) and '{' in value:
+                config_dict[section][field] = _expand_config_vars(value, flat_config)
+
+    return config_dict
