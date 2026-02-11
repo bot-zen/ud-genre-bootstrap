@@ -64,7 +64,7 @@ All sentences from treebanks (or virtual splits) containing only a single genre 
 
 #### Stage 6: Bootstrap Labeling
 
-Following the schedule from Stage 4, multi-genre clusters are labeled by comparing their centroid embeddings to reference genre embeddings. Reference embeddings are computed by averaging cluster centroids from all known single-genre sources.
+Following the schedule from Stage 4, multi-genre clusters are labeled by comparing their centroid embeddings to reference genre embeddings. Reference embeddings are computed as sentence-count weighted averages of cluster centroids from all known single-genre sources.
 
 For each unlabeled cluster:
 1. Compute cosine similarity to all known genre embeddings
@@ -356,13 +356,19 @@ Both virtual splits and the original multi-genre treebank are retained for diffe
 For each known genre `g`, compute reference embedding:
 
 ```python
-genre_embedding[g] = mean([cluster.embedding
-                           for (treebank, split, *_) in single_genre_sources
-                           if genre(treebank, split) == g
-                           for cluster in clusters(treebank, split)])
+genre_embedding[g] = weighted_mean(
+    values=[cluster.embedding
+            for (treebank, split, *_) in single_genre_sources
+            if genre(treebank, split) == g
+            for cluster in clusters(treebank, split)],
+    weights=[len(cluster.sent_ids)
+             for (treebank, split, *_) in single_genre_sources
+             if genre(treebank, split) == g
+             for cluster in clusters(treebank, split)]
+)
 ```
 
-This averages cluster centroids from:
+This computes sentence-count weighted averages of cluster centroids from:
 1. Single-genre treebanks with genre `g`
 2. Virtual splits with genre `g`
 
@@ -516,11 +522,11 @@ The evaluation faithfully mirrors the production implementation in two key ways:
    - **Combines all splits** (train/dev/test) of the same training treebank
    - Creates virtual splits from the combined data using sentence-level metadata
    - Computes cluster centroids for each virtual split
-   - Averages these cluster centroids per genre to create reference embeddings
+   - Computes sentence-count weighted averages of these cluster centroids per genre to create reference embeddings
    - Example:
      - `cs_pdtc:train` + `cs_pdtc:dev` (70K sentences) → combined
      - Extract `cs_pdtc:news` virtual split (40K sentences) → cluster centroid
-     - Reference for 'news' = mean of all 'news' cluster centroids
+     - Reference for 'news' = sentence-count weighted mean of all 'news' cluster centroids
    - This matches production's use of virtual split cluster embeddings as references
 
 2. **Treebank-Level Clustering (Test Data):**

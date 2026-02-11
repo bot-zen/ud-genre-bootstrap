@@ -512,6 +512,62 @@ class TestBootstrapperConfigWiring:
         assert captured["min_genre_sentences"] == 42
 
 
+class TestReferenceEmbeddingConstruction:
+    """Tests for sentence-count weighted reference embedding construction."""
+
+    def test_get_known_genre_embeddings_uses_sentence_count_weighting(self):
+        """Single-genre references should weight each cluster centroid by cluster size."""
+        bootstrapper = GenreBootstrapper(Config())
+        bootstrapper.genre_combination_clusters = {
+            ("news",): {
+                ("tb_small", "train"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["s1"],
+                        "embedding": np.array([0.0, 2.0]),
+                        "confidence": 1.0,
+                    }
+                ],
+                ("tb_large", "train"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": [f"l{i}" for i in range(9)],
+                        "embedding": np.array([2.0, 0.0]),
+                        "confidence": 1.0,
+                    }
+                ],
+            }
+        }
+
+        known = bootstrapper._get_known_genre_embeddings(["news"])
+
+        np.testing.assert_allclose(known["news"], np.array([1.8, 0.2]))
+
+    def test_virtual_split_reference_embeddings_use_sentence_count_weighting(self):
+        """Virtual split references should weight treebank centroids by split sentence counts."""
+        ops = ClusteringOperations()
+        virtual_splits_by_treebank = {
+            "tb_small": {
+                "news": {
+                    "sent_ids": ["s1"],
+                    "embeddings": np.array([[0.0, 2.0]]),
+                    "split_distribution": {"train": 1},
+                }
+            },
+            "tb_large": {
+                "news": {
+                    "sent_ids": ["l1", "l2", "l3"],
+                    "embeddings": np.array([[2.0, 0.0], [2.0, 0.0], [2.0, 0.0]]),
+                    "split_distribution": {"train": 3},
+                }
+            },
+        }
+
+        known = ops.build_reference_embeddings_from_virtual_splits(virtual_splits_by_treebank)
+
+        np.testing.assert_allclose(known["news"], np.array([1.5, 0.5]))
+
+
 class TestVirtualSplitQualityGates:
     """Tests for virtual-split quality gate behavior."""
 

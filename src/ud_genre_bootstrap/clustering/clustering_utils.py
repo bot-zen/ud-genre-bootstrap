@@ -192,8 +192,8 @@ class ClusteringOperations:
     ) -> Dict[str, np.ndarray]:
         """Build genre reference embeddings from virtual splits.
 
-        Computes cluster centroids for each virtual split, then averages
-        centroids across all treebanks for each genre.
+        Computes cluster centroids for each virtual split, then computes
+        sentence-count weighted averages across treebanks for each genre.
 
         This is the core reference construction used by both production and evaluation.
 
@@ -205,12 +205,15 @@ class ClusteringOperations:
             Dict mapping genre -> reference embedding
         """
         reference_genre_embeddings = defaultdict(list)
+        reference_genre_weights = defaultdict(list)
 
         for tb_code, genres_dict in virtual_splits_by_treebank.items():
             for genre, split_data in genres_dict.items():
                 # Compute centroid for this virtual split
                 centroid = np.mean(split_data['embeddings'], axis=0)
                 reference_genre_embeddings[genre].append(centroid)
+                split_size = len(split_data.get('sent_ids', []))
+                reference_genre_weights[genre].append(float(split_size if split_size > 0 else 1))
 
                 splits_info = split_data.get('split_distribution', {})
                 if splits_info:
@@ -221,13 +224,18 @@ class ClusteringOperations:
                         f"→ cluster centroid"
                     )
 
-        # Average centroids per genre
+        # Sentence-count weighted average centroids per genre
         known_genre_embeddings = {}
         for genre, centroids in reference_genre_embeddings.items():
             if len(centroids) > 0:
-                known_genre_embeddings[genre] = np.mean(centroids, axis=0)
+                known_genre_embeddings[genre] = np.average(
+                    np.stack(centroids),
+                    axis=0,
+                    weights=np.array(reference_genre_weights[genre]),
+                )
                 logger.debug(
-                    f"    Built reference for '{genre}' from {len(centroids)} cluster centroid(s)"
+                    f"    Built reference for '{genre}' from {len(centroids)} cluster centroid(s), "
+                    f"weighted by {int(sum(reference_genre_weights[genre]))} sentence(s)"
                 )
 
         return known_genre_embeddings

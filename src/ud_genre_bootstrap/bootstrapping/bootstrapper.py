@@ -733,27 +733,40 @@ class GenreBootstrapper:
             self._label_environment(environment, known_embeddings)
 
     def _get_known_genre_embeddings(self, known_genres: List[str]) -> Dict[str, np.ndarray]:
-        """Get mean embeddings for known single-genre treebanks.
+        """Get reference embeddings for known single-genre sources.
+
+        Reference embeddings are computed as sentence-count weighted means of
+        cluster centroids for each known genre.
 
         Args:
             known_genres: List of known genre labels
 
         Returns:
-            Dictionary: {genre: mean_embedding}
+            Dictionary: {genre: reference_embedding}
         """
         known_embeddings = {}
 
         for genre in known_genres:
             # Get all clusters for this single genre
             if (genre,) in self.genre_combination_clusters:
-                all_embeddings = [
-                    cluster["embedding"]
-                    for tb_clusters in self.genre_combination_clusters[(genre,)].values()
-                    for cluster in tb_clusters
-                ]
+                all_embeddings = []
+                all_weights = []
+                for tb_clusters in self.genre_combination_clusters[(genre,)].values():
+                    for cluster in tb_clusters:
+                        all_embeddings.append(cluster["embedding"])
+                        cluster_size = len(cluster.get("sent_ids", []))
+                        all_weights.append(float(cluster_size if cluster_size > 0 else 1))
 
                 if all_embeddings:
-                    known_embeddings[genre] = np.mean(all_embeddings, axis=0)
+                    known_embeddings[genre] = np.average(
+                        np.stack(all_embeddings),
+                        axis=0,
+                        weights=np.array(all_weights),
+                    )
+                    logger.debug(
+                        f"Built reference for '{genre}' from {len(all_embeddings)} cluster(s), "
+                        f"weighted by {int(sum(all_weights))} sentence(s)"
+                    )
 
         return known_embeddings
 
