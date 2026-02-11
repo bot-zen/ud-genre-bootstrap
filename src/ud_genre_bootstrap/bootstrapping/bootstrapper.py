@@ -271,6 +271,7 @@ class GenreBootstrapper:
                 # This enables creating virtual splits for multi-genre treebanks
                 sentence_metadata = {}  # Maps (tb_code, split, sent_id) -> genre
                 genres_from_sentences = set()
+                ambiguous_genre_sentences = 0
 
                 # Extract genres from ALL splits
                 for tb_key in tb_keys:
@@ -280,13 +281,22 @@ class GenreBootstrapper:
                         for sentence in dataset:
                             sent_id = sentence.get('sent_id', None)
                             extracted = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
-                            if extracted and sent_id:
-                                # Use first genre if multiple (rare)
-                                genre = extracted[0]
-                                sentence_metadata[(tb_code, split, sent_id)] = genre
-                                genres_from_sentences.add(genre)
+                            if sent_id and extracted:
+                                if len(extracted) == 1:
+                                    genre = extracted[0]
+                                    sentence_metadata[(tb_code, split, sent_id)] = genre
+                                    genres_from_sentences.add(genre)
+                                else:
+                                    # Ambiguous sentence-level metadata: avoid arbitrary label choice.
+                                    ambiguous_genre_sentences += 1
                     except Exception:
                         pass  # Fall back to treebank-level metadata
+
+                if ambiguous_genre_sentences > 0:
+                    logger.info(
+                        f"[{idx}/{total_treebanks}] Skipped {ambiguous_genre_sentences} sentence(s) "
+                        f"with ambiguous multi-genre metadata in {tb_code}"
+                    )
 
                 if genres_from_sentences:
                     # Use genres extracted from actual sentences

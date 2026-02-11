@@ -551,3 +551,54 @@ class TestVirtualSplitQualityGates:
 
         assert can_create
         assert eligible_genres == {"news", "wiki"}
+
+    def test_cluster_treebanks_skips_ambiguous_metadata_for_virtual_splits(self, monkeypatch):
+        """Sentences with multiple extracted genres should not be forced into a virtual split."""
+        config = Config()
+        config.evaluation.metadata_validation.coverage_threshold = 0.6
+        config.evaluation.metadata_validation.min_genre_sentences = 1
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_a", "sid_b", "sid_c"],
+                "embedding": np.array([[1.0, 0.0], [0.0, 1.0], [0.2, 0.2]]),
+            }
+        }
+
+        dataset = [
+            {"sent_id": "sid_a", "mock_genres": ["news"]},
+            {"sent_id": "sid_b", "mock_genres": ["wiki"]},
+            {"sent_id": "sid_c", "mock_genres": ["news", "wiki"]},  # ambiguous
+        ]
+
+        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", lambda _tb, _sp: dataset)
+        monkeypatch.setattr(bootstrapper.data_loader, "get_treebank_genres", lambda _tb: ["news", "wiki"])
+        monkeypatch.setattr(
+            bootstrapper.genre_mapper,
+            "extract_genres_from_metadata",
+            lambda sentence, _tb: sentence.get("mock_genres", []),
+        )
+
+        monkeypatch.setattr(
+            bootstrapper.clusterer,
+            "cluster_treebank",
+            lambda embeddings, sent_ids, n_genres: {
+                "clusters": {
+                    0: {"sent_ids": ["sid_a", "sid_c"], "size": 2, "confidence": 1.0},
+                    1: {"sent_ids": ["sid_b"], "size": 1, "confidence": 1.0},
+                },
+                "metrics": {},
+            },
+        )
+
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        news_virtual = bootstrapper.treebank_clusters[("xx_demo", "train", "news")]
+        wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "train", "wiki")]
+
+        assert news_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_a"]
+        assert wiki_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_b"]
+
+        regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "train")]["cluster_result"]["clusters"]
+        assert any("sid_c" in cluster["sent_ids"] for cluster in regular_clusters.values())

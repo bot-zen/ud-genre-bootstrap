@@ -275,6 +275,9 @@ For each genre `g` in a multi-genre treebank:
 3. Create virtual split key: `(treebank_code, split, genre)`
 4. Store as single-genre cluster (trivial assignment)
 
+If a sentence yields multiple conflicting genre labels from metadata extraction,
+it is excluded from virtual split assignment (no arbitrary first-label choice).
+
 **Example:**
 ```
 de_pud:test (1000 sentences, genres: [news, wiki])

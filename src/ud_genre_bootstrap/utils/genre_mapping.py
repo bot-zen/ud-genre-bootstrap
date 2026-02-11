@@ -259,7 +259,8 @@ class GenreMapper:
         normalized = [
             self.normalize_genre(g, treebank_code) for g in genres if g
         ]
-        return list(set(normalized))  # Remove duplicates
+        # Remove duplicates while preserving extraction order.
+        return list(dict.fromkeys(normalized))
 
     def validate_genre(self, genre: str) -> bool:
         """Check if a genre is a canonical UD genre.

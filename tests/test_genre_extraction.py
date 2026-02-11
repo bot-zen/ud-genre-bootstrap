@@ -29,6 +29,20 @@ class TestGenreMapper:
         genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
         assert "news" in genres
 
+    def test_extraction_deduplicates_preserving_order(self):
+        """Duplicate genres should be removed without losing deterministic order."""
+        mapper = GenreMapper()
+        sentence = {
+            "genre": "news",
+            "comments": [
+                "# genre = news",
+                "# genre = blog",
+                "# genre = news",
+            ],
+        }
+        genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+        assert genres == ["news", "blog"]
+
     def test_genre_with_hyphen(self):
         """Test extraction of genre names with hyphens."""
         mapper = GenreMapper()
