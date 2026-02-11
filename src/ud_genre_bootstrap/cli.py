@@ -1106,7 +1106,7 @@ def evaluate_xgenre(
         None,
         "--treebank",
         "-t",
-        help="Specific treebank(s) to evaluate (e.g., en_ewt or en_ewt,de_gsd). If not specified, evaluates all bootstrap-labeled sentences.",
+        help="Specific treebank(s) to evaluate (e.g., en_ewt or en_ewt,de_gsd). If not specified, evaluates all bootstrap-derived sentences.",
     ),
     output: Optional[Path] = typer.Option(
         None,
@@ -1117,7 +1117,7 @@ def evaluate_xgenre(
 ):
     """Evaluate bootstrap quality using X-GENRE classifier.
 
-    Compares bootstrap-labeled sentences (multi-genre treebanks) against
+    Compares bootstrap-derived sentences (multi-genre treebanks) against
     X-GENRE predictions. Only evaluates sentences labeled via bootstrap,
     not pre-existing metadata or single-genre treebanks.
 
@@ -1156,13 +1156,17 @@ def evaluate_xgenre(
         import pandas as pd
         df_bootstrap = pd.read_parquet(bootstrap_file)
 
-        # Filter to only bootstrap-labeled sentences (exclude metadata and single-genre treebanks)
-        console.print("\n[yellow]Filtering to bootstrap-labeled sentences only...[/yellow]")
-        df_bootstrap_only = df_bootstrap[df_bootstrap['method'] == 'bootstrap'].copy()
+        # Filter to only bootstrap-derived sentences
+        # (exclude metadata and single-genre treebanks)
+        console.print("\n[yellow]Filtering to bootstrap-derived sentences only...[/yellow]")
+        bootstrap_methods = {'bootstrap-labeled', 'bootstrap-inferred'}
+        df_bootstrap_only = df_bootstrap[df_bootstrap['method'].isin(bootstrap_methods)].copy()
 
         if len(df_bootstrap_only) == 0:
-            console.print("[bold red]✗ Error:[/bold red] No bootstrap-labeled sentences found")
-            console.print("[yellow]Bootstrap method only labels multi-genre treebanks via clustering[/yellow]")
+            console.print("[bold red]✗ Error:[/bold red] No bootstrap-derived sentences found")
+            console.print(
+                "[yellow]Expected method tags: bootstrap-labeled / bootstrap-inferred[/yellow]"
+            )
             raise typer.Exit(1)
 
         # Apply treebank filter if specified
@@ -1173,17 +1177,17 @@ def evaluate_xgenre(
             df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['treebank'].isin(treebank_filter)]
 
             if len(df_bootstrap_only) == 0:
-                console.print(f"[bold red]✗ Error:[/bold red] No bootstrap-labeled sentences found for specified treebanks")
+                console.print(f"[bold red]✗ Error:[/bold red] No bootstrap-derived sentences found for specified treebanks")
                 raise typer.Exit(1)
 
-        console.print(f"[green]✓ Found {len(df_bootstrap_only)} bootstrap-labeled sentences[/green]")
+        console.print(f"[green]✓ Found {len(df_bootstrap_only)} bootstrap-derived sentences[/green]")
 
         # Show breakdown by bootstrap method
         method_counts = df_bootstrap.groupby('method').size()
         console.print("\n[cyan]Label method breakdown (all sentences):[/cyan]")
         for method, count in method_counts.items():
             console.print(f"  {method}: {count} ({count/len(df_bootstrap):.1%})")
-        console.print(f"[yellow]→ Evaluating only the {len(df_bootstrap_only)} bootstrap-labeled sentences[/yellow]")
+        console.print(f"[yellow]→ Evaluating only the {len(df_bootstrap_only)} bootstrap-derived sentences[/yellow]")
 
         # Load sentences from data loader to get text
         console.print("\n[yellow]Loading sentence texts...[/yellow]")
