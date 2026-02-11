@@ -69,8 +69,8 @@ Following the schedule from Stage 4, multi-genre clusters are labeled by compari
 For each unlabeled cluster:
 1. Compute cosine similarity to all known genre embeddings
 2. Assign the genre with highest similarity
-3. Apply confidence threshold to filter uncertain assignments
-4. All sentences in the cluster receive the assigned genre label
+3. Apply confidence threshold to set uncertainty flags (`bootstrap-labeled` vs `bootstrap-inferred`)
+4. All sentences in the cluster receive the assigned genre label, confidence, and method tag
 
 **Input:** Cluster embeddings, reference genre embeddings, bootstrap schedule
 **Output:** Genre labels and confidence scores for all sentences
@@ -94,7 +94,7 @@ The final labeled dataset is exported in formats compatible with the Universal D
 
 4. **Virtual Split Innovation:** When sentence-level metadata exists in multi-genre treebanks, the pipeline creates virtual single-genre splits that span all available splits, effectively increasing the available reference data for bootstrap initialization.
 
-5. **Confidence-Based Filtering:** Only cluster assignments exceeding a configurable confidence threshold contribute to the final labels, preventing error propagation.
+5. **High Coverage with Uncertainty Flags:** All clusters are labeled for maximum coverage. A configurable confidence threshold marks assignments as high-confidence (`bootstrap-labeled`) or low-confidence (`bootstrap-inferred`) so downstream consumers can filter by method when stricter precision is needed.
 
 ## 2. Implementation Details
 
@@ -375,13 +375,21 @@ For each cluster `c` in a multi-genre treebank:
 3. **Apply confidence threshold:**
    ```python
    if confidence >= min_confidence:
-       label_all_sentences(cluster[c], best_genre, confidence)
+       method = "bootstrap-labeled"
    else:
-       mark_as_uncertain(cluster[c])
+       method = "bootstrap-inferred"
+   label_all_sentences(cluster[c], best_genre, confidence, method)
    ```
 
 **Parameters:**
 - `min_confidence`: Minimum cosine similarity threshold (default: `0.8`)
+
+**Behavioral note:**
+The threshold does **not** suppress labeling. It controls the uncertainty flag in `method`:
+- High confidence (`>= min_confidence`): `bootstrap-labeled`
+- Low confidence (`< min_confidence`): `bootstrap-inferred`
+
+This design favors high recall/coverage during bootstrap. Downstream analysis can filter to `bootstrap-labeled` only when higher precision is required.
 
 **Distance Metric:**
 Cosine distance is used throughout:
@@ -395,7 +403,8 @@ Range: [0, 2], where 0 = identical, 1 = orthogonal, 2 = opposite
 Each sentence receives a method tag indicating its labeling source:
 - `single-genre-treebank`: From original single-genre treebank
 - `virtual-split`: From virtual split with sentence-level metadata
-- `bootstrap-labeled`: From multi-genre cluster labeling
+- `bootstrap-labeled`: From multi-genre cluster labeling with confidence `>= min_confidence`
+- `bootstrap-inferred`: From multi-genre cluster labeling with confidence `< min_confidence`
 
 ### 2.5 Configuration System
 
