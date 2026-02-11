@@ -272,25 +272,52 @@ class GenreBootstrapper:
                 sentence_metadata = {}  # Maps (tb_code, split, sent_id) -> genre
                 genres_from_sentences = set()
                 ambiguous_genre_sentences = 0
+                metadata_split_errors = []
+                metadata_sentence_errors = 0
 
                 # Extract genres from ALL splits
                 for tb_key in tb_keys:
                     split = tb_key[1]
                     try:
                         dataset = self.data_loader.load_treebank(tb_code, split)
-                        for sentence in dataset:
-                            sent_id = sentence.get('sent_id', None)
+                    except Exception as e:
+                        metadata_split_errors.append((split, e))
+                        continue
+
+                    for sentence in dataset:
+                        sent_id = sentence.get('sent_id', None)
+                        try:
                             extracted = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
-                            if sent_id and extracted:
-                                if len(extracted) == 1:
-                                    genre = extracted[0]
-                                    sentence_metadata[(tb_code, split, sent_id)] = genre
-                                    genres_from_sentences.add(genre)
-                                else:
-                                    # Ambiguous sentence-level metadata: avoid arbitrary label choice.
-                                    ambiguous_genre_sentences += 1
-                    except Exception:
-                        pass  # Fall back to treebank-level metadata
+                        except Exception:
+                            metadata_sentence_errors += 1
+                            continue
+
+                        if sent_id and extracted:
+                            if len(extracted) == 1:
+                                genre = extracted[0]
+                                sentence_metadata[(tb_code, split, sent_id)] = genre
+                                genres_from_sentences.add(genre)
+                            else:
+                                # Ambiguous sentence-level metadata: avoid arbitrary label choice.
+                                ambiguous_genre_sentences += 1
+
+                if metadata_split_errors:
+                    preview = ", ".join(
+                        f"{split}: {type(err).__name__}({err})"
+                        for split, err in metadata_split_errors[:3]
+                    )
+                    if len(metadata_split_errors) > 3:
+                        preview += f", ... (+{len(metadata_split_errors) - 3} more)"
+                    logger.warning(
+                        f"[{idx}/{total_treebanks}] Metadata extraction failed for "
+                        f"{len(metadata_split_errors)} split(s) in {tb_code}: {preview}"
+                    )
+
+                if metadata_sentence_errors > 0:
+                    logger.warning(
+                        f"[{idx}/{total_treebanks}] Metadata extraction failed for "
+                        f"{metadata_sentence_errors} sentence(s) in {tb_code}; skipped them"
+                    )
 
                 if ambiguous_genre_sentences > 0:
                     logger.info(

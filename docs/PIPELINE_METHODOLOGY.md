@@ -277,6 +277,8 @@ For each genre `g` in a multi-genre treebank:
 
 If a sentence yields multiple conflicting genre labels from metadata extraction,
 it is excluded from virtual split assignment (no arbitrary first-label choice).
+Metadata extraction failures (split-level or sentence-level) are logged as warnings
+and affected items are skipped.
 
 **Example:**
 ```

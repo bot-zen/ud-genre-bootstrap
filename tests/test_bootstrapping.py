@@ -602,3 +602,89 @@ class TestVirtualSplitQualityGates:
 
         regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "train")]["cluster_result"]["clusters"]
         assert any("sid_c" in cluster["sent_ids"] for cluster in regular_clusters.values())
+
+    def test_cluster_treebanks_warns_on_split_metadata_extraction_errors(self, monkeypatch, caplog):
+        """Split-level metadata extraction failures should be visible in logs."""
+        config = Config()
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_1", "sid_2"],
+                "embedding": np.array([[1.0, 0.0], [0.0, 1.0]]),
+            }
+        }
+
+        def _mock_load_treebank(_tb_code, _split):
+            raise RuntimeError("metadata boom")
+
+        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", _mock_load_treebank)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "get_treebank_genres",
+            lambda _tb_code: ["news", "wiki"],
+        )
+        monkeypatch.setattr(
+            bootstrapper.clusterer,
+            "cluster_treebank",
+            lambda embeddings, sent_ids, n_genres: {
+                "clusters": {
+                    0: {"sent_ids": sent_ids, "size": len(sent_ids), "confidence": 1.0}
+                },
+                "metrics": {},
+            },
+        )
+
+        import logging
+        caplog.set_level(logging.WARNING)
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        assert "Metadata extraction failed for 1 split(s) in xx_demo" in caplog.text
+        assert "metadata boom" in caplog.text
+
+    def test_cluster_treebanks_warns_on_sentence_metadata_extraction_errors(self, monkeypatch, caplog):
+        """Sentence-level metadata extraction failures should be visible in logs."""
+        config = Config()
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_ok", "sid_fail"],
+                "embedding": np.array([[1.0, 0.0], [0.0, 1.0]]),
+            }
+        }
+
+        dataset = [
+            {"sent_id": "sid_ok"},
+            {"sent_id": "sid_fail"},
+        ]
+
+        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", lambda _tb, _sp: dataset)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "get_treebank_genres",
+            lambda _tb_code: ["news", "wiki"],
+        )
+
+        def _mock_extract_genres(sentence, _tb):
+            if sentence["sent_id"] == "sid_fail":
+                raise ValueError("bad metadata")
+            return ["news"]
+
+        monkeypatch.setattr(bootstrapper.genre_mapper, "extract_genres_from_metadata", _mock_extract_genres)
+        monkeypatch.setattr(
+            bootstrapper.clusterer,
+            "cluster_treebank",
+            lambda embeddings, sent_ids, n_genres: {
+                "clusters": {
+                    0: {"sent_ids": sent_ids, "size": len(sent_ids), "confidence": 1.0}
+                },
+                "metrics": {},
+            },
+        )
+
+        import logging
+        caplog.set_level(logging.WARNING)
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        assert "Metadata extraction failed for 1 sentence(s) in xx_demo; skipped them" in caplog.text
