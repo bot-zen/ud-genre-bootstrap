@@ -430,3 +430,18 @@ class TestPipelineSegments:
         assert bootstrapper.final_labels["sid_low"][2] == "bootstrap-inferred"
         assert bootstrapper.final_labels["sid_high"][1] >= config.bootstrapping.min_confidence
         assert bootstrapper.final_labels["sid_low"][1] < config.bootstrapping.min_confidence
+
+
+class TestBootstrapperConfigWiring:
+    """Tests for clusterer configuration wiring in bootstrapper initialization."""
+
+    def test_kmeans_clusterer_receives_max_iter_from_config(self):
+        """K-Means clusterer should use configurable max_iter from clustering config."""
+        config = Config()
+        config.clustering.method = "kmeans"
+        config.clustering.max_iter = 123
+
+        bootstrapper = GenreBootstrapper(config)
+
+        assert type(bootstrapper.clusterer).__name__ == "KMeansClusterer"
+        assert bootstrapper.clusterer.max_iter == 123

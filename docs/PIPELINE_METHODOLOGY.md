@@ -425,7 +425,7 @@ clustering:
   level: "treebank"
   seed: 42
   device: "auto"             # GPU support for kmeans only
-  max_iter: 300              # GMM: maximum EM iterations
+  max_iter: 300              # GMM/K-Means: maximum clustering iterations
   reg_covar: 1e-4            # GMM: covariance regularization (prevents singular matrices)
 
 bootstrapping:

@@ -71,6 +71,7 @@ class GenreBootstrapper:
             self.clusterer = KMeansClusterer(
                 random_state=config.clustering.seed,
                 device=config.clustering.device,
+                max_iter=config.clustering.max_iter,
             )
         elif clustering_method == "gmm":
             logger.info("Using GMM clustering")

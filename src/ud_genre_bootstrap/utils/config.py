@@ -29,8 +29,9 @@ class ClusteringConfig:
     seed: int = 42
     device: str = "auto"  # "auto", "cuda", "cpu"
 
+    # Shared clustering parameters
+    max_iter: int = 300  # Maximum iterations for GMM and K-Means
     # GMM-specific parameters
-    max_iter: int = 300  # Maximum EM iterations for GMM
     reg_covar: float = 1e-4  # Covariance regularization for GMM
 
 
