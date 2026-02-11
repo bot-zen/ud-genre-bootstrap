@@ -65,6 +65,10 @@ genre_extraction:
   #   - "medical"
   #   - "spoken"
 
+# Evaluation settings.
+# Note: metadata_validation.coverage_threshold and
+# metadata_validation.min_genre_sentences are also used by the production
+# pipeline as quality gates for virtual-split creation.
 evaluation:
   enabled: true
 
@@ -73,8 +77,8 @@ evaluation:
     k: 5
     stratify_by: "genre"
     group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
-    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
-    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
+    min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
 
   cluster_metrics:
     - "silhouette"

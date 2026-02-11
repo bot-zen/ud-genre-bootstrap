@@ -6,6 +6,7 @@ import numpy as np
 from pathlib import Path
 from collections import defaultdict
 from ud_genre_bootstrap.bootstrapping.bootstrapper import GenreBootstrapper
+from ud_genre_bootstrap.clustering.clustering_utils import ClusteringOperations
 from ud_genre_bootstrap.utils.config import Config
 
 
@@ -445,3 +446,108 @@ class TestBootstrapperConfigWiring:
 
         assert type(bootstrapper.clusterer).__name__ == "KMeansClusterer"
         assert bootstrapper.clusterer.max_iter == 123
+
+    def test_cluster_treebanks_uses_configured_virtual_split_quality_gates(self, monkeypatch):
+        """Production clustering should read virtual-split quality gates from config."""
+        config = Config()
+        config.evaluation.metadata_validation.coverage_threshold = 0.93
+        config.evaluation.metadata_validation.min_genre_sentences = 42
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_1", "sid_2"],
+                "embedding": np.array([[1.0, 0.0], [0.0, 1.0]]),
+            }
+        }
+
+        def _mock_load_treebank(_tb_code, _split):
+            raise RuntimeError("mock load failure to force fallback path")
+
+        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", _mock_load_treebank)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "get_treebank_genres",
+            lambda _tb_code: ["news", "wiki"],
+        )
+
+        captured = {}
+
+        def _mock_check_virtual_split_coverage(
+            _combined_embeddings,
+            _all_sent_ids,
+            _sent_id_to_split,
+            _sentence_metadata,
+            _tb_code,
+            coverage_threshold=0.8,
+            min_genre_sentences=1,
+        ):
+            captured["coverage_threshold"] = coverage_threshold
+            captured["min_genre_sentences"] = min_genre_sentences
+            return False, set()
+
+        monkeypatch.setattr(
+            bootstrapper.clustering_ops,
+            "check_virtual_split_coverage",
+            _mock_check_virtual_split_coverage,
+        )
+
+        def _mock_cluster_treebank(embeddings, sent_ids, n_genres):
+            return {
+                "clusters": {
+                    0: {
+                        "sent_ids": sent_ids,
+                        "size": len(sent_ids),
+                        "confidence": 1.0,
+                    }
+                },
+                "metrics": {},
+            }
+
+        monkeypatch.setattr(bootstrapper.clusterer, "cluster_treebank", _mock_cluster_treebank)
+
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        assert captured["coverage_threshold"] == 0.93
+        assert captured["min_genre_sentences"] == 42
+
+
+class TestVirtualSplitQualityGates:
+    """Tests for virtual-split quality gate behavior."""
+
+    def test_coverage_check_respects_min_genre_sentences(self):
+        """Only genres meeting min_genre_sentences should count toward virtual-split creation."""
+        ops = ClusteringOperations()
+        all_sent_ids = [f"sid_{i}" for i in range(10)]
+        sent_id_to_split = {sid: "train" for sid in all_sent_ids}
+        sentence_metadata = {}
+
+        # 8/10 sentences have metadata: 6 news + 2 wiki.
+        for i, sid in enumerate(all_sent_ids[:8]):
+            sentence_metadata[("xx_demo", "train", sid)] = "news" if i < 6 else "wiki"
+
+        can_create, eligible_genres = ops.check_virtual_split_coverage(
+            combined_embeddings=np.zeros((10, 2)),
+            all_sent_ids=all_sent_ids,
+            sent_id_to_split=sent_id_to_split,
+            sentence_metadata=sentence_metadata,
+            tb_code="xx_demo",
+            coverage_threshold=0.8,
+            min_genre_sentences=3,
+        )
+
+        assert not can_create
+        assert eligible_genres == {"news"}
+
+        can_create, eligible_genres = ops.check_virtual_split_coverage(
+            combined_embeddings=np.zeros((10, 2)),
+            all_sent_ids=all_sent_ids,
+            sent_id_to_split=sent_id_to_split,
+            sentence_metadata=sentence_metadata,
+            tb_code="xx_demo",
+            coverage_threshold=0.8,
+            min_genre_sentences=2,
+        )
+
+        assert can_create
+        assert eligible_genres == {"news", "wiki"}

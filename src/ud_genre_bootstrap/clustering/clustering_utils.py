@@ -290,6 +290,7 @@ class ClusteringOperations:
         sentence_metadata: Dict[Tuple[str, str, str], str],
         tb_code: str,
         coverage_threshold: float = 0.8,
+        min_genre_sentences: int = 1,
     ) -> Tuple[bool, set]:
         """Check if a treebank has sufficient sentence-level metadata for virtual splits.
 
@@ -300,13 +301,15 @@ class ClusteringOperations:
             sentence_metadata: Dict mapping (tb_code, split, sent_id) -> genre
             tb_code: Treebank code
             coverage_threshold: Minimum fraction of sentences with metadata (default: 0.8)
+            min_genre_sentences: Minimum sentence count required per genre to keep
+                a virtual split (default: 1)
 
         Returns:
             Tuple of:
                 - can_create_virtual_splits: True if coverage >= threshold
-                - genres: Set of genres found in sentence metadata
+                - genres: Set of genres meeting min_genre_sentences
         """
-        genres_from_sentences = set()
+        genre_counts = defaultdict(int)
         sentences_with_metadata = 0
 
         for sent_id in all_sent_ids:
@@ -314,10 +317,13 @@ class ClusteringOperations:
             key = (tb_code, split_name, sent_id)
             if key in sentence_metadata:
                 genre = sentence_metadata[key]
-                genres_from_sentences.add(genre)
+                genre_counts[genre] += 1
                 sentences_with_metadata += 1
 
         coverage = sentences_with_metadata / len(all_sent_ids) if len(all_sent_ids) > 0 else 0
-        can_create = len(genres_from_sentences) >= 2 and coverage >= coverage_threshold
+        eligible_genres = {
+            genre for genre, count in genre_counts.items() if count >= min_genre_sentences
+        }
+        can_create = len(eligible_genres) >= 2 and coverage >= coverage_threshold
 
-        return can_create, genres_from_sentences
+        return can_create, eligible_genres

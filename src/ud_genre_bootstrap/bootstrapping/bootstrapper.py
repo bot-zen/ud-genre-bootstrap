@@ -306,30 +306,71 @@ class GenreBootstrapper:
                     logger.warning(f"[{idx}/{total_treebanks}] {tb_code} has no genre metadata, skipping")
                     continue
 
-                # Use shared operation: Check if we can create virtual splits
-                can_create_virtual_splits, _ = self.clustering_ops.check_virtual_split_coverage(
-                    combined_embeddings,
-                    all_sent_ids,
-                    sent_id_to_split,
-                    sentence_metadata,
-                    tb_code,
-                    coverage_threshold=0.8,
+                # Quality gates for virtual-split anchors are config-driven.
+                virtual_split_coverage_threshold = (
+                    self.config.evaluation.metadata_validation.coverage_threshold
+                )
+                virtual_split_min_genre_sentences = (
+                    self.config.evaluation.metadata_validation.min_genre_sentences
                 )
 
-                if can_create_virtual_splits:
-                    # Use shared operation: Create virtual splits from combined data
-                    splits_list = [tk[1] for tk in tb_keys]
-                    logger.info(
-                        f"[{idx}/{total_treebanks}] Creating {n_genres} virtual splits from {tb_code} "
-                        f"({len(combined_embeddings)} sentences across {len(splits_list)} splits, genres: {', '.join(genres)})"
+                # Use shared operation: Check if we can create virtual splits
+                can_create_virtual_splits, eligible_virtual_split_genres = (
+                    self.clustering_ops.check_virtual_split_coverage(
+                        combined_embeddings,
+                        all_sent_ids,
+                        sent_id_to_split,
+                        sentence_metadata,
+                        tb_code,
+                        coverage_threshold=virtual_split_coverage_threshold,
+                        min_genre_sentences=virtual_split_min_genre_sentences,
                     )
+                )
 
+                virtual_splits = {}
+                if can_create_virtual_splits:
                     virtual_splits = self.clustering_ops.create_virtual_splits(
                         tb_code,
                         combined_embeddings,
                         all_sent_ids,
                         sent_id_to_split,
                         sentence_metadata,
+                    )
+
+                    # Keep only genres that pass min_genre_sentences.
+                    dropped_genres = sorted(
+                        set(virtual_splits.keys()) - set(eligible_virtual_split_genres)
+                    )
+                    if dropped_genres:
+                        logger.info(
+                            f"[{idx}/{total_treebanks}] Ignoring low-support virtual split genre(s) "
+                            f"for {tb_code}: {', '.join(dropped_genres)} "
+                            f"(min_genre_sentences={virtual_split_min_genre_sentences})"
+                        )
+                        virtual_splits = {
+                            genre: split_data
+                            for genre, split_data in virtual_splits.items()
+                            if genre in eligible_virtual_split_genres
+                        }
+
+                    # Safety check: require at least 2 eligible genres.
+                    if len(virtual_splits) < 2:
+                        can_create_virtual_splits = False
+                        logger.info(
+                            f"[{idx}/{total_treebanks}] Skipping virtual splits for {tb_code} "
+                            f"(eligible genres < 2 after quality gates: "
+                            f"coverage_threshold={virtual_split_coverage_threshold}, "
+                            f"min_genre_sentences={virtual_split_min_genre_sentences})"
+                        )
+
+                if can_create_virtual_splits:
+                    splits_list = [tk[1] for tk in tb_keys]
+                    logger.info(
+                        f"[{idx}/{total_treebanks}] Creating {len(virtual_splits)} virtual splits from {tb_code} "
+                        f"({len(combined_embeddings)} sentences across {len(splits_list)} splits, "
+                        f"genres: {', '.join(sorted(virtual_splits.keys()))}, "
+                        f"coverage_threshold={virtual_split_coverage_threshold}, "
+                        f"min_genre_sentences={virtual_split_min_genre_sentences})"
                     )
 
                     # Store virtual splits in production format

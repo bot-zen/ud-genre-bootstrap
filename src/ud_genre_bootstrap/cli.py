@@ -1597,6 +1597,14 @@ def info(
         table.add_row("  Min Confidence", str(cfg.bootstrapping.min_confidence))
         table.add_row("  Max Iterations", str(cfg.bootstrapping.max_iterations))
         table.add_row("  Fail on Incomplete", str(cfg.bootstrapping.fail_on_incomplete))
+        table.add_row(
+            "  Virtual Split Coverage",
+            str(cfg.evaluation.metadata_validation.coverage_threshold),
+        )
+        table.add_row(
+            "  Virtual Split Min Genre Sentences",
+            str(cfg.evaluation.metadata_validation.min_genre_sentences),
+        )
         table.add_row("", "")
         table.add_row("[bold]Output[/bold]", "")
         table.add_row("  Genres Path", cfg.output.genres_path)

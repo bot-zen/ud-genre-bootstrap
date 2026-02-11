@@ -254,13 +254,17 @@ cs_pdtc:test  (10,000 sentences) ┘
 
 #### 2.2.4 Virtual Split Handling
 
-When sentence-level genre metadata is available (≥80% coverage), multi-genre treebanks are decomposed into single-genre virtual splits that span all available splits:
+When sentence-level genre metadata is available at sufficient quality, multi-genre treebanks are decomposed into single-genre virtual splits that span all available splits.
+Quality gates are configuration-driven:
+- `evaluation.metadata_validation.coverage_threshold` (default: `0.95`)
+- `evaluation.metadata_validation.min_genre_sentences` (default: `100`)
 
 **Detection:**
 ```python
 can_create_virtual_splits = (
     n_genres >= 2 and
-    len(sentence_genres) / len(all_sentences) >= 0.8  # Across all splits
+    len(sentence_genres) / len(all_sentences) >= coverage_threshold and
+    n_eligible_genres_with_at_least_min_sentences >= 2
 )
 ```
 
@@ -432,6 +436,11 @@ bootstrapping:
   min_confidence: 0.8
   max_iterations: 10
   fail_on_incomplete: false
+
+evaluation:
+  metadata_validation:
+    coverage_threshold: 0.95    # Also used as production virtual-split gate
+    min_genre_sentences: 100    # Also used as production virtual-split gate
 
 genre_extraction:
   mapping_path: "configs/genre_mappings.json"
