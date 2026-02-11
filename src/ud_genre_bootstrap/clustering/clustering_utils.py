@@ -19,18 +19,20 @@ class ClusteringOperations:
     - Creating virtual splits from sentence metadata
     - Computing cluster centroids
     - Building reference embeddings
-    - Labeling clusters with confidence thresholds
+    - Labeling clusters with confidence and margin thresholds
 
     By sharing this code, production and evaluation are guaranteed to stay consistent.
     """
 
-    def __init__(self, min_confidence: float = 0.8):
+    def __init__(self, min_confidence: float = 0.8, min_margin: float = 0.05):
         """Initialize clustering operations.
 
         Args:
-            min_confidence: Minimum confidence threshold for high-confidence labeling
+            min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
+            min_margin: Minimum gap between top-1 and top-2 similarity for high-confidence labeling
         """
         self.min_confidence = min_confidence
+        self.min_margin = min_margin
 
     def group_splits_by_treebank(
         self,
@@ -248,7 +250,7 @@ class ClusteringOperations:
         """Label clusters by comparing to reference embeddings.
 
         Uses cosine similarity to find best matching genre for each cluster.
-        Applies confidence threshold to distinguish high vs low confidence assignments.
+        Applies confidence + margin thresholds to distinguish high vs low confidence assignments.
 
         Args:
             cluster_centroids: Dict mapping cluster_id -> centroid embedding
@@ -266,29 +268,69 @@ class ClusteringOperations:
         low_conf_count = 0
 
         for cluster_id, centroid in cluster_centroids.items():
-            best_genre = None
-            best_similarity = -1
+            label_result = self.assign_cluster_label(centroid, reference_embeddings)
+            if label_result is None:
+                continue
 
-            # Find best matching genre
-            for genre, genre_emb in reference_embeddings.items():
-                similarity = 1 - distance.cosine(centroid, genre_emb)
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_genre = genre
+            best_genre, confidence, method, _ = label_result
 
-            confidence = best_similarity
-
-            # Apply confidence threshold
-            if confidence >= self.min_confidence:
-                method = "bootstrap-labeled"
+            if method == "bootstrap-labeled":
                 high_conf_count += 1
             else:
-                method = "bootstrap-inferred"
                 low_conf_count += 1
 
             cluster_labels[cluster_id] = (best_genre, confidence, method)
 
         return cluster_labels, high_conf_count, low_conf_count
+
+    def assign_cluster_label(
+        self,
+        centroid: np.ndarray,
+        reference_embeddings: Dict[str, np.ndarray],
+    ) -> Optional[Tuple[str, float, str, List[Tuple[str, float]]]]:
+        """Assign one cluster to the closest known genre.
+
+        Args:
+            centroid: Cluster centroid embedding
+            reference_embeddings: Dict mapping genre -> reference embedding
+
+        Returns:
+            Tuple of:
+                - best_genre
+                - confidence (top-1 cosine similarity)
+                - method ('bootstrap-labeled' or 'bootstrap-inferred')
+                - sorted similarities as [(genre, similarity), ...] descending
+            Returns None if no reference embeddings are provided.
+        """
+        if not reference_embeddings:
+            return None
+
+        best_genre = None
+        best_similarity = -1.0
+        similarities = {}
+
+        for genre, genre_emb in reference_embeddings.items():
+            similarity = 1 - distance.cosine(centroid, genre_emb)
+            similarities[genre] = similarity
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_genre = genre
+
+        confidence = best_similarity
+        sorted_similarities = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+        if len(sorted_similarities) > 1:
+            margin = sorted_similarities[0][1] - sorted_similarities[1][1]
+        else:
+            # No competing label to compare against.
+            margin = float("inf")
+
+        method = (
+            "bootstrap-labeled"
+            if confidence >= self.min_confidence and margin >= self.min_margin
+            else "bootstrap-inferred"
+        )
+
+        return best_genre, confidence, method, sorted_similarities
 
     def check_virtual_split_coverage(
         self,

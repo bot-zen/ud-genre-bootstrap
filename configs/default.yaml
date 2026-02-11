@@ -34,6 +34,7 @@ clustering:
 
 bootstrapping:
   min_confidence: 0.8
+  min_margin: 0.05  # Minimum gap between top-1 and top-2 cosine similarity for high-confidence labeling
   max_iterations: 10
   fail_on_incomplete: false
   unresolved_handling: "null"  # null, omit, string:UNKNOWN

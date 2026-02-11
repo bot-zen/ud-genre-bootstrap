@@ -69,7 +69,7 @@ Following the schedule from Stage 4, multi-genre clusters are labeled by compari
 For each unlabeled cluster:
 1. Compute cosine similarity to all known genre embeddings
 2. Assign the genre with highest similarity
-3. Apply confidence threshold to set uncertainty flags (`bootstrap-labeled` vs `bootstrap-inferred`)
+3. Apply uncertainty thresholds to set method flags (`bootstrap-labeled` vs `bootstrap-inferred`)
 4. All sentences in the cluster receive the assigned genre label, confidence, and method tag
 
 **Input:** Cluster embeddings, reference genre embeddings, bootstrap schedule
@@ -94,7 +94,7 @@ The final labeled dataset is exported in formats compatible with the Universal D
 
 4. **Virtual Split Innovation:** When sentence-level metadata exists in multi-genre treebanks, the pipeline creates virtual single-genre splits that span all available splits, effectively increasing the available reference data for bootstrap initialization.
 
-5. **High Coverage with Uncertainty Flags:** All clusters are labeled for maximum coverage. A configurable confidence threshold marks assignments as high-confidence (`bootstrap-labeled`) or low-confidence (`bootstrap-inferred`) so downstream consumers can filter by method when stricter precision is needed.
+5. **High Coverage with Uncertainty Flags:** All clusters are labeled for maximum coverage. Configurable uncertainty thresholds mark assignments as high-confidence (`bootstrap-labeled`) or low-confidence (`bootstrap-inferred`) so downstream consumers can filter by method when stricter precision is needed.
 
 ## 2. Implementation Details
 
@@ -107,7 +107,7 @@ To ensure consistency between production and evaluation, core clustering operati
 - **Creating virtual splits**: Extracting single-genre subsets from multi-genre treebanks
 - **Computing cluster centroids**: Averaging embeddings within clusters
 - **Building reference embeddings**: Constructing genre references from virtual splits
-- **Labeling clusters**: Assigning genres with confidence thresholds
+- **Labeling clusters**: Assigning genres with confidence + margin thresholds
 
 This architectural pattern ensures that any improvements or bug fixes automatically apply to both production and evaluation, preventing divergence.
 
@@ -387,9 +387,10 @@ For each cluster `c` in a multi-genre treebank:
    confidence = similarity[best_genre]
    ```
 
-3. **Apply confidence threshold:**
+3. **Apply uncertainty thresholds:**
    ```python
-   if confidence >= min_confidence:
+   margin = top1_similarity - top2_similarity
+   if confidence >= min_confidence and margin >= min_margin:
        method = "bootstrap-labeled"
    else:
        method = "bootstrap-inferred"
@@ -397,12 +398,13 @@ For each cluster `c` in a multi-genre treebank:
    ```
 
 **Parameters:**
-- `min_confidence`: Minimum cosine similarity threshold (default: `0.8`)
+- `min_confidence`: Minimum top-1 cosine similarity threshold (default: `0.8`)
+- `min_margin`: Minimum top1-top2 cosine similarity gap (default: `0.05`)
 
 **Behavioral note:**
-The threshold does **not** suppress labeling. It controls the uncertainty flag in `method`:
-- High confidence (`>= min_confidence`): `bootstrap-labeled`
-- Low confidence (`< min_confidence`): `bootstrap-inferred`
+Thresholds do **not** suppress labeling. They control the uncertainty flag in `method`:
+- High confidence: `confidence >= min_confidence` **and** `margin >= min_margin` → `bootstrap-labeled`
+- Low confidence: otherwise → `bootstrap-inferred`
 
 This design favors high recall/coverage during bootstrap. Downstream analysis can filter to `bootstrap-labeled` only when higher precision is required.
 
@@ -418,8 +420,8 @@ Range: [0, 2], where 0 = identical, 1 = orthogonal, 2 = opposite
 Each sentence receives a method tag indicating its labeling source:
 - `single-genre-treebank`: From original single-genre treebank
 - `virtual-split`: From virtual split with sentence-level metadata
-- `bootstrap-labeled`: From multi-genre cluster labeling with confidence `>= min_confidence`
-- `bootstrap-inferred`: From multi-genre cluster labeling with confidence `< min_confidence`
+- `bootstrap-labeled`: From multi-genre cluster labeling meeting both uncertainty thresholds
+- `bootstrap-inferred`: From multi-genre cluster labeling that fails either threshold
 
 ### 2.5 Configuration System
 
@@ -445,6 +447,7 @@ clustering:
 
 bootstrapping:
   min_confidence: 0.8
+  min_margin: 0.05
   max_iterations: 10
   fail_on_incomplete: false
 
@@ -535,7 +538,7 @@ The evaluation faithfully mirrors the production implementation in two key ways:
    - Example: If `de_pud` is in the test fold, all its splits are combined, clustered together, and evaluated jointly
 
 **Bootstrap Configuration:**
-- **`min_confidence`**: The evaluation uses the same confidence threshold as production. Cluster assignments are labeled regardless of confidence, but tracked as "high confidence" or "low confidence" for analysis.
+- **`min_confidence` / `min_margin`**: Evaluation uses the same uncertainty thresholds as production. Cluster assignments are always labeled, but tracked as `bootstrap-labeled` vs `bootstrap-inferred` for analysis.
 - **`max_iterations`**: Not used in evaluation. The bootstrap schedule is only needed in production for iteratively resolving unknown genres. In evaluation, all training genres are "known" from sentence metadata, so no iterative discovery is needed.
 
 **Cross-Validation:**

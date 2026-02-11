@@ -395,9 +395,10 @@ class TestPipelineSegments:
         assert bootstrapper.final_labels["sid_new"][2] == "bootstrap-labeled"
 
     def test_label_environment_assigns_threshold_based_methods(self):
-        """Clusters should always be labeled, with method decided by confidence threshold."""
+        """Clusters should always be labeled, with method decided by uncertainty thresholds."""
         config = Config()
         config.bootstrapping.min_confidence = 0.8
+        config.bootstrapping.min_margin = 0.0
         bootstrapper = GenreBootstrapper(config)
 
         bootstrapper.genre_combination_clusters = {
@@ -432,6 +433,82 @@ class TestPipelineSegments:
         assert bootstrapper.final_labels["sid_high"][1] >= config.bootstrapping.min_confidence
         assert bootstrapper.final_labels["sid_low"][1] < config.bootstrapping.min_confidence
 
+    def test_label_environment_marks_near_ties_as_inferred_by_margin(self):
+        """Near-tie top-1/top-2 scores should be flagged as inferred even at high confidence."""
+        config = Config()
+        config.bootstrapping.min_confidence = 0.8
+        config.bootstrapping.min_margin = 0.02
+        bootstrapper = GenreBootstrapper(config)
+
+        bootstrapper.genre_combination_clusters = {
+            ("news", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_tie"],
+                        "embedding": np.array([1.0, 0.0]),
+                        "confidence": 1.0,
+                    },
+                ]
+            }
+        }
+
+        environment = {"predict": [("news", "wiki")]}
+        # Very similar references to force a small top1-top2 margin.
+        known_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.99, 0.1]),
+        }
+
+        bootstrapper._label_environment(environment, known_embeddings)
+
+        label = bootstrapper.final_labels["sid_tie"]
+        assert label[0] == "news"
+        assert label[1] >= config.bootstrapping.min_confidence
+        assert label[2] == "bootstrap-inferred"
+
+    def test_label_environment_uses_shared_cluster_labeling_logic(self, monkeypatch):
+        """Bootstrap labeling should delegate cluster scoring to shared clustering ops."""
+        bootstrapper = GenreBootstrapper(Config())
+        bootstrapper.genre_combination_clusters = {
+            ("news", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_1", "sid_2"],
+                        "embedding": np.array([1.0, 0.0]),
+                        "confidence": 1.0,
+                    }
+                ]
+            }
+        }
+
+        captured = {}
+
+        def _mock_assign_cluster_label(centroid, references):
+            captured["centroid"] = centroid
+            captured["references"] = references
+            return ("wiki", 0.42, "bootstrap-inferred", [("wiki", 0.42), ("news", 0.41)])
+
+        monkeypatch.setattr(
+            bootstrapper.clustering_ops,
+            "assign_cluster_label",
+            _mock_assign_cluster_label,
+        )
+
+        environment = {"predict": [("news", "wiki")]}
+        known_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        bootstrapper._label_environment(environment, known_embeddings)
+
+        assert np.array_equal(captured["centroid"], np.array([1.0, 0.0]))
+        assert captured["references"] is known_embeddings
+        assert bootstrapper.final_labels["sid_1"] == ("wiki", 0.42, "bootstrap-inferred")
+        assert bootstrapper.final_labels["sid_2"] == ("wiki", 0.42, "bootstrap-inferred")
+
 
 class TestBootstrapperConfigWiring:
     """Tests for clusterer configuration wiring in bootstrapper initialization."""
@@ -441,11 +518,13 @@ class TestBootstrapperConfigWiring:
         config = Config()
         config.clustering.method = "kmeans"
         config.clustering.max_iter = 123
+        config.bootstrapping.min_margin = 0.11
 
         bootstrapper = GenreBootstrapper(config)
 
         assert type(bootstrapper.clusterer).__name__ == "KMeansClusterer"
         assert bootstrapper.clusterer.max_iter == 123
+        assert bootstrapper.clustering_ops.min_margin == 0.11
 
     def test_cluster_treebanks_uses_configured_virtual_split_quality_gates(self, monkeypatch):
         """Production clustering should read virtual-split quality gates from config."""
@@ -566,6 +645,77 @@ class TestReferenceEmbeddingConstruction:
         known = ops.build_reference_embeddings_from_virtual_splits(virtual_splits_by_treebank)
 
         np.testing.assert_allclose(known["news"], np.array([1.5, 0.5]))
+
+
+class TestSharedClusterLabeling:
+    """Tests for shared cluster labeling logic used across pipelines."""
+
+    def test_assign_cluster_label_returns_genre_confidence_method(self):
+        """Shared assignment should return top genre, confidence, and method."""
+        ops = ClusteringOperations(min_confidence=0.8, min_margin=0.05)
+        centroid = np.array([1.0, 0.0])
+        reference_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        best_genre, confidence, method, sorted_sims = ops.assign_cluster_label(
+            centroid, reference_embeddings
+        )
+
+        assert best_genre == "news"
+        assert confidence == pytest.approx(1.0)
+        assert method == "bootstrap-labeled"
+        assert sorted_sims[0][0] == "news"
+        assert sorted_sims[0][1] == pytest.approx(1.0)
+
+    def test_assign_cluster_label_uses_margin_for_uncertainty(self):
+        """High top-1 similarity with a tiny margin should be marked as inferred."""
+        ops = ClusteringOperations(min_confidence=0.8, min_margin=0.02)
+        centroid = np.array([1.0, 0.0])
+        reference_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.99, 0.1]),
+        }
+
+        best_genre, confidence, method, _ = ops.assign_cluster_label(
+            centroid, reference_embeddings
+        )
+
+        assert best_genre == "news"
+        assert confidence >= 0.8
+        assert method == "bootstrap-inferred"
+
+    def test_label_clusters_delegates_to_assign_cluster_label(self, monkeypatch):
+        """Batch cluster labeling should delegate per-cluster assignment to shared helper."""
+        ops = ClusteringOperations(min_confidence=0.8)
+        cluster_centroids = {
+            0: np.array([1.0, 0.0]),
+            1: np.array([0.0, 1.0]),
+        }
+        reference_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        calls = []
+
+        def _mock_assign_cluster_label(centroid, references):
+            calls.append(tuple(centroid.tolist()))
+            assert references is reference_embeddings
+            return ("news", 0.5, "bootstrap-inferred", [("news", 0.5), ("wiki", 0.4)])
+
+        monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
+
+        labels, high_conf_count, low_conf_count = ops.label_clusters(
+            cluster_centroids, reference_embeddings
+        )
+
+        assert len(calls) == 2
+        assert labels[0] == ("news", 0.5, "bootstrap-inferred")
+        assert labels[1] == ("news", 0.5, "bootstrap-inferred")
+        assert high_conf_count == 0
+        assert low_conf_count == 2
 
 
 class TestVirtualSplitQualityGates:

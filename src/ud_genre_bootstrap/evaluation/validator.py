@@ -374,6 +374,7 @@ class ClusteringEvaluator:
         group_by: Optional[str] = "language",
         random_state: int = 42,
         min_confidence: float = 0.8,
+        min_margin: float = 0.05,
     ):
         """Initialize clustering evaluator.
 
@@ -381,15 +382,20 @@ class ClusteringEvaluator:
             n_folds: Number of folds for cross-validation
             group_by: Variable to group by to avoid data leakage ('language', 'treebank', or None)
             random_state: Random seed
-            min_confidence: Minimum confidence threshold for cluster labeling (matches production)
+            min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
+            min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
         """
         self.n_folds = n_folds
         self.group_by = group_by
         self.random_state = random_state
         self.min_confidence = min_confidence
+        self.min_margin = min_margin
 
         # Initialize shared clustering operations
-        self.clustering_ops = ClusteringOperations(min_confidence=min_confidence)
+        self.clustering_ops = ClusteringOperations(
+            min_confidence=min_confidence,
+            min_margin=min_margin,
+        )
 
     def k_fold_validate(
         self,
@@ -591,7 +597,7 @@ class ClusteringEvaluator:
                 cluster_ids, combined_embeddings, n_genres
             )
 
-            # Use shared operation: Label clusters with confidence threshold
+            # Use shared operation: Label clusters with uncertainty thresholds
             cluster_labels, high_conf_count, low_conf_count = self.clustering_ops.label_clusters(
                 cluster_centroids, known_genre_embeddings
             )

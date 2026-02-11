@@ -40,6 +40,7 @@ class BootstrappingConfig:
     """Configuration for bootstrapping."""
 
     min_confidence: float = 0.8
+    min_margin: float = 0.05
     max_iterations: int = 10
     fail_on_incomplete: bool = False
     unresolved_handling: str = "null"

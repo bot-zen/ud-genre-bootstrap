@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.spatial import distance
 
 from ud_genre_bootstrap.bootstrapping.scheduler import BootstrapScheduler
 from ud_genre_bootstrap.clustering.clustering_utils import ClusteringOperations
@@ -94,6 +93,7 @@ class GenreBootstrapper:
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
             min_confidence=config.bootstrapping.min_confidence,
+            min_margin=config.bootstrapping.min_margin,
         )
 
         # Storage for results
@@ -777,8 +777,6 @@ class GenreBootstrapper:
             environment: Current environment from schedule
             known_embeddings: Mean embeddings for known genres
         """
-        min_confidence = self.config.bootstrapping.min_confidence
-
         # Track statistics for this environment
         labels_assigned = 0
         labels_high_confidence = 0
@@ -808,48 +806,35 @@ class GenreBootstrapper:
                     cluster_id = cluster['cluster_id']
                     n_sentences = len(cluster['sent_ids'])
 
-                    # Compute cosine similarity to each known genre
-                    similarities = {}
-                    for genre, genre_emb in known_embeddings.items():
-                        # Cosine similarity
-                        cosine_sim = 1 - distance.cosine(cluster_emb, genre_emb)
-                        similarities[genre] = cosine_sim
+                    label_result = self.clustering_ops.assign_cluster_label(cluster_emb, known_embeddings)
+                    if label_result is None:
+                        continue
 
-                    # Find best matching genre
-                    if similarities:
-                        best_genre = max(similarities, key=similarities.get)
-                        confidence = similarities[best_genre]
+                    best_genre, confidence, method, sorted_sims = label_result
+                    top_3 = ", ".join([f"{g}:{s:.3f}" for g, s in sorted_sims[:3]])
 
-                        # Sort similarities for logging
-                        sorted_sims = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
-                        top_3 = ", ".join([f"{g}:{s:.3f}" for g, s in sorted_sims[:3]])
+                    if method == "bootstrap-labeled":
+                        labels_high_confidence += 1
+                        logger.debug(
+                            f"      Cluster c{cluster_id} ({n_sentences} sents) → {best_genre} "
+                            f"(conf={confidence:.3f}, top3: {top_3})"
+                        )
+                    else:
+                        labels_low_confidence += 1
+                        logger.info(
+                            f"      ⚠ Cluster c{cluster_id} in {tb_code}:{split} → {best_genre} "
+                            f"(LOW certainty, conf={confidence:.3f}, top3: {top_3})"
+                        )
 
-                        # Only label if confidence exceeds threshold
-                        if confidence >= min_confidence:
-                            method = "bootstrap-labeled"
-                            labels_high_confidence += 1
-                            logger.debug(
-                                f"      Cluster c{cluster_id} ({n_sentences} sents) → {best_genre} "
-                                f"(conf={confidence:.3f}, top3: {top_3})"
-                            )
-                        else:
-                            # Low confidence - mark as inferred
-                            method = "bootstrap-inferred"
-                            labels_low_confidence += 1
-                            logger.info(
-                                f"      ⚠ Cluster c{cluster_id} in {tb_code}:{split} → {best_genre} "
-                                f"(LOW conf={confidence:.3f}, top3: {top_3})"
-                            )
+                    labels_assigned += 1
 
-                        labels_assigned += 1
-
-                        # Store labels for all sentences in this cluster
-                        for sent_id in cluster['sent_ids']:
-                            # Preserve metadata-derived/trivial labels assigned earlier.
-                            existing = self.final_labels.get(sent_id)
-                            if existing is not None and existing[2] in {"virtual-split", "single-genre-treebank"}:
-                                continue
-                            self.final_labels[sent_id] = (best_genre, confidence, method)
+                    # Store labels for all sentences in this cluster
+                    for sent_id in cluster['sent_ids']:
+                        # Preserve metadata-derived/trivial labels assigned earlier.
+                        existing = self.final_labels.get(sent_id)
+                        if existing is not None and existing[2] in {"virtual-split", "single-genre-treebank"}:
+                            continue
+                        self.final_labels[sent_id] = (best_genre, confidence, method)
 
         # Log summary for this environment
         logger.info(

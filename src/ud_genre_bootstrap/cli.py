@@ -550,6 +550,7 @@ def evaluate(
 
         console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}")
         console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
+        console.print(f"[blue]Min margin:[/blue] {cfg.bootstrapping.min_margin}")
 
         # Initialize clustering evaluator
         from ud_genre_bootstrap.evaluation.validator import ClusteringEvaluator
@@ -558,6 +559,7 @@ def evaluate(
             n_folds=n_folds_val,
             group_by=group_by_val,
             min_confidence=cfg.bootstrapping.min_confidence,
+            min_margin=cfg.bootstrapping.min_margin,
         )
 
         # Load treebank metadata and genre mapper
@@ -1595,6 +1597,7 @@ def info(
         table.add_row("", "")
         table.add_row("[bold]Bootstrapping[/bold]", "")
         table.add_row("  Min Confidence", str(cfg.bootstrapping.min_confidence))
+        table.add_row("  Min Margin", str(cfg.bootstrapping.min_margin))
         table.add_row("  Max Iterations", str(cfg.bootstrapping.max_iterations))
         table.add_row("  Fail on Incomplete", str(cfg.bootstrapping.fail_on_incomplete))
         table.add_row(
