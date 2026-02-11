@@ -736,6 +736,10 @@ class GenreBootstrapper:
 
                         # Store labels for all sentences in this cluster
                         for sent_id in cluster['sent_ids']:
+                            # Preserve metadata-derived/trivial labels assigned earlier.
+                            existing = self.final_labels.get(sent_id)
+                            if existing is not None and existing[2] in {"virtual-split", "single-genre-treebank"}:
+                                continue
                             self.final_labels[sent_id] = (best_genre, confidence, method)
 
         # Log summary for this environment

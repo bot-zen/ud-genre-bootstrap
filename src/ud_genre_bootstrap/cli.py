@@ -464,6 +464,9 @@ def label(
         # Display schedule summary
         _display_schedule_summary(schedule)
 
+        console.print("\n[yellow]Labeling single-genre treebanks and virtual splits...[/yellow]")
+        bootstrapper._label_single_genre_treebanks()
+
         console.print("\n[yellow]Labeling clusters...[/yellow]")
         bootstrapper._label_clusters(schedule)
 
