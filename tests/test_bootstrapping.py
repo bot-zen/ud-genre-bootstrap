@@ -289,3 +289,144 @@ class TestBootstrapperIntegration:
         # This would require a full mock setup or fixture data
         # Skipping for now as it requires extensive mocking
         pytest.skip("Requires full pipeline mocking")
+
+
+class TestPipelineSegments:
+    """Unit tests for shared pipeline segment execution."""
+
+    def test_execute_bootstrap_labeling_runs_all_stages_in_order(self, monkeypatch):
+        """execute_bootstrap_labeling() should run schedule -> single -> cluster -> report."""
+        bootstrapper = GenreBootstrapper(Config())
+        call_order = []
+        mock_schedule = [{"known": ["news"], "predict": [], "disjunct": []}]
+
+        def _mock_create_schedule():
+            call_order.append("schedule")
+            return mock_schedule
+
+        def _mock_label_single():
+            call_order.append("single")
+
+        def _mock_label_clusters(schedule):
+            call_order.append(("clusters", schedule))
+
+        def _mock_report():
+            call_order.append("report")
+
+        monkeypatch.setattr(bootstrapper, "_create_schedule", _mock_create_schedule)
+        monkeypatch.setattr(bootstrapper, "_label_single_genre_treebanks", _mock_label_single)
+        monkeypatch.setattr(bootstrapper, "_label_clusters", _mock_label_clusters)
+        monkeypatch.setattr(bootstrapper, "_generate_cross_lingual_report", _mock_report)
+
+        out_schedule = bootstrapper.execute_bootstrap_labeling()
+
+        assert out_schedule == mock_schedule
+        assert call_order == [
+            "schedule",
+            "single",
+            ("clusters", mock_schedule),
+            "report",
+        ]
+
+    def test_execute_bootstrap_labeling_uses_provided_schedule(self, monkeypatch):
+        """Provided schedule should be reused without recomputing."""
+        bootstrapper = GenreBootstrapper(Config())
+        call_order = []
+        provided_schedule = [{"known": ["news"], "predict": [], "disjunct": []}]
+
+        def _mock_create_schedule():
+            raise AssertionError("_create_schedule should not be called")
+
+        def _mock_label_single():
+            call_order.append("single")
+
+        def _mock_label_clusters(schedule):
+            call_order.append(("clusters", schedule))
+
+        def _mock_report():
+            call_order.append("report")
+
+        monkeypatch.setattr(bootstrapper, "_create_schedule", _mock_create_schedule)
+        monkeypatch.setattr(bootstrapper, "_label_single_genre_treebanks", _mock_label_single)
+        monkeypatch.setattr(bootstrapper, "_label_clusters", _mock_label_clusters)
+        monkeypatch.setattr(bootstrapper, "_generate_cross_lingual_report", _mock_report)
+
+        out_schedule = bootstrapper.execute_bootstrap_labeling(schedule=provided_schedule)
+
+        assert out_schedule == provided_schedule
+        assert call_order == [
+            "single",
+            ("clusters", provided_schedule),
+            "report",
+        ]
+
+    def test_label_environment_preserves_metadata_derived_methods(self):
+        """bootstrap labeling should not overwrite virtual/single-genre labels."""
+        bootstrapper = GenreBootstrapper(Config())
+        bootstrapper.genre_combination_clusters = {
+            ("news", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_virtual", "sid_single", "sid_new"],
+                        "embedding": np.array([1.0, 0.0]),
+                        "confidence": 1.0,
+                    }
+                ]
+            }
+        }
+        bootstrapper.final_labels = {
+            "sid_virtual": ("news", 1.0, "virtual-split"),
+            "sid_single": ("news", 1.0, "single-genre-treebank"),
+        }
+
+        environment = {"predict": [("news", "wiki")]}
+        known_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        bootstrapper._label_environment(environment, known_embeddings)
+
+        assert bootstrapper.final_labels["sid_virtual"] == ("news", 1.0, "virtual-split")
+        assert bootstrapper.final_labels["sid_single"] == ("news", 1.0, "single-genre-treebank")
+        assert bootstrapper.final_labels["sid_new"][0] == "news"
+        assert bootstrapper.final_labels["sid_new"][2] == "bootstrap-labeled"
+
+    def test_label_environment_assigns_threshold_based_methods(self):
+        """Clusters should always be labeled, with method decided by confidence threshold."""
+        config = Config()
+        config.bootstrapping.min_confidence = 0.8
+        bootstrapper = GenreBootstrapper(config)
+
+        bootstrapper.genre_combination_clusters = {
+            ("news", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_high"],
+                        "embedding": np.array([1.0, 0.0]),
+                        "confidence": 1.0,
+                    },
+                    {
+                        "cluster_id": 1,
+                        "sent_ids": ["sid_low"],
+                        "embedding": np.array([0.6, 0.6]),
+                        "confidence": 1.0,
+                    },
+                ]
+            }
+        }
+
+        environment = {"predict": [("news", "wiki")]}
+        known_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        bootstrapper._label_environment(environment, known_embeddings)
+
+        assert bootstrapper.final_labels["sid_high"][2] == "bootstrap-labeled"
+        assert bootstrapper.final_labels["sid_low"][2] == "bootstrap-inferred"
+        assert bootstrapper.final_labels["sid_high"][1] >= config.bootstrapping.min_confidence
+        assert bootstrapper.final_labels["sid_low"][1] < config.bootstrapping.min_confidence

@@ -237,3 +237,52 @@ class TestExclusionIntegration:
 
         # Should return original filter
         assert result == ["en_ewt", "de_gsd"]
+
+
+class TestLabelCommandFlow:
+    """Test that label command reuses shared bootstrapper logic."""
+
+    def test_label_uses_shared_execute_bootstrap_labeling(self, monkeypatch, tmp_path):
+        """label() should call execute_bootstrap_labeling with computed schedule."""
+        import ud_genre_bootstrap.cli as cli_module
+
+        cfg = Config()
+        cfg.output.genres_path = str(tmp_path)
+
+        class DummyBootstrapper:
+            last_instance = None
+
+            def __init__(self, _cfg):
+                DummyBootstrapper.last_instance = self
+                self.received_schedule = None
+
+            def _generate_embeddings(self):
+                return {("xx_demo", "train"): {"sent_id": [], "embedding": []}}
+
+            def _cluster_treebanks(self, _embeddings_by_tb):
+                return None
+
+            def _compute_cluster_embeddings(self, _embeddings_by_tb):
+                return None
+
+            def _create_schedule(self):
+                return [{"known": ["news"], "predict": [], "disjunct": []}]
+
+            def execute_bootstrap_labeling(self, schedule=None):
+                self.received_schedule = schedule
+                return schedule
+
+            def _export_results(self):
+                return {"labeled_sentences": 0}
+
+        monkeypatch.setattr(cli_module, "load_config_from_path", lambda _: cfg)
+        monkeypatch.setattr(cli_module, "GenreBootstrapper", DummyBootstrapper)
+        monkeypatch.setattr(cli_module, "_display_schedule_summary", lambda _: None)
+
+        cli_module.label(config=None, clusters=None)
+
+        instance = DummyBootstrapper.last_instance
+        assert instance is not None
+        assert instance.received_schedule == [
+            {"known": ["news"], "predict": [], "disjunct": []}
+        ]

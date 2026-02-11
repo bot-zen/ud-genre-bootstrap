@@ -127,21 +127,8 @@ class GenreBootstrapper:
         logger.info("Step 3.5: Computing genre separation metrics")
         self._compute_genre_separation_metrics()
 
-        # Step 4: Create bootstrap schedule
-        logger.info("Step 4: Creating bootstrap schedule")
-        schedule = self._create_schedule()
-
-        # Step 5: Label single-genre treebanks (trivial labeling)
-        logger.info("Step 5: Labeling single-genre treebanks")
-        self._label_single_genre_treebanks()
-
-        # Step 6: Label multi-genre clusters according to schedule
-        logger.info("Step 6: Labeling multi-genre clusters via bootstrap")
-        self._label_clusters(schedule)
-
-        # Step 6.5: Generate cross-lingual assignment report
-        logger.info("Step 6.5: Generating cross-lingual assignment report")
-        self._generate_cross_lingual_report()
+        # Steps 4-6.5: Schedule + labeling + reporting
+        self.execute_bootstrap_labeling()
 
         # Step 7: Export results
         logger.info("Step 7: Exporting results")
@@ -149,6 +136,36 @@ class GenreBootstrapper:
 
         logger.info("Bootstrap pipeline complete")
         return results
+
+    def execute_bootstrap_labeling(
+        self,
+        schedule: Optional[List[Dict]] = None,
+    ) -> List[Dict]:
+        """Run scheduling and bootstrap labeling stages.
+
+        This centralizes the shared stage logic used by both the full `fit()`
+        pipeline and the CLI `label` command.
+
+        Args:
+            schedule: Optional precomputed schedule. If omitted, it is created.
+
+        Returns:
+            Bootstrap schedule that was used for labeling.
+        """
+        if schedule is None:
+            logger.info("Step 4: Creating bootstrap schedule")
+            schedule = self._create_schedule()
+
+        logger.info("Step 5: Labeling single-genre treebanks")
+        self._label_single_genre_treebanks()
+
+        logger.info("Step 6: Labeling multi-genre clusters via bootstrap")
+        self._label_clusters(schedule)
+
+        logger.info("Step 6.5: Generating cross-lingual assignment report")
+        self._generate_cross_lingual_report()
+
+        return schedule
 
     def load_cluster_state(self, cluster_state_path: Path) -> Dict:
         """Load pre-computed cluster state from disk.

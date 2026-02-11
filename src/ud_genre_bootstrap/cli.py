@@ -464,15 +464,8 @@ def label(
         # Display schedule summary
         _display_schedule_summary(schedule)
 
-        console.print("\n[yellow]Labeling single-genre treebanks and virtual splits...[/yellow]")
-        bootstrapper._label_single_genre_treebanks()
-
-        console.print("\n[yellow]Labeling clusters...[/yellow]")
-        bootstrapper._label_clusters(schedule)
-
-        # Generate cross-lingual report
-        console.print("\n[yellow]Generating cross-lingual assignment report...[/yellow]")
-        bootstrapper._generate_cross_lingual_report()
+        console.print("\n[yellow]Running bootstrap labeling...[/yellow]")
+        bootstrapper.execute_bootstrap_labeling(schedule=schedule)
 
         # Export results
         console.print("\n[yellow]Exporting genre assignments...[/yellow]")
