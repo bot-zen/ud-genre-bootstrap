@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "ud-hf-parquet-tools @ git+https://github.com/bot-zen/ud-hf-parquet-tools@main",
+    "ud-hf-parquet-tools @ git+https://github.com/bot-zen/ud-hf-parquet-tools@v1.2.0",
     "datasets>=2.14.0",
     "transformers>=4.30.0",
     "torch>=2.0.0",
