@@ -141,6 +141,60 @@ class GenreMapper:
         # No mapping found, return as-is
         return genre
 
+    def _collect_comment_candidates(self, sentence: Dict) -> List[str]:
+        """Build normalized comment candidates from sentence metadata.
+
+        This normalizes local CoNLL-U and HF parquet metadata into a shared
+        representation for extraction:
+        - Supports comments with or without leading '#'
+        - Materializes HF placeholders (__SENT_ID__/__TEXT__) from sentence fields
+        - Adds synthetic sent_id/text comments to align local and HF behavior
+        """
+        comments = sentence.get("comments", []) or []
+        sent_id = sentence.get("sent_id")
+        text = sentence.get("text")
+
+        raw_candidates = []
+        for comment in comments:
+            if not isinstance(comment, str):
+                continue
+
+            normalized_comment = comment
+            if comment == "__SENT_ID__":
+                if sent_id:
+                    normalized_comment = f"sent_id = {sent_id}"
+                else:
+                    continue
+            elif comment == "__TEXT__":
+                if text:
+                    normalized_comment = f"text = {text}"
+                else:
+                    continue
+
+            normalized_comment = normalized_comment.strip()
+            if normalized_comment:
+                raw_candidates.append(normalized_comment)
+
+        # Keep source parity explicit: sent_id/text patterns should work for both
+        # local CoNLL-U comments and HF marker-based comments.
+        if sent_id:
+            raw_candidates.append(f"sent_id = {sent_id}")
+        if text:
+            raw_candidates.append(f"text = {text}")
+
+        comment_candidates = []
+        for comment in raw_candidates:
+            comment_candidates.append(comment)
+            if comment.startswith("#"):
+                no_hash = comment[1:].lstrip()
+                if no_hash:
+                    comment_candidates.append(no_hash)
+            else:
+                comment_candidates.append(f"# {comment}")
+
+        # Remove duplicates while preserving order.
+        return list(dict.fromkeys(comment_candidates))
+
     def extract_genres_from_metadata(
         self, sentence: Dict, treebank_code: str
     ) -> List[str]:
@@ -182,9 +236,11 @@ class GenreMapper:
         if "genre" in sentence:
             genres.append(sentence["genre"])
 
+        comment_candidates = self._collect_comment_candidates(sentence)
+
         # Method 2: Check CoNLL-U comments for standard genre metadata
-        if "comments" in sentence:
-            for comment in sentence["comments"]:
+        for comment in comment_candidates:
+            if comment.lstrip().startswith("#"):
                 # Standard UD format: # newdoc genre = ...
                 match = re.search(r"#\s*newdoc\s+genre\s*=\s*(\S+)", comment)
                 if match:
@@ -211,16 +267,16 @@ class GenreMapper:
         if treebank_code in self.metadata_patterns:
             patterns = self.metadata_patterns[treebank_code]
             # Apply patterns to extract genres from sentence comments/metadata
-            if "comments" in sentence and patterns:
-                for comment in sentence["comments"]:
-                    for pattern_dict in patterns:
-                        if isinstance(pattern_dict, dict):
-                            pattern = pattern_dict.get("pattern", "")
-                            genre_template = pattern_dict.get("genre", "")
-                            genre_mapping = pattern_dict.get("genre_mapping", None)
+            if comment_candidates and patterns:
+                for pattern_dict in patterns:
+                    if isinstance(pattern_dict, dict):
+                        pattern = pattern_dict.get("pattern", "")
+                        genre_template = pattern_dict.get("genre", "")
+                        genre_mapping = pattern_dict.get("genre_mapping", None)
 
-                            if pattern:
-                                match = re.search(pattern, comment)
+                        if pattern:
+                            for comment_candidate in comment_candidates:
+                                match = re.search(pattern, comment_candidate)
                                 if match:
                                     # First, construct genre value from template (if any)
                                     if genre_template:
@@ -243,13 +299,20 @@ class GenreMapper:
                                             # Not in inline mapping, add raw value
                                             # It will be normalized by global genre_mappings later
                                             genres.append(genre_value)
-                        elif isinstance(pattern_dict, str):
-                            # Simple string matching
-                            if pattern_dict in comment:
+                                    break
+                    elif isinstance(pattern_dict, str):
+                        # Simple string matching
+                        for comment_candidate in comment_candidates:
+                            if pattern_dict in comment_candidate:
                                 # Extract genre from comment
-                                match = re.search(r"genre[:\s=]+(\w+)", comment, re.IGNORECASE)
+                                match = re.search(
+                                    r"genre[:\s=]+(\w+)",
+                                    comment_candidate,
+                                    re.IGNORECASE,
+                                )
                                 if match:
                                     genres.append(match.group(1))
+                                    break
 
         # Method 4: Use default genre if no genre was extracted
         if not genres and default_genre:

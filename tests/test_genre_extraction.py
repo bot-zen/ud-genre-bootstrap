@@ -29,6 +29,13 @@ class TestGenreMapper:
         genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
         assert "news" in genres
 
+    def test_alternative_comment_format_without_hash_prefix(self):
+        """HF-loaded comments may omit '#'; extraction should still work."""
+        mapper = GenreMapper()
+        sentence = {"comments": ["genre = news"]}
+        genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+        assert "news" in genres
+
     def test_extraction_deduplicates_preserving_order(self):
         """Duplicate genres should be removed without losing deterministic order."""
         mapper = GenreMapper()
@@ -92,6 +99,133 @@ class TestGenreMapper:
             # Test wiki pattern
             sentence = {"comments": ["# sent_id = w01001049"]}
             genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "wiki" in genres, f"Expected 'wiki', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+            mappings_path.unlink()
+
+    def test_pattern_with_capture_group_without_hash_prefix(self):
+        """Pattern extraction should work for comments without leading '#'."""
+        import tempfile
+        import json
+
+        patterns = {
+            "test_tb": [
+                {
+                    "pattern": r"# sent_id = (n|w)",
+                    "genre": "$1"
+                }
+            ]
+        }
+
+        mappings = {
+            "n": "news",
+            "w": "wiki"
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=patterns_path
+            )
+
+            sentence = {"comments": ["sent_id = n01001011"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+            sentence = {"comments": ["sent_id = w01001049"]}
+            genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
+            assert "wiki" in genres, f"Expected 'wiki', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+            mappings_path.unlink()
+
+    def test_pattern_with_hf_sent_id_marker_comment(self):
+        """HF marker comments should materialize sent_id for pattern matching."""
+        import tempfile
+        import json
+
+        patterns = {
+            "de_pud": [
+                {
+                    "pattern": r"# sent_id = ([nw])",
+                    "genre": "$1",
+                }
+            ]
+        }
+        mappings = {"n": "news", "w": "wiki"}
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=patterns_path,
+            )
+
+            # HF parquet comments use placeholders and keep values in sent_id/text fields.
+            hf_sentence = {
+                "sent_id": "n01001011",
+                "text": "Example",
+                "comments": ["newdoc id = n01001", "__SENT_ID__", "__TEXT__"],
+            }
+            genres = mapper.extract_genres_from_metadata(hf_sentence, "de_pud")
+            assert "news" in genres, f"Expected 'news', got {genres}"
+
+        finally:
+            patterns_path.unlink()
+            mappings_path.unlink()
+
+    def test_pattern_with_sent_id_field_without_sent_id_comment(self):
+        """sent_id field alone should be usable for sent_id-based patterns."""
+        import tempfile
+        import json
+
+        patterns = {
+            "de_pud": [
+                {
+                    "pattern": r"# sent_id = ([nw])",
+                    "genre": "$1",
+                }
+            ]
+        }
+        mappings = {"n": "news", "w": "wiki"}
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(patterns, f)
+            patterns_path = Path(f.name)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(mappings, f)
+            mappings_path = Path(f.name)
+
+        try:
+            mapper = GenreMapper(
+                genre_mapping_path=mappings_path,
+                metadata_patterns_path=patterns_path,
+            )
+
+            sentence = {
+                "sent_id": "w01001049",
+                "comments": ["newdoc id = w01001"],
+            }
+            genres = mapper.extract_genres_from_metadata(sentence, "de_pud")
             assert "wiki" in genres, f"Expected 'wiki', got {genres}"
 
         finally:

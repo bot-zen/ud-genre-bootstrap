@@ -85,8 +85,13 @@ class UDDataLoader:
 
         return list(tb_meta['splits'].keys())
 
-    def _load_local_treebank(self, treebank_code: str, split: str, local_path: str = None) -> Dataset:
-        """Load treebank from local CoNLL-U files.
+    def _resolve_local_split_files(
+        self,
+        treebank_code: str,
+        split: str,
+        local_path: str = None,
+    ) -> List[Path]:
+        """Resolve local CoNLL-U files for a treebank split.
 
         Args:
             treebank_code: Treebank code
@@ -94,9 +99,8 @@ class UDDataLoader:
             local_path: Base path to UD repos (overrides self.ud_source)
 
         Returns:
-            Dataset with parsed sentences
+            List of existing CoNLL-U file paths
         """
-        # Get file paths from metadata
         if treebank_code not in self.metadata:
             raise ValueError(f"Treebank {treebank_code} not found in metadata")
 
@@ -114,25 +118,21 @@ class UDDataLoader:
         split_info = tb_meta['splits'][split]
         file_paths = split_info['files']
 
-        # Parse CoNLL-U files
-        sentences = []
-        base_path = Path(local_path if local_path else self.ud_source)
-
-        # Resolve relative paths to absolute paths
+        base_path_str = local_path if local_path else self.ud_source
+        if base_path_str.startswith("local://"):
+            base_path_str = base_path_str.replace("local://", "")
+        base_path = Path(base_path_str)
         if not base_path.is_absolute():
             base_path = base_path.resolve()
 
+        resolved_paths = []
         for rel_path in file_paths:
-            # Try the full path from metadata first
             file_path = base_path / rel_path
 
-            # If not found, try removing version directory (e.g., r2.17)
-            # Metadata has paths like: UD_English-EWT/r2.17/en_ewt-ud-train.conllu
-            # But checked-out repos have: UD_English-EWT/en_ewt-ud-train.conllu
+            # Metadata paths may include version dirs (e.g., r2.17) not present locally.
             if not file_path.exists():
                 parts = Path(rel_path).parts
                 if len(parts) >= 3:
-                    # Remove version directory (parts[1])
                     alt_path = base_path / parts[0] / parts[2]
                     if alt_path.exists():
                         file_path = alt_path
@@ -141,6 +141,24 @@ class UDDataLoader:
                 logger.warning(f"File not found: {file_path}")
                 continue
 
+            resolved_paths.append(file_path)
+
+        return resolved_paths
+
+    def _load_local_treebank(self, treebank_code: str, split: str, local_path: str = None) -> Dataset:
+        """Load treebank from local CoNLL-U files.
+
+        Args:
+            treebank_code: Treebank code
+            split: Split name
+            local_path: Base path to UD repos (overrides self.ud_source)
+
+        Returns:
+            Dataset with parsed sentences
+        """
+        # Parse CoNLL-U files
+        sentences = []
+        for file_path in self._resolve_local_split_files(treebank_code, split, local_path):
             logger.debug(f"Loading {file_path}")
             sentences.extend(self._parse_conllu_file(file_path))
 
@@ -236,6 +254,59 @@ class UDDataLoader:
 
         return sentences
 
+    def _iter_conllu_sentence_metadata(self, file_path: Path) -> Iterator[Dict]:
+        """Iterate sentence-level metadata from a CoNLL-U file.
+
+        This parser keeps only metadata comments and sentence IDs, avoiding
+        token-level parsing for tasks that only need genre extraction.
+
+        Args:
+            file_path: Path to .conllu file
+
+        Yields:
+            Sentence dictionaries with at least `sent_id`, `text`, and `comments`
+        """
+        current_sent_id = None
+        current_text = None
+        current_comments = []
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.rstrip('\n')
+
+                # Empty line = end of sentence
+                if not line:
+                    if current_sent_id is not None or current_comments:
+                        yield {
+                            'sent_id': current_sent_id,
+                            'text': current_text,
+                            'comments': current_comments,
+                        }
+                    current_sent_id = None
+                    current_text = None
+                    current_comments = []
+                    continue
+
+                # Keep only comment lines for metadata extraction
+                if line.startswith('#'):
+                    current_comments.append(line)
+                    if line.startswith('# sent_id'):
+                        parts = line.split('=', 1)
+                        if len(parts) == 2:
+                            current_sent_id = parts[1].strip()
+                    elif line.startswith('# text'):
+                        parts = line.split('=', 1)
+                        if len(parts) == 2:
+                            current_text = parts[1].strip()
+
+        # Don't forget last sentence when file doesn't end with blank line
+        if current_sent_id is not None or current_comments:
+            yield {
+                'sent_id': current_sent_id,
+                'text': current_text,
+                'comments': current_comments,
+            }
+
     def get_language_treebanks(self) -> Dict[str, List[str]]:
         """Get mapping of languages to their treebanks.
 
@@ -281,6 +352,51 @@ class UDDataLoader:
             if local_path.startswith("local://"):
                 local_path = local_path.replace("local://", "")
             return self._load_local_treebank(treebank_code, split, local_path)
+
+    def iter_treebank_sentences(
+        self,
+        treebank_code: str,
+        split: str = "train",
+        metadata_only: bool = False,
+    ) -> Iterator[Dict]:
+        """Iterate over sentences in a treebank split.
+
+        Args:
+            treebank_code: Treebank code (e.g., 'en_ewt')
+            split: Split name ('train', 'dev', or 'test')
+            metadata_only: If True, parse only metadata fields needed for genre extraction
+
+        Yields:
+            Sentence dictionaries
+        """
+        if not metadata_only:
+            dataset = self.load_treebank(treebank_code, split)
+            for sentence in dataset:
+                yield sentence
+            return
+
+        if self.ud_source.startswith("hf://"):
+            dataset = self.load_treebank(treebank_code, split)
+            for sentence in dataset:
+                metadata_sentence = {}
+                if 'sent_id' in sentence:
+                    metadata_sentence['sent_id'] = sentence['sent_id']
+                if 'text' in sentence:
+                    metadata_sentence['text'] = sentence['text']
+                if 'comments' in sentence:
+                    metadata_sentence['comments'] = sentence['comments']
+                if 'genre' in sentence:
+                    metadata_sentence['genre'] = sentence['genre']
+                yield metadata_sentence if metadata_sentence else sentence
+            return
+
+        local_path = self.ud_source
+        if local_path.startswith("local://"):
+            local_path = local_path.replace("local://", "")
+
+        for file_path in self._resolve_local_split_files(treebank_code, split, local_path):
+            logger.debug(f"Loading metadata from {file_path}")
+            yield from self._iter_conllu_sentence_metadata(file_path)
 
     def iter_all_treebanks(
         self, split: Optional[str] = None, treebank_filter: Optional[List[str]] = None
