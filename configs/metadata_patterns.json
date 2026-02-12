@@ -12,6 +12,7 @@
       "_description": "Belarusian-HSE",
       "genre_mapping": {
         "news-poll-question": "news",
+        "news-poll-answer": "news",
         "social-media": "social",
         "social-media-poll-question": "social",
         "social-media-poll-answer": "social"
