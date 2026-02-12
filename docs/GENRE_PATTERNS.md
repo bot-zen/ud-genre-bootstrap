@@ -29,8 +29,10 @@ sentence = {"genre": "news"}  # ✓ Automatic
 
 When reading from the HF parquet dataset built with `ud-hf-parquet-tools`,
 comments may contain positional placeholders such as `__SENT_ID__` and `__TEXT__`.
-The extractor materializes these from sentence fields (`sent_id`/`text`) so
-pattern behavior stays equivalent to local CoNLL-U input.
+The loader now materializes these at read time (DuckDB batch transform) from
+sentence fields (`sent_id`/`text`) so pattern behavior stays equivalent to
+local CoNLL-U input. The extractor keeps a fallback materialization path for
+legacy rows.
 
 ### When Do You Need Patterns?
 

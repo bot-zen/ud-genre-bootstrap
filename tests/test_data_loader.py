@@ -91,3 +91,66 @@ def test_genre_coverage_analyzer_uses_metadata_only_iteration():
     assert coverage.sentences_with_genre == 1
     assert coverage.genres == {"news"}
     assert loader.calls == [("xx_testtb", "train", True)]
+
+
+def test_iter_treebank_sentences_metadata_only_hf_uses_materialized_comments(monkeypatch):
+    """HF metadata iteration should use batch materialization when available."""
+    import ud_genre_bootstrap.utils.data_loader as data_loader_module
+
+    class StubDataset:
+        def __init__(self):
+            self.column_names = ["sent_id", "text", "comments", "genre", "tokens"]
+            self.selected_columns = None
+
+        def select_columns(self, columns):
+            self.selected_columns = list(columns)
+            return self
+
+        def iter(self, batch_size=1000):
+            yield {
+                "sent_id": ["s1", "s2"],
+                "text": ["Hello", "World"],
+                "comments": [["__SENT_ID__", "__TEXT__", "newdoc id = d1"], ["genre = news"]],
+                "genre": [None, "news"],
+            }
+
+        def __iter__(self):
+            raise AssertionError("Row iteration fallback should not run in this test")
+
+    def fake_materialize_comment_markers_batch(batch):
+        assert batch["comments"][0][:2] == ["__SENT_ID__", "__TEXT__"]
+        return {
+            "sent_id": batch["sent_id"],
+            "text": batch["text"],
+            "comments": [
+                ["sent_id = s1", "text = Hello", "newdoc id = d1"],
+                ["genre = news"],
+            ],
+            "genre": batch["genre"],
+        }
+
+    monkeypatch.setattr(
+        data_loader_module,
+        "_materialize_comment_markers_batch",
+        fake_materialize_comment_markers_batch,
+    )
+
+    class StubLoader(UDDataLoader):
+        def __init__(self):
+            self.ud_source = "hf://dummy/repo"
+            self.ud_version = "2.17"
+            self.metadata_path = None
+            self.metadata = {}
+            self._dataset = StubDataset()
+
+        def load_treebank(self, treebank_code: str, split: str = "train"):
+            return self._dataset
+
+    loader = StubLoader()
+    rows = list(loader.iter_treebank_sentences("xx_testtb", "train", metadata_only=True))
+
+    assert loader._dataset.selected_columns == ["sent_id", "text", "comments", "genre"]
+    assert len(rows) == 2
+    assert rows[0]["comments"] == ["sent_id = s1", "text = Hello", "newdoc id = d1"]
+    assert rows[1]["comments"] == ["genre = news"]
+    assert rows[1]["genre"] == "news"

@@ -3,11 +3,18 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from datasets import Dataset, load_dataset
 
 logger = logging.getLogger(__name__)
+
+try:
+    from ud_hf_parquet_tools import (
+        materialize_comment_markers_batch as _materialize_comment_markers_batch,
+    )
+except Exception:
+    _materialize_comment_markers_batch = None
 
 
 class UDDataLoader:
@@ -377,17 +384,7 @@ class UDDataLoader:
 
         if self.ud_source.startswith("hf://"):
             dataset = self.load_treebank(treebank_code, split)
-            for sentence in dataset:
-                metadata_sentence = {}
-                if 'sent_id' in sentence:
-                    metadata_sentence['sent_id'] = sentence['sent_id']
-                if 'text' in sentence:
-                    metadata_sentence['text'] = sentence['text']
-                if 'comments' in sentence:
-                    metadata_sentence['comments'] = sentence['comments']
-                if 'genre' in sentence:
-                    metadata_sentence['genre'] = sentence['genre']
-                yield metadata_sentence if metadata_sentence else sentence
+            yield from self._iter_hf_metadata_sentences(dataset)
             return
 
         local_path = self.ud_source
@@ -397,6 +394,52 @@ class UDDataLoader:
         for file_path in self._resolve_local_split_files(treebank_code, split, local_path):
             logger.debug(f"Loading metadata from {file_path}")
             yield from self._iter_conllu_sentence_metadata(file_path)
+
+    def _iter_hf_metadata_sentences(self, dataset: Dataset) -> Iterator[Dict[str, Any]]:
+        """Iterate metadata rows from HF datasets with optional DuckDB materialization."""
+        metadata_fields = ("sent_id", "text", "comments", "genre")
+        select_columns = [field for field in metadata_fields if field in dataset.column_names]
+        if select_columns:
+            dataset = dataset.select_columns(select_columns)
+
+        if _materialize_comment_markers_batch:
+            try:
+                for batch in dataset.iter(batch_size=2048):
+                    materialized_batch = _materialize_comment_markers_batch(batch)
+                    if not materialized_batch:
+                        continue
+
+                    first_column = next(iter(materialized_batch.values()))
+                    row_count = len(first_column)
+
+                    for idx in range(row_count):
+                        metadata_sentence = {}
+                        for field in metadata_fields:
+                            if field not in materialized_batch:
+                                continue
+                            value = materialized_batch[field][idx]
+                            if value is not None:
+                                metadata_sentence[field] = value
+                        yield metadata_sentence
+                return
+            except Exception as exc:
+                logger.warning(
+                    "Failed DuckDB comment materialization for HF metadata path; "
+                    "falling back to row iteration: %s",
+                    exc,
+                )
+
+        for sentence in dataset:
+            metadata_sentence = {}
+            if "sent_id" in sentence:
+                metadata_sentence["sent_id"] = sentence["sent_id"]
+            if "text" in sentence:
+                metadata_sentence["text"] = sentence["text"]
+            if "comments" in sentence:
+                metadata_sentence["comments"] = sentence["comments"]
+            if "genre" in sentence:
+                metadata_sentence["genre"] = sentence["genre"]
+            yield metadata_sentence if metadata_sentence else sentence
 
     def iter_all_treebanks(
         self, split: Optional[str] = None, treebank_filter: Optional[List[str]] = None
