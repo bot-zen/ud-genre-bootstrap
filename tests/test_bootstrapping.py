@@ -505,7 +505,7 @@ class TestPipelineSegments:
         bootstrapper._label_environment(environment, known_embeddings)
 
         assert np.array_equal(captured["centroid"], np.array([1.0, 0.0]))
-        assert captured["references"] is known_embeddings
+        assert set(captured["references"].keys()) == {"news", "wiki"}
         assert bootstrapper.final_labels["sid_1"] == ("wiki", 0.42, "bootstrap-inferred")
         assert bootstrapper.final_labels["sid_2"] == ("wiki", 0.42, "bootstrap-inferred")
 
@@ -525,6 +525,17 @@ class TestBootstrapperConfigWiring:
         assert type(bootstrapper.clusterer).__name__ == "KMeansClusterer"
         assert bootstrapper.clusterer.max_iter == 123
         assert bootstrapper.clustering_ops.min_margin == 0.11
+
+    def test_gmm_clusterer_receives_fit_sample_size_from_config(self):
+        """GMM clusterer should use configurable fit_sample_size from clustering config."""
+        config = Config()
+        config.clustering.method = "gmm"
+        config.clustering.fit_sample_size = 50000
+
+        bootstrapper = GenreBootstrapper(config)
+
+        assert type(bootstrapper.clusterer).__name__ == "GMMClusterer"
+        assert bootstrapper.clusterer.fit_sample_size == 50000
 
     def test_cluster_treebanks_uses_configured_virtual_split_quality_gates(self, monkeypatch):
         """Production clustering should read virtual-split quality gates from config."""
@@ -717,6 +728,183 @@ class TestSharedClusterLabeling:
         assert high_conf_count == 0
         assert low_conf_count == 2
 
+    def test_label_cluster_descriptors_delegates_to_assign_cluster_label(self, monkeypatch):
+        """Descriptor labeling should reuse assign_cluster_label and propagate sentence labels."""
+        ops = ClusteringOperations(min_confidence=0.8)
+        cluster_descriptors = [
+            {
+                "cluster_id": 0,
+                "embedding": np.array([1.0, 0.0]),
+                "sent_ids": ["s1", "s2"],
+            },
+            {
+                "cluster_id": 1,
+                "embedding": np.array([0.0, 1.0]),
+                "sent_ids": ["s3"],
+            },
+        ]
+        reference_embeddings = {
+            "news": np.array([1.0, 0.0]),
+            "wiki": np.array([0.0, 1.0]),
+        }
+
+        calls = []
+
+        def _mock_assign_cluster_label(centroid, references):
+            calls.append(tuple(centroid.tolist()))
+            assert references is reference_embeddings
+            return ("news", 0.5, "bootstrap-inferred", [("news", 0.5), ("wiki", 0.4)])
+
+        monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
+
+        (
+            cluster_labels,
+            sentence_labels,
+            cluster_similarities,
+            high_conf_count,
+            low_conf_count,
+        ) = ops.label_cluster_descriptors(cluster_descriptors, reference_embeddings)
+
+        assert len(calls) == 2
+        assert cluster_labels[0] == ("news", 0.5, "bootstrap-inferred")
+        assert cluster_labels[1] == ("news", 0.5, "bootstrap-inferred")
+        assert sentence_labels["s1"] == ("news", 0.5, "bootstrap-inferred")
+        assert sentence_labels["s2"] == ("news", 0.5, "bootstrap-inferred")
+        assert sentence_labels["s3"] == ("news", 0.5, "bootstrap-inferred")
+        assert cluster_similarities[0][0] == ("news", 0.5)
+        assert high_conf_count == 0
+        assert low_conf_count == 2
+
+    def test_label_predictable_combinations_enforces_one_to_one_and_combo_restriction(
+        self, monkeypatch
+    ):
+        """Matching should be one-to-one and only consider genres in the current combination."""
+        ops = ClusteringOperations(min_confidence=0.0, min_margin=0.0)
+        genre_combination_clusters = {
+            ("news", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_c0"],
+                        "embedding": np.array([0.0]),
+                    },
+                    {
+                        "cluster_id": 1,
+                        "sent_ids": ["sid_c1"],
+                        "embedding": np.array([1.0]),
+                    },
+                ]
+            }
+        }
+        final_labels = {}
+        seen_reference_keys = []
+
+        def _mock_assign_cluster_label(centroid, references):
+            seen_reference_keys.append(set(references.keys()))
+            if float(centroid[0]) == 0.0:
+                return (
+                    "news",
+                    0.99,
+                    "bootstrap-labeled",
+                    [("news", 0.99), ("wiki", 0.98)],
+                )
+            return (
+                "news",
+                0.95,
+                "bootstrap-labeled",
+                [("news", 0.95), ("wiki", 0.20)],
+            )
+
+        monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
+
+        ops.label_predictable_combinations(
+            predict_combinations=[("news", "wiki")],
+            genre_combination_clusters=genre_combination_clusters,
+            known_embeddings={
+                "news": np.array([1.0, 0.0]),
+                "wiki": np.array([0.0, 1.0]),
+                "spoken": np.array([0.0, -1.0]),  # Must be ignored here.
+            },
+            final_labels=final_labels,
+        )
+
+        assert seen_reference_keys
+        assert all(keys == {"news", "wiki"} for keys in seen_reference_keys)
+        assert final_labels["sid_c0"][0] == "news"
+        # One-to-one forces the second cluster to the remaining genre.
+        assert final_labels["sid_c1"][0] == "wiki"
+
+    def test_label_predictable_combinations_mutates_cluster_pool_iteratively(
+        self, monkeypatch
+    ):
+        """Assigned clusters should be promoted and unresolved parts moved to reduced combinations."""
+        ops = ClusteringOperations(min_confidence=0.0, min_margin=0.0)
+        genre_combination_clusters = {
+            ("news", "spoken", "wiki"): {
+                ("xx_demo", "test"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["sid_news"],
+                        "embedding": np.array([0.0]),
+                    },
+                    {
+                        "cluster_id": 1,
+                        "sent_ids": ["sid_wiki"],
+                        "embedding": np.array([1.0]),
+                    },
+                    {
+                        "cluster_id": 2,
+                        "sent_ids": ["sid_spoken"],
+                        "embedding": np.array([2.0]),
+                    },
+                ]
+            }
+        }
+        final_labels = {}
+
+        def _mock_assign_cluster_label(centroid, references):
+            if float(centroid[0]) == 0.0:
+                return (
+                    "news",
+                    0.90,
+                    "bootstrap-labeled",
+                    [("news", 0.90), ("wiki", 0.10)],
+                )
+            if float(centroid[0]) == 1.0:
+                return (
+                    "wiki",
+                    0.95,
+                    "bootstrap-labeled",
+                    [("wiki", 0.95), ("news", 0.20)],
+                )
+            return (
+                "news",
+                0.85,
+                "bootstrap-labeled",
+                [("news", 0.85), ("wiki", 0.80)],
+            )
+
+        monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
+
+        summary = ops.label_predictable_combinations(
+            predict_combinations=[("news", "spoken", "wiki")],
+            genre_combination_clusters=genre_combination_clusters,
+            known_embeddings={
+                "news": np.array([1.0, 0.0]),
+                "wiki": np.array([0.0, 1.0]),
+            },
+            final_labels=final_labels,
+        )
+
+        assert summary["labels_assigned"] == 3
+        assert final_labels["sid_news"][0] == "news"
+        assert final_labels["sid_wiki"][0] == "wiki"
+        assert final_labels["sid_spoken"][0] == "spoken"
+        assert final_labels["sid_spoken"][2] == "bootstrap-inferred"
+        assert ("news", "spoken", "wiki") not in genre_combination_clusters
+        assert ("news",) in genre_combination_clusters
+        assert ("wiki",) in genre_combination_clusters
+        assert ("spoken",) in genre_combination_clusters
 
 class TestVirtualSplitQualityGates:
     """Tests for virtual-split quality gate behavior."""

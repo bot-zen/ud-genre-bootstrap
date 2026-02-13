@@ -308,42 +308,137 @@ class ClusteringOperations:
         labels_low_confidence = 0
         treebanks_processed = 0
 
-        for genre_combination in predict_combinations:
+        # Snapshot combinations because this method mutates the pool in place.
+        for genre_combination in list(predict_combinations):
+            if len(genre_combination) < 2:
+                continue
+
             treebank_clusters = genre_combination_clusters.get(genre_combination)
             if not treebank_clusters:
                 continue
 
-            for clusters in treebank_clusters.values():
+            # Restrict candidate references to genres in this treebank's combination.
+            predictable_genres = [
+                genre for genre in genre_combination if genre in known_embeddings
+            ]
+            if len(predictable_genres) < 1:
+                continue
+
+            reference_subset = {
+                genre: known_embeddings[genre] for genre in predictable_genres
+            }
+            unresolved_genres = tuple(
+                sorted(set(genre_combination) - set(predictable_genres))
+            )
+
+            # Snapshot entries because we move/remove them from this combination.
+            for tb_key, clusters in list(treebank_clusters.items()):
                 treebanks_processed += 1
-                (
-                    cluster_labels,
-                    sentence_labels,
-                    _cluster_similarities,
-                    high_conf_count,
-                    low_conf_count,
-                ) = self.label_cluster_descriptors(clusters, known_embeddings)
 
-                labels_assigned += len(cluster_labels)
-                labels_high_confidence += high_conf_count
-                labels_low_confidence += low_conf_count
+                assignments, remaining_cluster_indices = self._assign_clusters_one_to_one(
+                    clusters,
+                    reference_subset,
+                )
 
-                for cluster in clusters:
-                    cluster_id = cluster.get("cluster_id")
-                    if cluster_id not in cluster_labels:
-                        continue
-                    best_genre, confidence, method = cluster_labels[cluster_id]
-                    for sent_id in cluster.get("sent_ids", []):
-                        existing = final_labels.get(sent_id)
-                        if (
-                            existing is not None
-                            and preserve_methods is not None
-                            and existing[2] in preserve_methods
-                        ):
-                            continue
-                        final_labels[sent_id] = sentence_labels.get(
-                            sent_id,
-                            (best_genre, confidence, method),
+                # Promote assigned clusters to single-genre pools and label sentences.
+                for cluster_idx, (assigned_genre, confidence, method, _sorted_sims) in assignments.items():
+                    labels_assigned += 1
+                    if method == "bootstrap-labeled":
+                        labels_high_confidence += 1
+                    else:
+                        labels_low_confidence += 1
+
+                    cluster = clusters[cluster_idx]
+                    self._store_sentence_labels(
+                        sent_ids=cluster.get("sent_ids", []),
+                        label=(assigned_genre, confidence, method),
+                        final_labels=final_labels,
+                        preserve_methods=preserve_methods,
+                    )
+
+                    single_genre_pool = genre_combination_clusters.setdefault(
+                        (assigned_genre,),
+                        {},
+                    )
+                    if tb_key not in single_genre_pool:
+                        single_genre_pool[tb_key] = []
+                    single_genre_pool[tb_key].append(cluster)
+
+                remaining_clusters = [clusters[idx] for idx in remaining_cluster_indices]
+
+                # If exactly one unknown genre and one remaining cluster, infer directly.
+                if len(unresolved_genres) == 1 and len(remaining_clusters) == 1:
+                    inferred_genre = unresolved_genres[0]
+                    inferred_cluster = remaining_clusters[0]
+                    inferred_label = (inferred_genre, 0.0, "bootstrap-inferred")
+
+                    labels_assigned += 1
+                    labels_low_confidence += 1
+
+                    self._store_sentence_labels(
+                        sent_ids=inferred_cluster.get("sent_ids", []),
+                        label=inferred_label,
+                        final_labels=final_labels,
+                        preserve_methods=preserve_methods,
+                    )
+
+                    inferred_pool = genre_combination_clusters.setdefault(
+                        (inferred_genre,),
+                        {},
+                    )
+                    if tb_key not in inferred_pool:
+                        inferred_pool[tb_key] = []
+                    inferred_pool[tb_key].append(inferred_cluster)
+                    remaining_clusters = []
+
+                # If all genres were predictable but clusters remain, assign by best fit.
+                if len(remaining_clusters) > 0 and len(unresolved_genres) == 0:
+                    for cluster in remaining_clusters:
+                        label_result = self.assign_cluster_label(
+                            cluster.get("embedding"),
+                            reference_subset,
                         )
+                        if label_result is None:
+                            continue
+                        best_genre, confidence, method, _sorted_sims = label_result
+                        labels_assigned += 1
+                        if method == "bootstrap-labeled":
+                            labels_high_confidence += 1
+                        else:
+                            labels_low_confidence += 1
+
+                        self._store_sentence_labels(
+                            sent_ids=cluster.get("sent_ids", []),
+                            label=(best_genre, confidence, method),
+                            final_labels=final_labels,
+                            preserve_methods=preserve_methods,
+                        )
+
+                        best_genre_pool = genre_combination_clusters.setdefault(
+                            (best_genre,),
+                            {},
+                        )
+                        if tb_key not in best_genre_pool:
+                            best_genre_pool[tb_key] = []
+                        best_genre_pool[tb_key].append(cluster)
+
+                    remaining_clusters = []
+
+                # Move unresolved clusters to reduced unresolved combinations.
+                if len(remaining_clusters) > 0 and len(unresolved_genres) > 0:
+                    unresolved_pool = genre_combination_clusters.setdefault(
+                        unresolved_genres,
+                        {},
+                    )
+                    if tb_key not in unresolved_pool:
+                        unresolved_pool[tb_key] = []
+                    unresolved_pool[tb_key] = remaining_clusters
+
+                # Remove treebank from old combination after processing.
+                del treebank_clusters[tb_key]
+
+            if len(treebank_clusters) == 0:
+                del genre_combination_clusters[genre_combination]
 
         return {
             "treebanks_processed": treebanks_processed,
@@ -386,8 +481,11 @@ class ClusteringOperations:
                 genre_combination_clusters,
                 known_genres=environment.get("known", []),
             )
+            current_multi_genre_combinations = sorted(
+                combo for combo in genre_combination_clusters.keys() if len(combo) > 1
+            )
             summary = self.label_predictable_combinations(
-                predict_combinations=environment.get("predict", []),
+                predict_combinations=current_multi_genre_combinations,
                 genre_combination_clusters=genre_combination_clusters,
                 known_embeddings=known_embeddings,
                 final_labels=final_labels,
@@ -396,6 +494,104 @@ class ClusteringOperations:
             environment_summaries.append(summary)
 
         return final_labels, environment_summaries
+
+    def _assign_clusters_one_to_one(
+        self,
+        clusters: List[Dict],
+        reference_embeddings: Dict[str, np.ndarray],
+    ) -> Tuple[
+        Dict[int, Tuple[str, float, str, List[Tuple[str, float]]]],
+        List[int],
+    ]:
+        """Assign clusters to reference genres with one-to-one matching.
+
+        The matching is greedy over highest cosine similarity pairs and enforces
+        unique cluster↔genre assignments within one treebank.
+        """
+        if len(reference_embeddings) == 0:
+            return {}, list(range(len(clusters)))
+
+        similarity_rankings: Dict[int, List[Tuple[str, float]]] = {}
+        similarity_lookup: Dict[int, Dict[str, float]] = {}
+
+        for cluster_idx, cluster in enumerate(clusters):
+            centroid = cluster.get("embedding")
+            if centroid is None:
+                continue
+            label_result = self.assign_cluster_label(centroid, reference_embeddings)
+            if label_result is None:
+                continue
+            _best_genre, _confidence, _method, sorted_sims = label_result
+            similarity_rankings[cluster_idx] = sorted_sims
+            similarity_lookup[cluster_idx] = {
+                genre: similarity for genre, similarity in sorted_sims
+            }
+
+        unlabeled_clusters = list(similarity_rankings.keys())
+        unassigned_genres = list(reference_embeddings.keys())
+        assignments: Dict[int, Tuple[str, float, str, List[Tuple[str, float]]]] = {}
+
+        while len(unlabeled_clusters) > 0 and len(unassigned_genres) > 0:
+            best_pair = None
+            best_similarity = -float("inf")
+            for cluster_idx in unlabeled_clusters:
+                sim_map = similarity_lookup.get(cluster_idx, {})
+                for genre in unassigned_genres:
+                    similarity = sim_map.get(genre, -float("inf"))
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_pair = (cluster_idx, genre)
+
+            if best_pair is None:
+                break
+
+            cluster_idx, assigned_genre = best_pair
+            sorted_sims = similarity_rankings[cluster_idx]
+            confidence = similarity_lookup[cluster_idx][assigned_genre]
+            competing_sims = [sim for genre, sim in sorted_sims if genre != assigned_genre]
+            margin = (
+                confidence - max(competing_sims)
+                if len(competing_sims) > 0
+                else float("inf")
+            )
+            method = (
+                "bootstrap-labeled"
+                if confidence >= self.min_confidence and margin >= self.min_margin
+                else "bootstrap-inferred"
+            )
+
+            assignments[cluster_idx] = (
+                assigned_genre,
+                confidence,
+                method,
+                sorted_sims,
+            )
+            unlabeled_clusters.remove(cluster_idx)
+            unassigned_genres.remove(assigned_genre)
+
+        remaining_cluster_indices = [
+            cluster_idx for cluster_idx in range(len(clusters))
+            if cluster_idx not in assignments
+        ]
+        return assignments, remaining_cluster_indices
+
+    def _store_sentence_labels(
+        self,
+        sent_ids: List[str],
+        label: Tuple[str, float, str],
+        final_labels: Dict[str, Tuple[str, float, str]],
+        preserve_methods: Optional[Set[str]],
+    ) -> None:
+        """Store sentence labels while preserving protected existing methods."""
+        for sent_id in sent_ids:
+            existing = final_labels.get(sent_id)
+            if (
+                existing is not None
+                and preserve_methods is not None
+                and existing[2] in preserve_methods
+            ):
+                continue
+            final_labels[sent_id] = label
 
     def label_clusters(
         self,
