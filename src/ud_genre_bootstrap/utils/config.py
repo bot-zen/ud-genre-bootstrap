@@ -31,6 +31,7 @@ class ClusteringConfig:
 
     # Shared clustering parameters
     max_iter: int = 300  # Maximum iterations for GMM and K-Means
+    fit_sample_size: Optional[int] = None  # Optional subsample size for fitting large datasets
     # GMM-specific parameters
     reg_covar: float = 1e-4  # Covariance regularization for GMM
 
@@ -75,6 +76,7 @@ class EvaluationConfig:
     metadata_validation: MetadataValidationConfig = field(
         default_factory=MetadataValidationConfig
     )
+    treebank_sets: Dict[str, List[str]] = field(default_factory=dict)
     cluster_metrics: List[str] = field(
         default_factory=lambda: ["silhouette", "calinski_harabasz", "davies_bouldin"]
     )
@@ -146,12 +148,45 @@ class Config:
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
+    @staticmethod
+    def _parse_optional_int(value: Any, field_name: str) -> Optional[int]:
+        """Parse optional integer config values from YAML-friendly inputs."""
+        if value is None:
+            return None
+
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be an integer or null, got boolean")
+
+        if isinstance(value, int):
+            return value
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"", "null", "none"}:
+                return None
+            try:
+                return int(normalized)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{field_name} must be an integer or null, got '{value}'"
+                ) from exc
+
+        raise ValueError(
+            f"{field_name} must be an integer or null, got {type(value).__name__}"
+        )
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "Config":
         """Create Config from dictionary."""
         # Parse nested configs
         embeddings = EmbeddingsConfig(**config_dict.get("embeddings", {}))
-        clustering = ClusteringConfig(**config_dict.get("clustering", {}))
+        clustering_dict = dict(config_dict.get("clustering", {}))
+        if "fit_sample_size" in clustering_dict:
+            clustering_dict["fit_sample_size"] = cls._parse_optional_int(
+                clustering_dict["fit_sample_size"],
+                "clustering.fit_sample_size",
+            )
+        clustering = ClusteringConfig(**clustering_dict)
         bootstrapping = BootstrappingConfig(**config_dict.get("bootstrapping", {}))
         genre_extraction = GenreExtractionConfig(**config_dict.get("genre_extraction", {}))
 
@@ -163,6 +198,7 @@ class Config:
         evaluation = EvaluationConfig(
             enabled=eval_dict.get("enabled", True),
             metadata_validation=metadata_val,
+            treebank_sets=eval_dict.get("treebank_sets", {}),
             cluster_metrics=eval_dict.get("cluster_metrics", []),
             convergence_metrics=eval_dict.get("convergence_metrics", []),
         )
