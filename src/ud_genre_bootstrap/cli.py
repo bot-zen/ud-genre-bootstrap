@@ -333,20 +333,21 @@ def run(
         console.print("\n[bold green]✓ Pipeline complete![/bold green]")
         _display_results(results)
 
-        # Save cluster results using shared helper function
-        # Note: Need to get embeddings_by_tb from cache since fit() doesn't return it
-        embeddings_by_tb = {}
-        for tb_key, info in bootstrapper.treebank_clusters.items():
-            # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
-            if len(tb_key) == 3:
-                tb_code, split, genre_tag = tb_key
-                # Virtual splits use parent treebank's embeddings
-            else:
-                tb_code, split = tb_key
-
-            cache_key = f"{tb_code}_{split}"
-            if hasattr(bootstrapper.embedding_generator, 'embedding_cache') and cache_key in bootstrapper.embedding_generator.embedding_cache:
-                embeddings_by_tb[(tb_code, split)] = bootstrapper.embedding_generator.embedding_cache[cache_key]
+        # Save cluster results using shared helper function.
+        embeddings_by_tb = getattr(bootstrapper, "last_embeddings_by_tb", {}) or {}
+        if not embeddings_by_tb:
+            # Fallback for stubs/tests that don't expose cached embeddings.
+            for tb_key in bootstrapper.treebank_clusters.keys():
+                if len(tb_key) == 3:
+                    tb_code, split, _genre_tag = tb_key
+                else:
+                    tb_code, split = tb_key
+                cache_key = f"{tb_code}_{split}"
+                if (
+                    hasattr(bootstrapper.embedding_generator, "embedding_cache")
+                    and cache_key in bootstrapper.embedding_generator.embedding_cache
+                ):
+                    embeddings_by_tb[(tb_code, split)] = bootstrapper.embedding_generator.embedding_cache[cache_key]
 
         _save_cluster_results(bootstrapper, embeddings_by_tb, cfg.output.genres_path)
 
@@ -541,20 +542,24 @@ def cluster(
 
         # Merge with existing clusters if we loaded state
         if existing_treebank_clusters:
-            # Identify which treebanks were re-clustered (those we have new embeddings for)
-            reclustered_keys = set(embeddings_by_tb.keys())
+            reclustered_treebanks = (
+                set(treebank_filter)
+                if treebank_filter
+                else {tb_code for tb_code, _split in embeddings_by_tb.keys()}
+            )
 
-            # Restore embeddings for all non-reclustered treebanks
-            # (clusters are already in bootstrapper.treebank_clusters from the loaded state)
-            for key in bootstrapper.treebank_clusters.keys():
-                if key not in reclustered_keys and key in existing_embeddings_by_tb:
-                    embeddings_by_tb[key] = existing_embeddings_by_tb[key]
+            # Preserve embeddings for treebanks that were not re-clustered so label
+            # command can still compute cluster centroids from saved state.
+            for key, emb_data in existing_embeddings_by_tb.items():
+                if key[0] not in reclustered_treebanks and key not in embeddings_by_tb:
+                    embeddings_by_tb[key] = emb_data
 
-            n_kept = len(bootstrapper.treebank_clusters) - len(reclustered_keys)
-            n_updated = len(reclustered_keys)
+            existing_treebank_ids = {tb_code for tb_code, _split in existing_embeddings_by_tb.keys()}
+            n_updated = len(reclustered_treebanks)
+            n_kept = len(existing_treebank_ids - reclustered_treebanks)
             console.print(f"[blue]Updated {n_updated} treebank(s), kept {n_kept} unchanged[/blue]")
 
-        console.print(f"\n[bold green]✓ Clustered {len(bootstrapper.treebank_clusters)} treebank splits[/bold green]")
+        console.print(f"\n[bold green]✓ Clustered {len(bootstrapper.treebank_clusters)} cluster entries[/bold green]")
 
         # Display cluster statistics
         _display_cluster_stats(bootstrapper.treebank_clusters)
@@ -2499,6 +2504,13 @@ def _display_results(results: dict):
     console.print(table)
 
 
+def _format_split_label(split_name: str) -> str:
+    """Normalize internal split placeholders for user-facing output."""
+    if split_name == "__combined__":
+        return "combined"
+    return split_name
+
+
 def _display_cluster_stats(treebank_clusters: dict):
     """Display clustering statistics."""
     table = Table(title="Clustering Statistics", show_header=True, header_style="bold magenta")
@@ -2511,10 +2523,10 @@ def _display_cluster_stats(treebank_clusters: dict):
         # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
         if len(tb_key) == 3:
             tb_code, split, genre_tag = tb_key
-            display_split = f"{split}:{genre_tag}"
+            display_split = f"{_format_split_label(split)}:{genre_tag}"
         else:
             tb_code, split = tb_key
-            display_split = split
+            display_split = _format_split_label(split)
 
         genres = ", ".join(info["genres"])
         n_clusters = len(info["cluster_result"]["clusters"])
@@ -2588,6 +2600,11 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
 
     console.print(f"\n[yellow]Saving cluster results to {output_dir}...[/yellow]")
 
+    sent_split_lookup: Dict[Tuple[str, str], str] = {}
+    for (tb_code, split_name), emb_data in embeddings_by_tb.items():
+        for sent_id in emb_data.get("sent_id", []):
+            sent_split_lookup[(tb_code, sent_id)] = split_name
+
     # Save cluster assignments as parquet
     cluster_assignments = []
     for tb_key, info in bootstrapper.treebank_clusters.items():
@@ -2601,9 +2618,10 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
 
         for cluster_id, cluster_info in cluster_result['clusters'].items():
             for sent_id in cluster_info['sent_ids']:
+                resolved_split = sent_split_lookup.get((tb_code, sent_id), split)
                 cluster_assignments.append({
                     'treebank': tb_code,
-                    'split': split,
+                    'split': _format_split_label(resolved_split),
                     'sent_id': sent_id,
                     'cluster_id': cluster_id,
                     'confidence': cluster_info.get('confidence', None),
@@ -2630,7 +2648,7 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
 
         cluster_stats[key] = {
             'treebank': tb_code,
-            'split': split,
+            'split': _format_split_label(split),
             'genres': list(info['genres']),
             'n_clusters': len(cluster_result['clusters']),
             'n_sentences': sum(len(c['sent_ids']) for c in cluster_result['clusters'].values()),

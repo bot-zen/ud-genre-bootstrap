@@ -17,6 +17,7 @@ from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 
 logger = logging.getLogger(__name__)
+COMBINED_SPLIT_KEY = "__combined__"
 
 
 class GenreBootstrapper:
@@ -102,6 +103,7 @@ class GenreBootstrapper:
         self.treebank_clusters: Dict = {}  # {treebank_code: cluster_info}
         self.genre_combination_clusters: Dict = defaultdict(dict)
         self.final_labels: Dict = {}  # {sent_id: (genre, confidence, method)}
+        self._last_embeddings_by_tb: Dict = {}
 
     def fit(self, treebank_filter: Optional[List[str]] = None) -> Dict:
         """Run the full bootstrapping pipeline.
@@ -192,12 +194,18 @@ class GenreBootstrapper:
         # Restore treebank clusters
         self.treebank_clusters = cluster_state['treebank_clusters']
         embeddings_by_tb = cluster_state['embeddings_by_tb']
+        self._last_embeddings_by_tb = embeddings_by_tb
 
         logger.info(
-            f"Loaded cluster state for {len(self.treebank_clusters)} treebank splits"
+            f"Loaded cluster state for {len(self.treebank_clusters)} cluster entries"
         )
 
         return embeddings_by_tb
+
+    @property
+    def last_embeddings_by_tb(self) -> Dict:
+        """Expose most recently generated or loaded embeddings."""
+        return self._last_embeddings_by_tb
 
     def _generate_embeddings(self, treebank_filter: Optional[List[str]] = None, overwrite: bool = False) -> Dict:
         """Generate embeddings for all treebanks.
@@ -241,13 +249,14 @@ class GenreBootstrapper:
             )
             embeddings_by_tb[(tb_code, split)] = result
 
+        self._last_embeddings_by_tb = embeddings_by_tb
         return embeddings_by_tb
 
     def _cluster_treebanks(self, embeddings_by_tb: Dict):
         """Cluster each treebank based on expected genres.
 
         Groups all splits (train/dev/test) of the same treebank together before clustering,
-        then distributes results back to individual splits.
+        then keeps a single combined-treebank clustering unit for labeling.
 
         Args:
             embeddings_by_tb: Pre-computed embeddings keyed by (treebank_code, split)
@@ -264,6 +273,11 @@ class GenreBootstrapper:
             logger.info(f"Clustering {total_treebanks} treebank(s) (combining splits)")
 
             for idx, (tb_code, tb_keys) in enumerate(treebank_groups.items(), 1):
+                # Remove stale entries for treebanks being re-clustered.
+                existing_keys = [key for key in self.treebank_clusters.keys() if key[0] == tb_code]
+                for existing_key in existing_keys:
+                    del self.treebank_clusters[existing_key]
+
                 # Use shared operation: Combine all embeddings from all splits
                 combined_embeddings, all_sent_ids, sent_id_to_split = (
                     self.clustering_ops.combine_treebank_splits(tb_keys, embeddings_by_tb)
@@ -418,75 +432,40 @@ class GenreBootstrapper:
                             f"  Virtual split {tb_code}:{genre} ({len(split_data['sent_ids'])} sentences)"
                         )
 
-                        # Group by original split for storage
-                        split_distribution = split_data['split_distribution']
-                        for split in split_distribution.keys():
-                            split_genre_sent_ids = [
-                                sid for sid in split_data['sent_ids']
-                                if sent_id_to_split[sid] == split
-                            ]
+                        # Create one combined virtual split cluster per treebank+genre.
+                        cluster_result = {
+                            "clusters": {
+                                0: {
+                                    "sent_ids": split_data["sent_ids"],
+                                    "size": len(split_data["sent_ids"]),
+                                    "confidence": 1.0,
+                                }
+                            },
+                            "metrics": {},
+                        }
 
-                            if len(split_genre_sent_ids) == 0:
-                                continue
+                        virtual_key = (tb_code, COMBINED_SPLIT_KEY, genre)
+                        self.treebank_clusters[virtual_key] = {
+                            "genres": [genre],
+                            "cluster_result": cluster_result,
+                            "is_virtual_split": True,
+                            "source_splits": sorted(split_data.get("split_distribution", {}).keys()),
+                        }
 
-                            # Create trivial cluster (virtual splits are single-genre by definition)
-                            cluster_result = {
-                                "clusters": {
-                                    0: {
-                                        "sent_ids": split_genre_sent_ids,
-                                        "size": len(split_genre_sent_ids),
-                                        "confidence": 1.0,
-                                    }
-                                },
-                                "metrics": {},
-                            }
-
-                            # Store virtual split with special key including genre
-                            virtual_key = (tb_code, split, genre)
-                            self.treebank_clusters[virtual_key] = {
-                                "genres": [genre],  # Single genre for virtual split
-                                "cluster_result": cluster_result,
-                                "is_virtual_split": True,
-                            }
-
-                    # Also cluster the combined data and store results for each split
-                    # This is used for clustering evaluation
+                    # Cluster the combined treebank once for multi-genre labeling.
                     cluster_result = self.clusterer.cluster_treebank(
                         embeddings=combined_embeddings,
                         sent_ids=all_sent_ids,
                         n_genres=n_genres,
                     )
 
-                    # Distribute cluster assignments back to individual splits
-                    for tb_key in tb_keys:
-                        split = tb_key[1]
-                        emb_data = embeddings_by_tb[tb_key]
-                        split_sent_ids = emb_data['sent_id']
-
-                        # Extract cluster assignments for this split's sentences
-                        split_clusters = {}
-                        for cluster_id, cluster_info in cluster_result["clusters"].items():
-                            split_cluster_sent_ids = [
-                                sid for sid in cluster_info["sent_ids"]
-                                if sid in split_sent_ids
-                            ]
-                            if len(split_cluster_sent_ids) > 0:
-                                split_clusters[cluster_id] = {
-                                    "sent_ids": split_cluster_sent_ids,
-                                    "size": len(split_cluster_sent_ids),
-                                    "confidence": cluster_info.get("confidence", 1.0),
-                                }
-
-                        split_cluster_result = {
-                            "clusters": split_clusters,
-                            "metrics": cluster_result.get("metrics", {}),
-                        }
-
-                        self.treebank_clusters[(tb_code, split)] = {
-                            "genres": genres,
-                            "cluster_result": split_cluster_result,
-                            "has_virtual_splits": True,
-                        }
+                    combined_key = (tb_code, COMBINED_SPLIT_KEY)
+                    self.treebank_clusters[combined_key] = {
+                        "genres": genres,
+                        "cluster_result": cluster_result,
+                        "has_virtual_splits": True,
+                        "source_splits": [key[1] for key in tb_keys],
+                    }
 
                 elif n_genres == 1:
                     # Single-genre treebank
@@ -496,26 +475,23 @@ class GenreBootstrapper:
                         f"({len(combined_embeddings)} sentences across {len(splits_list)} splits, genre: {genres[0]})"
                     )
 
-                    # Create trivial cluster result for each split
-                    for tb_key in tb_keys:
-                        split = tb_key[1]
-                        emb_data = embeddings_by_tb[tb_key]
-                        sent_ids = emb_data["sent_id"]
-                        cluster_result = {
-                            "clusters": {
-                                0: {
-                                    "sent_ids": sent_ids,
-                                    "size": len(sent_ids),
-                                    "confidence": 1.0,
-                                }
-                            },
-                            "metrics": {},
-                        }
+                    cluster_result = {
+                        "clusters": {
+                            0: {
+                                "sent_ids": all_sent_ids,
+                                "size": len(all_sent_ids),
+                                "confidence": 1.0,
+                            }
+                        },
+                        "metrics": {},
+                    }
 
-                        self.treebank_clusters[(tb_code, split)] = {
-                            "genres": genres,
-                            "cluster_result": cluster_result,
-                        }
+                    combined_key = (tb_code, COMBINED_SPLIT_KEY)
+                    self.treebank_clusters[combined_key] = {
+                        "genres": genres,
+                        "cluster_result": cluster_result,
+                        "source_splits": [key[1] for key in tb_keys],
+                    }
 
                 else:
                     # Multi-genre treebank without sentence-level metadata
@@ -532,35 +508,12 @@ class GenreBootstrapper:
                         n_genres=n_genres,
                     )
 
-                    # Distribute cluster assignments back to individual splits
-                    for tb_key in tb_keys:
-                        split = tb_key[1]
-                        emb_data = embeddings_by_tb[tb_key]
-                        split_sent_ids = emb_data['sent_id']
-
-                        # Extract cluster assignments for this split's sentences
-                        split_clusters = {}
-                        for cluster_id, cluster_info in cluster_result["clusters"].items():
-                            split_cluster_sent_ids = [
-                                sid for sid in cluster_info["sent_ids"]
-                                if sid in split_sent_ids
-                            ]
-                            if len(split_cluster_sent_ids) > 0:
-                                split_clusters[cluster_id] = {
-                                    "sent_ids": split_cluster_sent_ids,
-                                    "size": len(split_cluster_sent_ids),
-                                    "confidence": cluster_info.get("confidence", 1.0),
-                                }
-
-                        split_cluster_result = {
-                            "clusters": split_clusters,
-                            "metrics": cluster_result.get("metrics", {}),
-                        }
-
-                        self.treebank_clusters[(tb_code, split)] = {
-                            "genres": genres,
-                            "cluster_result": split_cluster_result,
-                        }
+                    combined_key = (tb_code, COMBINED_SPLIT_KEY)
+                    self.treebank_clusters[combined_key] = {
+                        "genres": genres,
+                        "cluster_result": cluster_result,
+                        "source_splits": [key[1] for key in tb_keys],
+                    }
 
         elif self.config.clustering.level == "language":
             # TODO: Implement language-level clustering
@@ -577,7 +530,7 @@ class GenreBootstrapper:
             embeddings_by_tb: Pre-computed embeddings
         """
         total_treebanks = len(self.treebank_clusters)
-        logger.info(f"Computing cluster embeddings for {total_treebanks} treebank split(s)")
+        logger.info(f"Computing cluster embeddings for {total_treebanks} cluster entries")
 
         for idx, (tb_key, tb_info) in enumerate(self.treebank_clusters.items(), 1):
             # Handle both regular keys (tb_code, split) and virtual split keys (tb_code, split, genre)
@@ -585,18 +538,51 @@ class GenreBootstrapper:
                 # Virtual split: (tb_code, split, genre)
                 tb_code, split, genre = tb_key
                 is_virtual_split = True
-                display_name = f"{tb_code}:{split}:{genre}"
+                display_split = "combined" if split == COMBINED_SPLIT_KEY else split
+                display_name = f"{tb_code}:{display_split}:{genre}"
             else:
                 # Regular treebank: (tb_code, split)
                 tb_code, split = tb_key
                 is_virtual_split = False
-                display_name = f"{tb_code}:{split}"
+                display_split = "combined" if split == COMBINED_SPLIT_KEY else split
+                display_name = f"{tb_code}:{display_split}"
 
             genres = tb_info["genres"]
             genre_combination = tuple(sorted(genres))
 
             cluster_result = tb_info["cluster_result"]
-            emb_data = embeddings_by_tb[(tb_code, split)]
+
+            source_splits = tb_info.get("source_splits")
+            if source_splits:
+                source_keys = [
+                    (tb_code, source_split)
+                    for source_split in source_splits
+                    if (tb_code, source_split) in embeddings_by_tb
+                ]
+            elif (tb_code, split) in embeddings_by_tb:
+                source_keys = [(tb_code, split)]
+            else:
+                source_keys = [
+                    key for key in embeddings_by_tb.keys() if key[0] == tb_code
+                ]
+
+            if len(source_keys) == 0:
+                logger.warning(
+                    f"[{idx}/{total_treebanks}] No embeddings found for {display_name}, skipping"
+                )
+                continue
+
+            if len(source_keys) == 1:
+                emb_data = embeddings_by_tb[source_keys[0]]
+            else:
+                combined_embeddings, all_sent_ids, _ = self.clustering_ops.combine_treebank_splits(
+                    source_keys,
+                    embeddings_by_tb,
+                )
+                emb_data = {
+                    "sent_id": all_sent_ids,
+                    "embedding": combined_embeddings,
+                }
 
             n_clusters = len(cluster_result["clusters"])
 
@@ -615,6 +601,11 @@ class GenreBootstrapper:
                     for i, sid in enumerate(emb_data["sent_id"])
                     if sid in sent_ids
                 ]
+                if len(indices) == 0:
+                    logger.warning(
+                        f"[{idx}/{total_treebanks}] No embeddings found for {display_name} cluster {cluster_id}, skipping"
+                    )
+                    continue
 
                 # Compute mean embedding
                 cluster_emb = np.mean(emb_data["embedding"][indices], axis=0)
@@ -676,12 +667,14 @@ class GenreBootstrapper:
                 if len(tb_key) == 3:
                     tb_code, split, genre_tag = tb_key
                     is_virtual_split = True
-                    display_name = f"{tb_code}:{split}:{genre_tag}"
+                    display_split = "combined" if split == COMBINED_SPLIT_KEY else split
+                    display_name = f"{tb_code}:{display_split}:{genre_tag}"
                     method_tag = 'virtual-split'
                 else:
                     tb_code, split = tb_key
                     is_virtual_split = False
-                    display_name = f"{tb_code}:{split}"
+                    display_split = "combined" if split == COMBINED_SPLIT_KEY else split
+                    display_name = f"{tb_code}:{display_split}"
                     method_tag = 'single-genre-treebank'
 
                 # Get all sentence IDs from all clusters
@@ -801,6 +794,7 @@ class GenreBootstrapper:
                     tb_code, split, genre_tag = tb_key
                 else:
                     tb_code, split = tb_key
+                display_split = "combined" if split == COMBINED_SPLIT_KEY else split
 
                 # Extract language code from treebank
                 lang_code = tb_code.split('_')[0]
@@ -813,7 +807,7 @@ class GenreBootstrapper:
                             assigned_genre, confidence, method = self.final_labels[first_sent]
                             genre_assignments[assigned_genre][lang_code].append({
                                 'treebank': tb_code,
-                                'split': split,
+                                'split': display_split,
                                 'cluster_id': cluster['cluster_id'],
                                 'n_sentences': len(cluster['sent_ids']),
                                 'confidence': confidence,

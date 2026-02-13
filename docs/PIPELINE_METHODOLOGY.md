@@ -24,7 +24,7 @@ All sentences across all treebanks are encoded into a shared multilingual semant
 
 #### Stage 2: Clustering
 
-Each treebank is clustered based on the expected number of genres indicated by its metadata. Crucially, when a treebank has multiple splits (train/dev/test), all splits are combined before clustering to ensure consistent genre structure across the entire treebank. The clustering results are then distributed back to individual splits.
+Each treebank is clustered based on the expected number of genres indicated by its metadata. Crucially, when a treebank has multiple splits (train/dev/test), all splits are combined before clustering to ensure consistent genre structure across the entire treebank. The resulting clusters are kept as treebank-combined labeling units.
 
 For treebanks with sentence-level genre annotations, virtual splits are created by separating sentences according to their genre labels, effectively treating each genre subset as a distinct single-genre treebank. Virtual splits span all available splits of the treebank.
 
@@ -240,15 +240,15 @@ When a treebank has multiple splits (train/dev/test), all splits are combined be
 2. **Combine embeddings:** Use `np.vstack()` to merge into single array
 3. **Track split membership:** Maintain mapping of each sentence to its original split
 4. **Cluster combined data:** Perform clustering once on the merged embeddings
-5. **Distribute results:** Filter cluster assignments back to individual splits for storage
+5. **Keep combined unit:** Preserve one combined treebank cluster set for labeling and bootstrap propagation
 
 **Rationale:**
-This ensures that all splits of the same treebank share the same clustering structure. For example, if `cs_pdtc` has train/dev/test splits, they are clustered together to maintain consistent genre boundaries across all splits, rather than potentially getting different cluster structures for each split.
+This ensures that all splits of the same treebank share the same clustering structure and are labeled consistently from that shared structure. For example, if `cs_pdtc` has train/dev/test splits, they are clustered together to maintain consistent genre boundaries across all splits, rather than potentially getting different cluster structures per split.
 
 **Example:**
 ```
 cs_pdtc:train (50,000 sentences) ┐
-cs_pdtc:dev   (10,000 sentences) ├─→ Combined (70,000 sentences) → Cluster → Distribute back
+cs_pdtc:dev   (10,000 sentences) ├─→ Combined (70,000 sentences) → Cluster → Combined labeling unit
 cs_pdtc:test  (10,000 sentences) ┘
 ```
 

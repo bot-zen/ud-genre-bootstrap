@@ -1042,14 +1042,62 @@ class TestVirtualSplitQualityGates:
 
         bootstrapper._cluster_treebanks(embeddings_by_tb)
 
-        news_virtual = bootstrapper.treebank_clusters[("xx_demo", "train", "news")]
-        wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "train", "wiki")]
+        news_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "news")]
+        wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "wiki")]
 
         assert news_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_a"]
         assert wiki_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_b"]
 
-        regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "train")]["cluster_result"]["clusters"]
+        regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "__combined__")]["cluster_result"]["clusters"]
         assert any("sid_c" in cluster["sent_ids"] for cluster in regular_clusters.values())
+
+    def test_cluster_treebanks_keeps_regular_clusters_combined_across_splits(self, monkeypatch):
+        """Regular treebank clusters should stay combined instead of split-fragmented."""
+        config = Config()
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_train_1", "sid_train_2"],
+                "embedding": np.array([[1.0, 0.0], [0.9, 0.1]]),
+            },
+            ("xx_demo", "dev"): {
+                "sent_id": ["sid_dev_1", "sid_dev_2"],
+                "embedding": np.array([[0.0, 1.0], [0.1, 0.9]]),
+            },
+        }
+
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "load_treebank",
+            lambda _tb, _split: [],
+        )
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "get_treebank_genres",
+            lambda _tb_code: ["news", "wiki"],
+        )
+        monkeypatch.setattr(
+            bootstrapper.clusterer,
+            "cluster_treebank",
+            lambda embeddings, sent_ids, n_genres: {
+                "clusters": {
+                    0: {"sent_ids": ["sid_train_1", "sid_dev_1"], "size": 2, "confidence": 1.0},
+                    1: {"sent_ids": ["sid_train_2", "sid_dev_2"], "size": 2, "confidence": 1.0},
+                },
+                "metrics": {},
+            },
+        )
+
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        assert ("xx_demo", "__combined__") in bootstrapper.treebank_clusters
+        assert ("xx_demo", "train") not in bootstrapper.treebank_clusters
+        assert ("xx_demo", "dev") not in bootstrapper.treebank_clusters
+
+        combined_clusters = bootstrapper.treebank_clusters[("xx_demo", "__combined__")]["cluster_result"]["clusters"]
+        assert set(combined_clusters[0]["sent_ids"]) == {"sid_train_1", "sid_dev_1"}
+        assert set(combined_clusters[1]["sent_ids"]) == {"sid_train_2", "sid_dev_2"}
 
     def test_cluster_treebanks_warns_on_split_metadata_extraction_errors(self, monkeypatch, caplog):
         """Split-level metadata extraction failures should be visible in logs."""
