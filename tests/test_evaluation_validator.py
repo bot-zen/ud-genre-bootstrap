@@ -117,6 +117,138 @@ def test_clustering_evaluator_disables_expensive_cluster_metrics(monkeypatch):
     assert result["num_sentences"] == 2
 
 
+def test_clustering_evaluator_uses_union_of_split_genres_for_cluster_count(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=2, group_by=None, random_state=42)
+
+    class RecordingClusterer:
+        def __init__(self):
+            self.calls = []
+
+        def cluster_treebank(self, embeddings, sent_ids, n_genres, compute_metrics=True):
+            self.calls.append(
+                {
+                    "embeddings_shape": embeddings.shape,
+                    "sent_ids": list(sent_ids),
+                    "n_genres": n_genres,
+                    "compute_metrics": compute_metrics,
+                }
+            )
+            cluster_ids = np.arange(len(sent_ids)) % n_genres
+            cluster_probs = np.zeros((len(sent_ids), n_genres), dtype=float)
+            cluster_probs[np.arange(len(sent_ids)), cluster_ids] = 1.0
+            clusters = {}
+            for cluster_id in range(n_genres):
+                cluster_sent_ids = [
+                    sid for sid, cid in zip(sent_ids, cluster_ids) if cid == cluster_id
+                ]
+                clusters[cluster_id] = {
+                    "sent_ids": cluster_sent_ids,
+                    "size": len(cluster_sent_ids),
+                    "confidence": 1.0 if cluster_sent_ids else 0.0,
+                }
+
+            return {
+                "cluster_ids": cluster_ids,
+                "cluster_probs": cluster_probs,
+                "clusters": clusters,
+                "metrics": {},
+            }
+
+    clusterer = RecordingClusterer()
+
+    embeddings_by_tb = {
+        ("train_tb", "train"): {
+            "embedding": np.array([[1.0, 0.0], [0.8, 0.2], [0.0, 1.0]]),
+            "sent_id": ["train1", "train2", "train3"],
+        },
+        ("test_tb", "dev"): {
+            "embedding": np.array([[0.9, 0.1], [0.2, 0.8]]),
+            "sent_id": ["dev1", "dev2"],
+        },
+        ("test_tb", "test"): {
+            "embedding": np.array([[0.1, 0.9], [0.7, 0.3]]),
+            "sent_id": ["test1", "test2"],
+        },
+    }
+
+    sentence_metadata = {
+        ("test_tb", "dev", "dev1"): "news",
+        ("test_tb", "dev", "dev2"): "forum",
+        ("test_tb", "test", "test1"): "wiki",
+        ("test_tb", "test", "test2"): "news",
+    }
+
+    test_treebanks = [
+        {
+            "treebank": "test_tb",
+            "split": "dev",
+            "genres": ["news", "forum"],
+            "language": "X",
+        },
+        {
+            "treebank": "test_tb",
+            "split": "test",
+            "genres": ["wiki", "news"],
+            "language": "X",
+        },
+    ]
+    train_treebanks = [("train_tb", "train")]
+
+    def _create_virtual_splits(*_args, **_kwargs):
+        return {
+            "news": {"embeddings": np.array([[1.0, 0.0]]), "sent_ids": ["train1"]},
+            "forum": {"embeddings": np.array([[0.0, 1.0]]), "sent_ids": ["train2"]},
+            "wiki": {"embeddings": np.array([[0.7, 0.3]]), "sent_ids": ["train3"]},
+        }
+
+    def _build_reference_embeddings(*_args, **_kwargs):
+        return {
+            "news": np.array([1.0, 0.0]),
+            "forum": np.array([0.0, 1.0]),
+            "wiki": np.array([0.7, 0.3]),
+        }
+
+    def _label_cluster_descriptors(cluster_descriptors, reference_embeddings):
+        labels = sorted(reference_embeddings.keys())
+        cluster_labels = {}
+        sentence_labels = {}
+        for cluster in cluster_descriptors:
+            genre = labels[cluster["cluster_id"] % len(labels)]
+            label = (genre, 0.99, "bootstrap-labeled")
+            cluster_labels[cluster["cluster_id"]] = label
+            for sent_id in cluster["sent_ids"]:
+                sentence_labels[sent_id] = label
+        return cluster_labels, sentence_labels, {}, len(cluster_labels), 0
+
+    monkeypatch.setattr(
+        evaluator.clustering_ops,
+        "create_virtual_splits",
+        _create_virtual_splits,
+    )
+    monkeypatch.setattr(
+        evaluator.clustering_ops,
+        "build_reference_embeddings_from_virtual_splits",
+        _build_reference_embeddings,
+    )
+    monkeypatch.setattr(
+        evaluator.clustering_ops,
+        "label_cluster_descriptors",
+        _label_cluster_descriptors,
+    )
+
+    result = evaluator._evaluate_fold(
+        test_treebanks=test_treebanks,
+        train_treebanks=train_treebanks,
+        sentence_metadata=sentence_metadata,
+        embeddings_by_tb=embeddings_by_tb,
+        clusterer=clusterer,
+    )
+
+    assert len(clusterer.calls) == 1
+    assert clusterer.calls[0]["n_genres"] == 3
+    assert result["num_sentences"] == 4
+
+
 def test_cross_validator_aggregate_fold_results_suppresses_undefined_metric_warnings():
     validator = CrossValidator(n_folds=2)
 

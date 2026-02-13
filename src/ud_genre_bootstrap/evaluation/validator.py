@@ -1,5 +1,6 @@
 """Cross-validation for bootstrap evaluation."""
 
+from collections import defaultdict
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -555,12 +556,12 @@ class ClusteringEvaluator:
             test_treebank_keys, embeddings_by_tb
         )
 
-        # Map treebank code back to test metadata
-        treebank_metadata_map = {}
+        # Aggregate expected genres per treebank across all test splits.
+        # This ensures cluster count reflects the full combined test treebank.
+        treebank_genres_map = defaultdict(set)
         for test_tb in test_treebanks:
             tb_code = test_tb['treebank']
-            if tb_code not in treebank_metadata_map:
-                treebank_metadata_map[tb_code] = test_tb
+            treebank_genres_map[tb_code].update(test_tb.get('genres', []))
 
         # Evaluate each test treebank (combining all splits)
         all_true = []
@@ -578,10 +579,15 @@ class ClusteringEvaluator:
                 logger.warning(f"  No embeddings for any splits of {tb_code}, skipping")
                 continue
 
-            # Get expected genres (should be same across all splits)
-            test_metadata = treebank_metadata_map[tb_code]
-            expected_genres = test_metadata['genres']
+            # Determine expected genres from the union across all combined splits.
+            expected_genres = sorted(treebank_genres_map.get(tb_code, []))
             n_genres = len(expected_genres)
+            if n_genres < 1:
+                logger.warning(
+                    "  No expected genres found for %s from test metadata; defaulting to 1 cluster",
+                    tb_code,
+                )
+                n_genres = 1
 
             splits_list = [tk[1] for tk in tb_keys]
             logger.info(
