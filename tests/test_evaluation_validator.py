@@ -117,6 +117,98 @@ def test_clustering_evaluator_disables_expensive_cluster_metrics(monkeypatch):
     assert result["num_sentences"] == 2
 
 
+def test_clustering_evaluator_uses_shared_bootstrap_schedule_runner(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=2, group_by=None, random_state=42)
+    clusterer = DummyClusterer()
+
+    embeddings_by_tb = {
+        ("train_tb", "train"): {
+            "embedding": np.array([[1.0, 0.0], [0.0, 1.0]]),
+            "sent_id": ["train1", "train2"],
+        },
+        ("test_tb", "test"): {
+            "embedding": np.array([[1.0, 0.0], [0.0, 1.0]]),
+            "sent_id": ["test1", "test2"],
+        },
+    }
+
+    sentence_metadata = {
+        ("test_tb", "test", "test1"): "news",
+        ("test_tb", "test", "test2"): "forum",
+    }
+
+    test_treebanks = [
+        {
+            "treebank": "test_tb",
+            "split": "test",
+            "genres": ["news", "forum"],
+            "language": "X",
+        }
+    ]
+    train_treebanks = [("train_tb", "train")]
+
+    def _create_virtual_splits(*_args, **_kwargs):
+        return {
+            "news": {
+                "embeddings": np.array([[1.0, 0.0]]),
+                "sent_ids": ["train1"],
+            },
+            "forum": {
+                "embeddings": np.array([[0.0, 1.0]]),
+                "sent_ids": ["train2"],
+            },
+        }
+
+    captured = {}
+
+    def _run_bootstrap_schedule(
+        schedule,
+        genre_combination_clusters,
+        final_labels,
+        preserve_methods,
+    ):
+        captured["schedule"] = schedule
+        captured["genre_combinations"] = set(genre_combination_clusters.keys())
+        captured["preserve_methods"] = preserve_methods
+        return {
+            "test1": ("news", 0.99, "bootstrap-labeled"),
+            "test2": ("forum", 0.99, "bootstrap-labeled"),
+        }, [
+            {
+                "labels_assigned": 2,
+                "labels_high_confidence": 2,
+                "labels_low_confidence": 0,
+            }
+        ]
+
+    monkeypatch.setattr(
+        evaluator.clustering_ops,
+        "create_virtual_splits",
+        _create_virtual_splits,
+    )
+    monkeypatch.setattr(
+        evaluator.clustering_ops,
+        "run_bootstrap_schedule",
+        _run_bootstrap_schedule,
+    )
+
+    result = evaluator._evaluate_fold(
+        test_treebanks=test_treebanks,
+        train_treebanks=train_treebanks,
+        sentence_metadata=sentence_metadata,
+        embeddings_by_tb=embeddings_by_tb,
+        clusterer=clusterer,
+    )
+
+    assert clusterer.calls[0]["compute_metrics"] is False
+    assert ("news",) in captured["genre_combinations"]
+    assert ("forum", "news") in captured["genre_combinations"]
+    assert captured["preserve_methods"] is None
+    assert len(captured["schedule"]) >= 1
+    assert result["accuracy"] == 1.0
+    assert result["num_sentences"] == 2
+
+
 def test_clustering_evaluator_uses_union_of_split_genres_for_cluster_count(monkeypatch):
     evaluator = ClusteringEvaluator(n_folds=2, group_by=None, random_state=42)
 

@@ -2,7 +2,7 @@
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from scipy.spatial import distance
@@ -242,6 +242,161 @@ class ClusteringOperations:
 
         return known_genre_embeddings
 
+    def build_reference_embeddings_from_cluster_pool(
+        self,
+        genre_combination_clusters: Dict[Tuple[str, ...], Dict[Tuple, List[Dict]]],
+        known_genres: List[str],
+    ) -> Dict[str, np.ndarray]:
+        """Build genre reference embeddings from single-genre cluster descriptors.
+
+        Args:
+            genre_combination_clusters: Nested cluster pool keyed by genre combination
+                then treebank key.
+            known_genres: Genres currently available as bootstrap anchors.
+
+        Returns:
+            Dict mapping known genre -> sentence-count weighted reference embedding.
+        """
+        known_embeddings: Dict[str, np.ndarray] = {}
+
+        for genre in known_genres:
+            single_genre_clusters = genre_combination_clusters.get((genre,), {})
+            all_embeddings: List[np.ndarray] = []
+            all_weights: List[float] = []
+
+            for tb_clusters in single_genre_clusters.values():
+                for cluster in tb_clusters:
+                    embedding = cluster.get("embedding")
+                    if embedding is None:
+                        continue
+                    all_embeddings.append(embedding)
+                    cluster_size = len(cluster.get("sent_ids", []))
+                    all_weights.append(float(cluster_size if cluster_size > 0 else 1))
+
+            if all_embeddings:
+                known_embeddings[genre] = np.average(
+                    np.stack(all_embeddings),
+                    axis=0,
+                    weights=np.array(all_weights),
+                )
+
+        return known_embeddings
+
+    def label_predictable_combinations(
+        self,
+        predict_combinations: List[Tuple[str, ...]],
+        genre_combination_clusters: Dict[Tuple[str, ...], Dict[Tuple, List[Dict]]],
+        known_embeddings: Dict[str, np.ndarray],
+        final_labels: Dict[str, Tuple[str, float, str]],
+        preserve_methods: Optional[Set[str]] = None,
+    ) -> Dict[str, int]:
+        """Label predictable combinations for one bootstrap environment.
+
+        Args:
+            predict_combinations: Genre combinations to label in this environment.
+            genre_combination_clusters: Cluster pool grouped by genre combination.
+            known_embeddings: Reference embeddings for known genres.
+            final_labels: Sentence-level labels to update in-place.
+            preserve_methods: Optional set of existing methods that must not be
+                overwritten (e.g. metadata-derived labels in production).
+
+        Returns:
+            Summary counts for this environment.
+        """
+        labels_assigned = 0
+        labels_high_confidence = 0
+        labels_low_confidence = 0
+        treebanks_processed = 0
+
+        for genre_combination in predict_combinations:
+            treebank_clusters = genre_combination_clusters.get(genre_combination)
+            if not treebank_clusters:
+                continue
+
+            for clusters in treebank_clusters.values():
+                treebanks_processed += 1
+                (
+                    cluster_labels,
+                    sentence_labels,
+                    _cluster_similarities,
+                    high_conf_count,
+                    low_conf_count,
+                ) = self.label_cluster_descriptors(clusters, known_embeddings)
+
+                labels_assigned += len(cluster_labels)
+                labels_high_confidence += high_conf_count
+                labels_low_confidence += low_conf_count
+
+                for cluster in clusters:
+                    cluster_id = cluster.get("cluster_id")
+                    if cluster_id not in cluster_labels:
+                        continue
+                    best_genre, confidence, method = cluster_labels[cluster_id]
+                    for sent_id in cluster.get("sent_ids", []):
+                        existing = final_labels.get(sent_id)
+                        if (
+                            existing is not None
+                            and preserve_methods is not None
+                            and existing[2] in preserve_methods
+                        ):
+                            continue
+                        final_labels[sent_id] = sentence_labels.get(
+                            sent_id,
+                            (best_genre, confidence, method),
+                        )
+
+        return {
+            "treebanks_processed": treebanks_processed,
+            "labels_assigned": labels_assigned,
+            "labels_high_confidence": labels_high_confidence,
+            "labels_low_confidence": labels_low_confidence,
+        }
+
+    def run_bootstrap_schedule(
+        self,
+        schedule: List[Dict[str, Any]],
+        genre_combination_clusters: Dict[Tuple[str, ...], Dict[Tuple, List[Dict]]],
+        final_labels: Optional[Dict[str, Tuple[str, float, str]]] = None,
+        preserve_methods: Optional[Set[str]] = None,
+    ) -> Tuple[Dict[str, Tuple[str, float, str]], List[Dict[str, int]]]:
+        """Run high-coverage bootstrap labeling over a schedule.
+
+        This is the shared schedule execution path used by both production
+        labeling and clustering evaluation.
+
+        Args:
+            schedule: Bootstrap schedule from ``BootstrapScheduler``.
+            genre_combination_clusters: Cluster pool grouped by genre combination.
+            final_labels: Optional sentence label dict to update in-place.
+            preserve_methods: Optional set of existing methods that should be
+                preserved when labels already exist.
+
+        Returns:
+            Tuple of:
+                - final sentence labels
+                - per-environment summary dicts
+        """
+        if final_labels is None:
+            final_labels = {}
+
+        environment_summaries: List[Dict[str, int]] = []
+
+        for environment in schedule:
+            known_embeddings = self.build_reference_embeddings_from_cluster_pool(
+                genre_combination_clusters,
+                known_genres=environment.get("known", []),
+            )
+            summary = self.label_predictable_combinations(
+                predict_combinations=environment.get("predict", []),
+                genre_combination_clusters=genre_combination_clusters,
+                known_embeddings=known_embeddings,
+                final_labels=final_labels,
+                preserve_methods=preserve_methods,
+            )
+            environment_summaries.append(summary)
+
+        return final_labels, environment_summaries
+
     def label_clusters(
         self,
         cluster_centroids: Dict[int, np.ndarray],
@@ -282,6 +437,74 @@ class ClusteringOperations:
             cluster_labels[cluster_id] = (best_genre, confidence, method)
 
         return cluster_labels, high_conf_count, low_conf_count
+
+    def label_cluster_descriptors(
+        self,
+        cluster_descriptors: List[Dict],
+        reference_embeddings: Dict[str, np.ndarray],
+    ) -> Tuple[
+        Dict[int, Tuple[str, float, str]],
+        Dict[str, Tuple[str, float, str]],
+        Dict[int, List[Tuple[str, float]]],
+        int,
+        int,
+    ]:
+        """Label cluster descriptors and propagate labels to sentence level.
+
+        A cluster descriptor is expected to contain:
+          - cluster_id: int
+          - embedding: np.ndarray (cluster centroid)
+          - sent_ids: List[str]
+
+        Args:
+            cluster_descriptors: Cluster descriptors to label
+            reference_embeddings: Dict mapping genre -> reference embedding
+
+        Returns:
+            Tuple of:
+                - cluster_labels: Dict cluster_id -> (genre, confidence, method)
+                - sentence_labels: Dict sent_id -> (genre, confidence, method)
+                - cluster_similarities: Dict cluster_id -> sorted similarities
+                - high_conf_count: Number of high-confidence assignments
+                - low_conf_count: Number of low-confidence assignments
+        """
+        cluster_labels = {}
+        sentence_labels = {}
+        cluster_similarities = {}
+        high_conf_count = 0
+        low_conf_count = 0
+
+        for cluster in cluster_descriptors:
+            cluster_id = cluster.get("cluster_id")
+            centroid = cluster.get("embedding")
+            sent_ids = cluster.get("sent_ids", [])
+
+            if cluster_id is None or centroid is None:
+                continue
+
+            label_result = self.assign_cluster_label(centroid, reference_embeddings)
+            if label_result is None:
+                continue
+
+            best_genre, confidence, method, sorted_sims = label_result
+            cluster_labels[cluster_id] = (best_genre, confidence, method)
+            cluster_similarities[cluster_id] = sorted_sims
+
+            if method == "bootstrap-labeled":
+                high_conf_count += 1
+            else:
+                low_conf_count += 1
+
+            for sent_id in sent_ids:
+                sentence_labels[sent_id] = (best_genre, confidence, method)
+
+        return (
+            cluster_labels,
+            sentence_labels,
+            cluster_similarities,
+            high_conf_count,
+            low_conf_count,
+        )
 
     def assign_cluster_label(
         self,

@@ -783,6 +783,7 @@ def evaluate(
             group_by=group_by_val,
             min_confidence=cfg.bootstrapping.min_confidence,
             min_margin=cfg.bootstrapping.min_margin,
+            max_iterations=cfg.bootstrapping.max_iterations,
         )
 
         # Load treebank metadata and genre mapper

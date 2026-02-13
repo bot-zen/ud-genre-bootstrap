@@ -78,6 +78,7 @@ class GenreBootstrapper:
                 random_state=config.clustering.seed,
                 device=config.clustering.device,
                 max_iter=config.clustering.max_iter,
+                fit_sample_size=config.clustering.fit_sample_size,
                 reg_covar=config.clustering.reg_covar,
             )
         else:
@@ -715,7 +716,9 @@ class GenreBootstrapper:
         Args:
             schedule: Bootstrap schedule from scheduler
         """
-        # Iterate through environments
+        preserve_methods = {"virtual-split", "single-genre-treebank"}
+
+        # Iterate through environments and delegate label propagation to shared ops.
         for env_idx, environment in enumerate(schedule):
             logger.info(
                 f"Environment {env_idx + 1}/{len(schedule)}: "
@@ -726,11 +729,18 @@ class GenreBootstrapper:
                 logger.info("No predictions to make, schedule complete")
                 break
 
-            # Compute mean embeddings for known genres
-            known_embeddings = self._get_known_genre_embeddings(environment["known"])
-
-            # Label predictable combinations
-            self._label_environment(environment, known_embeddings)
+            _, env_summaries = self.clustering_ops.run_bootstrap_schedule(
+                schedule=[environment],
+                genre_combination_clusters=self.genre_combination_clusters,
+                final_labels=self.final_labels,
+                preserve_methods=preserve_methods,
+            )
+            env_summary = env_summaries[0]
+            logger.info(
+                f"  Summary: {env_summary['labels_assigned']} clusters labeled "
+                f"({env_summary['labels_high_confidence']} high conf, "
+                f"{env_summary['labels_low_confidence']} low conf)"
+            )
 
     def _get_known_genre_embeddings(self, known_genres: List[str]) -> Dict[str, np.ndarray]:
         """Get reference embeddings for known single-genre sources.
@@ -744,31 +754,10 @@ class GenreBootstrapper:
         Returns:
             Dictionary: {genre: reference_embedding}
         """
-        known_embeddings = {}
-
-        for genre in known_genres:
-            # Get all clusters for this single genre
-            if (genre,) in self.genre_combination_clusters:
-                all_embeddings = []
-                all_weights = []
-                for tb_clusters in self.genre_combination_clusters[(genre,)].values():
-                    for cluster in tb_clusters:
-                        all_embeddings.append(cluster["embedding"])
-                        cluster_size = len(cluster.get("sent_ids", []))
-                        all_weights.append(float(cluster_size if cluster_size > 0 else 1))
-
-                if all_embeddings:
-                    known_embeddings[genre] = np.average(
-                        np.stack(all_embeddings),
-                        axis=0,
-                        weights=np.array(all_weights),
-                    )
-                    logger.debug(
-                        f"Built reference for '{genre}' from {len(all_embeddings)} cluster(s), "
-                        f"weighted by {int(sum(all_weights))} sentence(s)"
-                    )
-
-        return known_embeddings
+        return self.clustering_ops.build_reference_embeddings_from_cluster_pool(
+            self.genre_combination_clusters,
+            known_genres,
+        )
 
     def _label_environment(self, environment: Dict, known_embeddings: Dict):
         """Label clusters in current environment.
@@ -777,69 +766,18 @@ class GenreBootstrapper:
             environment: Current environment from schedule
             known_embeddings: Mean embeddings for known genres
         """
-        # Track statistics for this environment
-        labels_assigned = 0
-        labels_high_confidence = 0
-        labels_low_confidence = 0
+        env_summary = self.clustering_ops.label_predictable_combinations(
+            predict_combinations=environment.get("predict", []),
+            genre_combination_clusters=self.genre_combination_clusters,
+            known_embeddings=known_embeddings,
+            final_labels=self.final_labels,
+            preserve_methods={"virtual-split", "single-genre-treebank"},
+        )
 
-        # Iterate through genre combinations that can be predicted
-        for genre_combination in environment['predict']:
-            if genre_combination not in self.genre_combination_clusters:
-                continue
-
-            # Get all clusters for this genre combination
-            tb_cluster_count = len(self.genre_combination_clusters[genre_combination])
-            logger.info(f"  Labeling {tb_cluster_count} treebank(s) with genre combination {genre_combination}")
-
-            for tb_key, clusters in self.genre_combination_clusters[genre_combination].items():
-                # tb_key can be (tb_code, split) or (tb_code, split, genre) for virtual splits
-                if len(tb_key) == 3:
-                    tb_code, split, genre_tag = tb_key
-                    display_name = f"{tb_code}:{split}:{genre_tag}"
-                else:
-                    tb_code, split = tb_key
-                    display_name = f"{tb_code}:{split}"
-                logger.debug(f"    Processing {display_name} ({len(clusters)} clusters)")
-
-                for cluster in clusters:
-                    cluster_emb = cluster['embedding']
-                    cluster_id = cluster['cluster_id']
-                    n_sentences = len(cluster['sent_ids'])
-
-                    label_result = self.clustering_ops.assign_cluster_label(cluster_emb, known_embeddings)
-                    if label_result is None:
-                        continue
-
-                    best_genre, confidence, method, sorted_sims = label_result
-                    top_3 = ", ".join([f"{g}:{s:.3f}" for g, s in sorted_sims[:3]])
-
-                    if method == "bootstrap-labeled":
-                        labels_high_confidence += 1
-                        logger.debug(
-                            f"      Cluster c{cluster_id} ({n_sentences} sents) → {best_genre} "
-                            f"(conf={confidence:.3f}, top3: {top_3})"
-                        )
-                    else:
-                        labels_low_confidence += 1
-                        logger.info(
-                            f"      ⚠ Cluster c{cluster_id} in {tb_code}:{split} → {best_genre} "
-                            f"(LOW certainty, conf={confidence:.3f}, top3: {top_3})"
-                        )
-
-                    labels_assigned += 1
-
-                    # Store labels for all sentences in this cluster
-                    for sent_id in cluster['sent_ids']:
-                        # Preserve metadata-derived/trivial labels assigned earlier.
-                        existing = self.final_labels.get(sent_id)
-                        if existing is not None and existing[2] in {"virtual-split", "single-genre-treebank"}:
-                            continue
-                        self.final_labels[sent_id] = (best_genre, confidence, method)
-
-        # Log summary for this environment
         logger.info(
-            f"  Summary: {labels_assigned} clusters labeled "
-            f"({labels_high_confidence} high conf, {labels_low_confidence} low conf)"
+            f"  Summary: {env_summary['labels_assigned']} clusters labeled "
+            f"({env_summary['labels_high_confidence']} high conf, "
+            f"{env_summary['labels_low_confidence']} low conf)"
         )
 
     def _generate_cross_lingual_report(self):

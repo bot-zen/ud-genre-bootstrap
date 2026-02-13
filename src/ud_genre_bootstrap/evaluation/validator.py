@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
 
+from ud_genre_bootstrap.bootstrapping.scheduler import BootstrapScheduler
 from ud_genre_bootstrap.clustering.clustering_utils import ClusteringOperations
 from ud_genre_bootstrap.evaluation.metrics import ClusteringEvaluationMetrics
 
@@ -382,6 +383,7 @@ class ClusteringEvaluator:
         random_state: int = 42,
         min_confidence: float = 0.8,
         min_margin: float = 0.05,
+        max_iterations: int = 10,
     ):
         """Initialize clustering evaluator.
 
@@ -391,12 +393,14 @@ class ClusteringEvaluator:
             random_state: Random seed
             min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
             min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
+            max_iterations: Maximum bootstrap schedule iterations
         """
         self.n_folds = n_folds
         self.group_by = group_by
         self.random_state = random_state
         self.min_confidence = min_confidence
         self.min_margin = min_margin
+        self.scheduler = BootstrapScheduler(max_iterations=max_iterations)
 
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
@@ -511,27 +515,24 @@ class ClusteringEvaluator:
             Fold results with sentence-level predictions
         """
 
-        # Build reference genre embeddings from training treebanks
-        # Use shared operations to mirror production exactly
-
-        # Use shared operation: Group training treebanks by treebank code
+        # Build bootstrap cluster pool:
+        # - single-genre anchor clusters from training virtual splits
+        # - multi-genre clusters from held-out test treebanks
         train_treebank_groups = self.clustering_ops.group_splits_by_treebank(
             train_treebanks, embeddings_by_tb
         )
 
-        virtual_splits_by_treebank = {}
+        genre_combination_clusters = defaultdict(dict)
+        reference_genres = set()
 
         for tb_code, tb_keys in train_treebank_groups.items():
-            # Use shared operation: Combine embeddings from all splits
             try:
                 combined_train_embeddings, all_train_sent_ids, sent_id_to_split = (
                     self.clustering_ops.combine_treebank_splits(tb_keys, embeddings_by_tb)
                 )
             except ValueError:
-                # No embeddings for this treebank
                 continue
 
-            # Use shared operation: Create virtual splits from combined data
             virtual_splits = self.clustering_ops.create_virtual_splits(
                 tb_code,
                 combined_train_embeddings,
@@ -540,15 +541,29 @@ class ClusteringEvaluator:
                 sentence_metadata,
             )
 
-            if len(virtual_splits) > 0:
-                virtual_splits_by_treebank[tb_code] = virtual_splits
+            for genre, split_data in virtual_splits.items():
+                if isinstance(split_data, dict):
+                    embeddings = split_data.get("embeddings")
+                    sent_ids = split_data.get("sent_ids", [])
+                else:
+                    # Backward-compatible test/mocks may return raw embedding arrays.
+                    embeddings = split_data
+                    sent_ids = []
+                if embeddings is None or len(embeddings) == 0:
+                    continue
+                centroid = np.mean(embeddings, axis=0)
+                anchor_key = (tb_code, "__virtual__", genre)
+                genre_combination_clusters[(genre,)][anchor_key] = [
+                    {
+                        "cluster_id": 0,
+                        "embedding": centroid,
+                        "sent_ids": sent_ids,
+                        "confidence": 1.0,
+                    }
+                ]
+                reference_genres.add(genre)
 
-        # Use shared operation: Build reference embeddings from virtual splits
-        known_genre_embeddings = self.clustering_ops.build_reference_embeddings_from_virtual_splits(
-            virtual_splits_by_treebank
-        )
-
-        logger.info(f"  Reference genres from training: {list(known_genre_embeddings.keys())}")
+        logger.info(f"  Reference genres from training: {sorted(reference_genres)}")
 
         # Use shared operation: Group test treebanks by treebank code
         test_treebank_keys = [(tb['treebank'], tb['split']) for tb in test_treebanks]
@@ -563,14 +578,14 @@ class ClusteringEvaluator:
             tb_code = test_tb['treebank']
             treebank_genres_map[tb_code].update(test_tb.get('genres', []))
 
-        # Evaluate each test treebank (combining all splits)
+        # Cluster each held-out treebank and add descriptors to shared pool.
+        test_sentence_batches = []
         all_true = []
         all_pred = []
-        all_sent_ids = []
+        all_sent_refs = []
         all_treebank_splits = []
 
         for tb_code, tb_keys in test_treebank_groups.items():
-            # Use shared operation: Combine embeddings from all splits
             try:
                 combined_embeddings, all_sent_ids_list, sent_id_to_split = (
                     self.clustering_ops.combine_treebank_splits(tb_keys, embeddings_by_tb)
@@ -620,40 +635,67 @@ class ClusteringEvaluator:
                 for cluster_id, centroid in cluster_centroids.items()
             ]
 
-            # Use shared operation: Label clusters and propagate sentence-level labels
-            (
-                cluster_labels,
-                sentence_labels,
-                _cluster_similarities,
-                high_conf_count,
-                low_conf_count,
-            ) = self.clustering_ops.label_cluster_descriptors(
-                cluster_descriptors, known_genre_embeddings
+            genre_combination = tuple(expected_genres)
+            if len(genre_combination) == 0:
+                logger.warning(
+                    "  Skipping %s during labeling: no expected genre combination found",
+                    tb_code,
+                )
+                continue
+
+            genre_combination_clusters[genre_combination][(tb_code, "combined")] = cluster_descriptors
+            test_sentence_batches.append(
+                {
+                    "tb_code": tb_code,
+                    "sent_ids": all_sent_ids_list,
+                    "sent_id_to_split": sent_id_to_split,
+                }
             )
 
+        if len(test_sentence_batches) == 0:
+            logger.warning("No clustered test treebanks for this fold")
+            return {
+                "accuracy": 0.0,
+                "num_test": len(test_treebanks),
+                "num_sentences": 0,
+            }
+
+        schedule = self.scheduler.create_schedule(set(genre_combination_clusters.keys()))
+        final_labels, env_summaries = self.clustering_ops.run_bootstrap_schedule(
+            schedule=schedule,
+            genre_combination_clusters=genre_combination_clusters,
+            final_labels={},
+            preserve_methods=None,
+        )
+
+        for env_idx, summary in enumerate(env_summaries):
             logger.info(
-                f"    Labeled {len(cluster_labels)} clusters "
-                f"({high_conf_count} high conf, {low_conf_count} low conf)"
+                "    Bootstrap env %d/%d: labeled %d clusters (%d high conf, %d low conf)",
+                env_idx + 1,
+                len(env_summaries),
+                summary["labels_assigned"],
+                summary["labels_high_confidence"],
+                summary["labels_low_confidence"],
             )
 
-            # Get sentence-level predictions
-            for sent_id in all_sent_ids_list:
-                pred_label = sentence_labels.get(sent_id)
-                if pred_label is not None:
-                    pred_genre, confidence, method = pred_label
-                else:
-                    pred_genre = None
+        # Get sentence-level predictions for held-out treebanks only.
+        for batch in test_sentence_batches:
+            tb_code = batch["tb_code"]
+            sent_ids = batch["sent_ids"]
+            sent_id_to_split = batch["sent_id_to_split"]
+
+            for sent_id in sent_ids:
+                pred_label = final_labels.get(sent_id)
+                pred_genre = pred_label[0] if pred_label is not None else None
 
                 split_name = sent_id_to_split[sent_id]
-
-                # Get true genre from metadata
                 meta_key = (tb_code, split_name, sent_id)
                 true_genre = sentence_metadata.get(meta_key, None)
 
                 if pred_genre and true_genre:
                     all_true.append(true_genre)
                     all_pred.append(pred_genre)
-                    all_sent_ids.append(f"{tb_code}:{split_name}:{sent_id}")
+                    all_sent_refs.append(f"{tb_code}:{split_name}:{sent_id}")
                     all_treebank_splits.append((tb_code, split_name))
 
         if len(all_pred) == 0:
@@ -675,7 +717,7 @@ class ClusteringEvaluator:
             "num_sentences": len(all_pred),
             "true_genres": all_true,
             "pred_genres": all_pred,
-            "sent_ids": all_sent_ids,
+            "sent_ids": all_sent_refs,
             "treebank_split_keys": all_treebank_splits,
         }
 
