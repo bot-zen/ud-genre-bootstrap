@@ -8,6 +8,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.model_selection import StratifiedKFold
 
 from ud_genre_bootstrap.clustering.clustering_utils import ClusteringOperations
+from ud_genre_bootstrap.evaluation.metrics import ClusteringEvaluationMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,12 @@ class CrossValidator:
         # Compute overall metrics
         overall_accuracy = accuracy_score(all_true, all_pred)
         conf_matrix = confusion_matrix(all_true, all_pred)
-        class_report = classification_report(all_true, all_pred, output_dict=True)
+        class_report = classification_report(
+            all_true,
+            all_pred,
+            output_dict=True,
+            zero_division=0,
+        )
 
         # Get unique genre labels in sorted order for confusion matrix axes
         genre_labels = sorted(set(all_true))
@@ -560,6 +566,7 @@ class ClusteringEvaluator:
         all_true = []
         all_pred = []
         all_sent_ids = []
+        all_treebank_splits = []
 
         for tb_code, tb_keys in test_treebank_groups.items():
             # Use shared operation: Combine embeddings from all splits
@@ -587,6 +594,7 @@ class ClusteringEvaluator:
                 embeddings=combined_embeddings,
                 sent_ids=all_sent_ids_list,
                 n_genres=n_genres,
+                compute_metrics=False,
             )
 
             cluster_ids = cluster_result['cluster_ids']
@@ -597,9 +605,24 @@ class ClusteringEvaluator:
                 cluster_ids, combined_embeddings, n_genres
             )
 
-            # Use shared operation: Label clusters with uncertainty thresholds
-            cluster_labels, high_conf_count, low_conf_count = self.clustering_ops.label_clusters(
-                cluster_centroids, known_genre_embeddings
+            cluster_descriptors = [
+                {
+                    "cluster_id": cluster_id,
+                    "embedding": centroid,
+                    "sent_ids": clusters.get(cluster_id, {}).get("sent_ids", []),
+                }
+                for cluster_id, centroid in cluster_centroids.items()
+            ]
+
+            # Use shared operation: Label clusters and propagate sentence-level labels
+            (
+                cluster_labels,
+                sentence_labels,
+                _cluster_similarities,
+                high_conf_count,
+                low_conf_count,
+            ) = self.clustering_ops.label_cluster_descriptors(
+                cluster_descriptors, known_genre_embeddings
             )
 
             logger.info(
@@ -608,10 +631,10 @@ class ClusteringEvaluator:
             )
 
             # Get sentence-level predictions
-            for i, sent_id in enumerate(all_sent_ids_list):
-                cluster_id = cluster_ids[i]
-                if cluster_id in cluster_labels:
-                    pred_genre, confidence, method = cluster_labels[cluster_id]
+            for sent_id in all_sent_ids_list:
+                pred_label = sentence_labels.get(sent_id)
+                if pred_label is not None:
+                    pred_genre, confidence, method = pred_label
                 else:
                     pred_genre = None
 
@@ -625,6 +648,7 @@ class ClusteringEvaluator:
                     all_true.append(true_genre)
                     all_pred.append(pred_genre)
                     all_sent_ids.append(f"{tb_code}:{split_name}:{sent_id}")
+                    all_treebank_splits.append((tb_code, split_name))
 
         if len(all_pred) == 0:
             logger.warning("No predictions for this fold")
@@ -646,6 +670,7 @@ class ClusteringEvaluator:
             "true_genres": all_true,
             "pred_genres": all_pred,
             "sent_ids": all_sent_ids,
+            "treebank_split_keys": all_treebank_splits,
         }
 
     def _aggregate_fold_results(self, fold_results: List[Dict]) -> Dict:
@@ -661,23 +686,73 @@ class ClusteringEvaluator:
         all_true = []
         all_pred = []
         all_sent_ids = []
+        all_treebank_splits = []
         accuracies = []
         total_sentences = []
 
         for result in fold_results:
-            all_true.extend(result["true_genres"])
-            all_pred.extend(result["pred_genres"])
-            all_sent_ids.extend(result["sent_ids"])
+            all_true.extend(result.get("true_genres", []))
+            all_pred.extend(result.get("pred_genres", []))
+            all_sent_ids.extend(result.get("sent_ids", []))
+            if "treebank_split_keys" in result:
+                all_treebank_splits.extend(result["treebank_split_keys"])
+            else:
+                for sent_ref in result.get("sent_ids", []):
+                    parts = sent_ref.split(":", 2)
+                    if len(parts) >= 2:
+                        all_treebank_splits.append((parts[0], parts[1]))
             accuracies.append(result["accuracy"])
             total_sentences.append(result["num_sentences"])
+
+        if len(all_true) == 0:
+            logger.warning("No sentence-level predictions across folds")
+            return {
+                "mean_accuracy": float(np.mean(accuracies)) if accuracies else 0.0,
+                "std_accuracy": float(np.std(accuracies)) if accuracies else 0.0,
+                "overall_accuracy": 0.0,
+                "confusion_matrix": [],
+                "genre_labels": [],
+                "classification_report": {},
+                "fold_accuracies": accuracies,
+                "num_folds": len(fold_results),
+                "total_sentences": 0,
+                "num_sentences_per_fold": total_sentences,
+                "purity": 0.0,
+                "agreement": 0.0,
+                "agreement_by_genre": {},
+                "overlap_error": 0.0,
+                "overlap_error_weighted": 0.0,
+                "overlap_error_by_treebank": {},
+                "micro_f1_instance": 0.0,
+                "instance_labeled_treebanks": 0,
+            }
 
         # Compute overall metrics
         overall_accuracy = accuracy_score(all_true, all_pred)
         conf_matrix = confusion_matrix(all_true, all_pred)
-        class_report = classification_report(all_true, all_pred, output_dict=True)
+        class_report = classification_report(
+            all_true,
+            all_pred,
+            output_dict=True,
+            zero_division=0,
+        )
 
         # Get unique genre labels in sorted order for confusion matrix axes
         genre_labels = sorted(set(all_true))
+        if len(all_treebank_splits) != len(all_true):
+            logger.warning(
+                "Treebank key count mismatch (%d keys, %d labels); "
+                "falling back to a single synthetic treebank key for paper metrics",
+                len(all_treebank_splits),
+                len(all_true),
+            )
+            all_treebank_splits = [("unknown", "unknown")] * len(all_true)
+
+        extra_metrics = ClusteringEvaluationMetrics.compute_all(
+            true_genres=all_true,
+            pred_genres=all_pred,
+            treebank_keys=all_treebank_splits,
+        )
 
         logger.info(f"Overall accuracy: {overall_accuracy:.3f} ({sum(total_sentences)} sentences)")
 
@@ -692,4 +767,5 @@ class ClusteringEvaluator:
             "num_folds": len(fold_results),
             "total_sentences": sum(total_sentences),
             "num_sentences_per_fold": total_sentences,
+            **extra_metrics,
         }

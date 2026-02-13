@@ -226,6 +226,11 @@ class StubClusteringEvaluator:
             "mean_accuracy": 0.5,
             "std_accuracy": 0.0,
             "overall_accuracy": 0.5,
+            "micro_f1_instance": 0.5,
+            "purity": 0.5,
+            "agreement": 0.75,
+            "overlap_error": 0.25,
+            "instance_labeled_treebanks": len({tb["treebank"] for tb in multi_genre_treebanks}),
             "num_folds": self.n_folds,
             "fold_accuracies": [0.5] * self.n_folds,
         }
@@ -263,6 +268,39 @@ def test_evaluate_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
 
     result = runner.invoke(cli_module.app, ["evaluate", "--n-folds", "2", "--group-by", "treebank"])
     assert result.exit_code == 0, result.stdout
+
+
+def test_evaluate_multi_set_comparison_shows_extended_metrics(monkeypatch, cfg: Config):
+    """`evaluate` comparison table should include extended clustering metrics."""
+    _patch_common_cli(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "ud_genre_bootstrap.evaluation.validator.ClusteringEvaluator",
+        StubClusteringEvaluator,
+    )
+    monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "evaluate",
+            "--n-folds",
+            "2",
+            "--group-by",
+            "treebank",
+            "--treebank-set",
+            "set_a=xx_demo,yy_demo",
+            "--treebank-set",
+            "set_b=yy_demo,xx_demo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Evaluation Set Comparison" in result.stdout
+    assert "Micro-F1" in result.stdout
+    assert "PUR" in result.stdout
+    assert "AGR" in result.stdout
+    assert "Overlap Error (ΔBC)" in result.stdout
 
 
 def test_coverage_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):

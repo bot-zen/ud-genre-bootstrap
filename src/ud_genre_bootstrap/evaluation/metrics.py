@@ -1,12 +1,14 @@
 """Evaluation metrics for clustering and bootstrapping."""
 
 import logging
-from typing import Dict, List, Optional
+from collections import Counter, defaultdict
+from typing import Dict, Hashable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
+    f1_score,
     silhouette_score,
 )
 
@@ -167,6 +169,199 @@ class ClusterQualityMetrics:
         metrics["pairwise_distances"] = pairwise
 
         return metrics
+
+
+class ClusteringEvaluationMetrics:
+    """Compute paper-aligned metrics for clustering evaluation."""
+
+    @staticmethod
+    def _validate_lengths(
+        true_genres: Sequence[str],
+        pred_genres: Sequence[str],
+        treebank_keys: Optional[Sequence[Hashable]] = None,
+    ) -> None:
+        if len(true_genres) != len(pred_genres):
+            raise ValueError(
+                f"Length mismatch: {len(true_genres)} true labels vs {len(pred_genres)} predictions"
+            )
+        if treebank_keys is not None and len(treebank_keys) != len(true_genres):
+            raise ValueError(
+                "Length mismatch: treebank keys must match number of labels "
+                f"({len(treebank_keys)} vs {len(true_genres)})"
+            )
+
+    @staticmethod
+    def _format_treebank_key(treebank_key: Hashable) -> str:
+        if isinstance(treebank_key, tuple) and len(treebank_key) == 2:
+            tb_code, split_name = treebank_key
+            return f"{tb_code}:{split_name}"
+        return str(treebank_key)
+
+    @staticmethod
+    def _distribution(labels: Sequence[str]) -> Dict[str, float]:
+        if not labels:
+            return {}
+        counts = Counter(labels)
+        total = float(sum(counts.values()))
+        return {label: count / total for label, count in counts.items()}
+
+    @staticmethod
+    def _bhattacharyya_coefficient(
+        p_dist: Dict[str, float],
+        q_dist: Dict[str, float],
+    ) -> float:
+        labels = set(p_dist.keys()) | set(q_dist.keys())
+        if not labels:
+            return 0.0
+        return float(sum(np.sqrt(p_dist.get(label, 0.0) * q_dist.get(label, 0.0)) for label in labels))
+
+    @staticmethod
+    def _majority_label(labels: Sequence[str]) -> Optional[str]:
+        if not labels:
+            return None
+        counts = Counter(labels)
+        # Deterministic tie-break for stable tests/output.
+        return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    @classmethod
+    def compute_purity(
+        cls,
+        true_genres: Sequence[str],
+        pred_genres: Sequence[str],
+    ) -> float:
+        """Standard cluster purity on predicted-label groups."""
+        cls._validate_lengths(true_genres, pred_genres)
+        if not true_genres:
+            return 0.0
+
+        contingency: Dict[str, Counter] = defaultdict(Counter)
+        for true_label, pred_label in zip(true_genres, pred_genres):
+            contingency[pred_label][true_label] += 1
+
+        dominant_total = sum(max(counter.values()) for counter in contingency.values() if counter)
+        return float(dominant_total / len(true_genres))
+
+    @classmethod
+    def compute_overlap_error(
+        cls,
+        true_genres: Sequence[str],
+        pred_genres: Sequence[str],
+        treebank_keys: Sequence[Hashable],
+    ) -> Dict[str, object]:
+        """Compute inverse Bhattacharyya overlap (ΔBC) per treebank and aggregated."""
+        cls._validate_lengths(true_genres, pred_genres, treebank_keys)
+        if not true_genres:
+            return {
+                "overlap_error": 0.0,
+                "overlap_error_weighted": 0.0,
+                "overlap_error_by_treebank": {},
+            }
+
+        per_treebank_indices: Dict[Hashable, List[int]] = defaultdict(list)
+        for idx, treebank_key in enumerate(treebank_keys):
+            per_treebank_indices[treebank_key].append(idx)
+
+        overlap_errors: List[float] = []
+        weighted_numer = 0.0
+        weighted_denom = 0
+        by_treebank: Dict[str, float] = {}
+
+        for treebank_key, indices in per_treebank_indices.items():
+            tb_true = [true_genres[i] for i in indices]
+            tb_pred = [pred_genres[i] for i in indices]
+            true_dist = cls._distribution(tb_true)
+            pred_dist = cls._distribution(tb_pred)
+            bc = cls._bhattacharyya_coefficient(true_dist, pred_dist)
+            overlap_error = float(1.0 - bc)
+            overlap_errors.append(overlap_error)
+            weighted_numer += overlap_error * len(indices)
+            weighted_denom += len(indices)
+            by_treebank[cls._format_treebank_key(treebank_key)] = overlap_error
+
+        return {
+            "overlap_error": float(np.mean(overlap_errors)) if overlap_errors else 0.0,
+            "overlap_error_weighted": float(weighted_numer / weighted_denom) if weighted_denom else 0.0,
+            "overlap_error_by_treebank": by_treebank,
+        }
+
+    @classmethod
+    def compute_agreement(
+        cls,
+        true_genres: Sequence[str],
+        pred_genres: Sequence[str],
+        treebank_keys: Sequence[Hashable],
+    ) -> Dict[str, object]:
+        """Compute cross-treebank label agreement (AGR)."""
+        cls._validate_lengths(true_genres, pred_genres, treebank_keys)
+        if not true_genres:
+            return {"agreement": 0.0, "agreement_by_genre": {}}
+
+        grouped: Dict[Hashable, List[Tuple[str, str]]] = defaultdict(list)
+        for treebank_key, true_label, pred_label in zip(treebank_keys, true_genres, pred_genres):
+            grouped[treebank_key].append((true_label, pred_label))
+
+        per_genre_majorities: Dict[str, List[str]] = defaultdict(list)
+        for samples in grouped.values():
+            preds_by_true_genre: Dict[str, List[str]] = defaultdict(list)
+            for true_label, pred_label in samples:
+                preds_by_true_genre[true_label].append(pred_label)
+            for true_label, predictions in preds_by_true_genre.items():
+                majority = cls._majority_label(predictions)
+                if majority is not None:
+                    per_genre_majorities[true_label].append(majority)
+
+        agreement_by_genre: Dict[str, float] = {}
+        weighted_numer = 0.0
+        weighted_denom = 0
+
+        for true_label, majority_labels in per_genre_majorities.items():
+            label_counts = Counter(majority_labels)
+            agreement = max(label_counts.values()) / len(majority_labels)
+            agreement_by_genre[true_label] = float(agreement)
+            weighted_numer += agreement * len(majority_labels)
+            weighted_denom += len(majority_labels)
+
+        return {
+            "agreement": float(weighted_numer / weighted_denom) if weighted_denom else 0.0,
+            "agreement_by_genre": agreement_by_genre,
+        }
+
+    @classmethod
+    def compute_all(
+        cls,
+        true_genres: Sequence[str],
+        pred_genres: Sequence[str],
+        treebank_keys: Sequence[Hashable],
+    ) -> Dict[str, object]:
+        """Compute full clustering evaluation metric bundle."""
+        cls._validate_lengths(true_genres, pred_genres, treebank_keys)
+        if not true_genres:
+            return {
+                "purity": 0.0,
+                "agreement": 0.0,
+                "agreement_by_genre": {},
+                "overlap_error": 0.0,
+                "overlap_error_weighted": 0.0,
+                "overlap_error_by_treebank": {},
+                "micro_f1_instance": 0.0,
+                "instance_labeled_treebanks": 0,
+            }
+
+        overlap = cls.compute_overlap_error(true_genres, pred_genres, treebank_keys)
+        agreement = cls.compute_agreement(true_genres, pred_genres, treebank_keys)
+
+        return {
+            "purity": cls.compute_purity(true_genres, pred_genres),
+            "agreement": agreement["agreement"],
+            "agreement_by_genre": agreement["agreement_by_genre"],
+            "overlap_error": overlap["overlap_error"],
+            "overlap_error_weighted": overlap["overlap_error_weighted"],
+            "overlap_error_by_treebank": overlap["overlap_error_by_treebank"],
+            "micro_f1_instance": float(
+                f1_score(true_genres, pred_genres, average="micro", zero_division=0)
+            ),
+            "instance_labeled_treebanks": len(set(treebank_keys)),
+        }
 
 
 class GenreSeparationMetrics:

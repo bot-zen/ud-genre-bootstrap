@@ -1,8 +1,9 @@
 """Command-line interface for ud-genre-bootstrap."""
 
 import logging
+import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -59,6 +60,177 @@ def apply_treebank_exclusions(cfg: Config, data_loader, treebank_filter: Optiona
         console.print(f"[yellow]Excluded {len(excluded)} treebanks from config: {', '.join(excluded)}[/yellow]")
 
     return filtered
+
+
+def parse_treebank_csv(treebank_csv: str) -> List[str]:
+    """Parse comma-separated treebank codes into a normalized list."""
+    return [tb.strip() for tb in treebank_csv.split(",") if tb.strip()]
+
+
+def parse_inline_treebank_sets(set_definitions: Optional[List[str]]) -> Dict[str, List[str]]:
+    """Parse inline named treebank sets from CLI options.
+
+    Supports definitions in the form `name=tb1,tb2` (or `name:tb1,tb2`).
+    """
+    if not set_definitions:
+        return {}
+
+    parsed_sets: Dict[str, List[str]] = {}
+
+    for raw_definition in set_definitions:
+        if "=" in raw_definition:
+            set_name, treebanks_csv = raw_definition.split("=", 1)
+        elif ":" in raw_definition:
+            set_name, treebanks_csv = raw_definition.split(":", 1)
+        else:
+            raise ValueError(
+                f"Invalid --treebank-set '{raw_definition}'. Use 'name=tb1,tb2,...'"
+            )
+
+        set_name = set_name.strip()
+        if not set_name:
+            raise ValueError(
+                f"Invalid --treebank-set '{raw_definition}'. Set name is empty."
+            )
+        if set_name in parsed_sets:
+            raise ValueError(
+                f"Duplicate evaluation set name '{set_name}' in --treebank-set."
+            )
+
+        treebanks = parse_treebank_csv(treebanks_csv)
+        if not treebanks:
+            raise ValueError(
+                f"Invalid --treebank-set '{raw_definition}'. No treebanks provided."
+            )
+
+        parsed_sets[set_name] = treebanks
+
+    return parsed_sets
+
+
+def resolve_config_treebank_sets(
+    cfg: Config,
+    set_names: Optional[List[str]],
+) -> Dict[str, List[str]]:
+    """Resolve named evaluation sets from configuration."""
+    if not set_names:
+        return {}
+
+    available_sets = cfg.evaluation.treebank_sets or {}
+    missing_sets = [set_name for set_name in set_names if set_name not in available_sets]
+    if missing_sets:
+        raise ValueError(
+            f"Unknown --set value(s): {', '.join(missing_sets)}. "
+            f"Available sets: {', '.join(sorted(available_sets.keys())) or '[none]'}"
+        )
+
+    return {set_name: available_sets[set_name] for set_name in set_names}
+
+
+def build_treebank_eval_stats(multi_genre_treebanks: List[Dict]) -> Dict[str, Dict[str, int]]:
+    """Aggregate per-treebank stats used for evaluation set planning."""
+    stats: Dict[str, Dict] = {}
+    for treebank in multi_genre_treebanks:
+        tb_code = treebank["treebank"]
+        if tb_code not in stats:
+            stats[tb_code] = {
+                "splits": 0,
+                "sentences": 0,
+                "genres": set(),
+            }
+
+        stats[tb_code]["splits"] += 1
+        stats[tb_code]["sentences"] += int(treebank.get("sentence_count", 0))
+        stats[tb_code]["genres"].update(treebank.get("genres", []))
+
+    normalized_stats: Dict[str, Dict[str, int]] = {}
+    for tb_code, tb_stats in stats.items():
+        normalized_stats[tb_code] = {
+            "splits": int(tb_stats["splits"]),
+            "sentences": int(tb_stats["sentences"]),
+            "virtual_splits": len(tb_stats["genres"]),
+        }
+
+    return normalized_stats
+
+
+def build_progressive_treebank_sets(
+    multi_genre_treebanks: List[Dict],
+    min_size: int,
+    step: int = 1,
+) -> Dict[str, List[str]]:
+    """Build cumulative evaluation sets ordered by virtual-split potential.
+
+    Treebanks are ordered by:
+    1. Descending number of potential virtual splits (unique genres)
+    2. Descending sentence count
+    3. Treebank code (stable tie-breaker)
+    """
+    if step < 1:
+        raise ValueError("progressive step must be >= 1")
+
+    treebank_stats = build_treebank_eval_stats(multi_genre_treebanks)
+    ordered_treebanks = sorted(
+        treebank_stats.items(),
+        key=lambda item: (
+            -item[1]["virtual_splits"],
+            -item[1]["sentences"],
+            item[0],
+        ),
+    )
+    ordered_codes = [tb_code for tb_code, _ in ordered_treebanks]
+
+    if not ordered_codes:
+        return {}
+
+    start_size = max(1, min_size)
+    if start_size > len(ordered_codes):
+        return {}
+
+    progressive_sets: Dict[str, List[str]] = {}
+    for size in range(start_size, len(ordered_codes) + 1, step):
+        progressive_sets[f"progressive_top_{size}"] = ordered_codes[:size]
+
+    if len(ordered_codes) not in {len(treebanks) for treebanks in progressive_sets.values()}:
+        progressive_sets[f"progressive_top_{len(ordered_codes)}"] = ordered_codes
+
+    return progressive_sets
+
+
+def check_evaluation_fold_feasibility(
+    multi_genre_treebanks: List[Dict],
+    n_folds: int,
+    group_by: Optional[str],
+) -> Tuple[bool, str]:
+    """Check whether a treebank subset can support requested n-fold CV."""
+    n_items = len(multi_genre_treebanks)
+    if n_items < n_folds:
+        return (
+            False,
+            f"needs at least {n_folds} multi-genre treebank splits, found {n_items}",
+        )
+
+    if group_by == "treebank":
+        n_groups = len({tb["treebank"] for tb in multi_genre_treebanks})
+        if n_groups < n_folds:
+            return (
+                False,
+                f"group_by=treebank requires at least {n_folds} treebanks, found {n_groups}",
+            )
+    elif group_by == "language":
+        n_groups = len({tb["language"] for tb in multi_genre_treebanks})
+        if n_groups < n_folds:
+            return (
+                False,
+                f"group_by=language requires at least {n_folds} languages, found {n_groups}",
+            )
+
+    return True, ""
+
+
+def safe_label_for_filename(label: str) -> str:
+    """Normalize labels for safe file names."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", label).strip("_")
 
 
 def load_config_from_path(config_path: Optional[Path]) -> Config:
@@ -508,6 +680,28 @@ def evaluate(
         "--group-by",
         help="Variable to group by: 'treebank', 'language', or None (overrides config)",
     ),
+    eval_set: Optional[List[str]] = typer.Option(
+        None,
+        "--set",
+        "-s",
+        help="Named evaluation set from config key evaluation.treebank_sets. Repeat for multiple sets.",
+    ),
+    treebank_set: Optional[List[str]] = typer.Option(
+        None,
+        "--treebank-set",
+        help="Inline named set definition 'name=tb1,tb2,...'. Repeat for multiple sets.",
+    ),
+    progressive: bool = typer.Option(
+        False,
+        "--progressive",
+        help="Run cumulative evaluations on increasingly larger treebank pools.",
+    ),
+    progressive_step: int = typer.Option(
+        1,
+        "--progressive-step",
+        min=1,
+        help="Number of treebanks to add per progressive evaluation stage.",
+    ),
 ):
     """Evaluate clustering + labeling on multi-genre treebanks.
 
@@ -531,10 +725,37 @@ def evaluate(
         n_folds_val = n_folds if n_folds is not None else eval_cfg.k
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
 
-        # Parse treebank filter (comma-separated)
+        # Resolve evaluation set definitions (config + inline CLI)
+        config_eval_sets = resolve_config_treebank_sets(cfg, eval_set)
+        inline_eval_sets = parse_inline_treebank_sets(treebank_set)
+
+        overlapping_set_names = set(config_eval_sets).intersection(inline_eval_sets)
+        if overlapping_set_names:
+            raise ValueError(
+                "Duplicate evaluation set name(s) across --set and --treebank-set: "
+                + ", ".join(sorted(overlapping_set_names))
+            )
+
+        explicit_eval_sets = {**config_eval_sets, **inline_eval_sets}
+        if treebank and explicit_eval_sets:
+            raise ValueError("Use either --treebank or explicit evaluation sets (--set / --treebank-set), not both.")
+        if progressive and explicit_eval_sets:
+            raise ValueError("Use either --progressive or explicit evaluation sets, not both together.")
+
+        # Parse base treebank filter
         treebank_filter = None
-        if treebank:
-            treebank_filter = [tb.strip() for tb in treebank.split(",")]
+        if explicit_eval_sets:
+            treebank_filter = sorted({
+                tb_code
+                for set_treebanks in explicit_eval_sets.values()
+                for tb_code in set_treebanks
+            })
+            console.print(
+                f"[blue]Evaluating {len(explicit_eval_sets)} named set(s) over "
+                f"{len(treebank_filter)} explicit treebank(s)[/blue]"
+            )
+        elif treebank:
+            treebank_filter = parse_treebank_csv(treebank)
             if len(treebank_filter) == 1:
                 console.print(f"[blue]Evaluating:[/blue] {treebank_filter[0]}")
             else:
@@ -551,6 +772,8 @@ def evaluate(
         console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}")
         console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
         console.print(f"[blue]Min margin:[/blue] {cfg.bootstrapping.min_margin}")
+        if progressive:
+            console.print(f"[blue]Progressive mode:[/blue] enabled (step={progressive_step})")
 
         # Initialize clustering evaluator
         from ud_genre_bootstrap.evaluation.validator import ClusteringEvaluator
@@ -617,54 +840,62 @@ def evaluate(
             'no_metadata': 0,
         }
 
-        for tb in all_treebank_data:
-            tb_code = tb['id']
-            available_splits = bootstrapper.data_loader.get_available_splits(tb_code)
+        with console.status("[blue]Scanning sentence metadata...[/blue]") as status:
+            for tb in all_treebank_data:
+                tb_code = tb['id']
+                available_splits = bootstrapper.data_loader.get_available_splits(tb_code)
 
-            if not available_splits:
-                continue
-
-            # Check each split for multi-genre content
-            for split_name in available_splits:
-                stats['checked'] += 1
-
-                try:
-                    dataset = bootstrapper.data_loader.load_treebank(tb_code, split_name)
-                except Exception as e:
-                    logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
-                    stats['load_errors'] += 1
+                if not available_splits:
                     continue
 
-                # Count genres in this split
-                genre_counts = {}
-                sent_count = 0
+                # Check each split for multi-genre content
+                for split_name in available_splits:
+                    stats['checked'] += 1
+                    status.update(
+                        f"[blue]Scanning {tb_code}:{split_name} "
+                        f"({stats['checked']} split(s) checked)...[/blue]"
+                    )
 
-                for idx, sentence in enumerate(dataset):
-                    sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
-                    genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+                    # Count genres in this split
+                    genre_counts = {}
+                    sent_count = 0
 
-                    if genres:
-                        primary_genre = genres[0]
-                        genre_counts[primary_genre] = genre_counts.get(primary_genre, 0) + 1
-                        sentence_metadata[(tb_code, split_name, sent_id)] = primary_genre
-                        sent_count += 1
+                    try:
+                        sentence_iter = bootstrapper.data_loader.iter_treebank_sentences(
+                            tb_code,
+                            split_name,
+                            metadata_only=True,
+                        )
+                        for idx, sentence in enumerate(sentence_iter):
+                            sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
+                            genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
 
-                # Classify this split
-                unique_genres = list(genre_counts.keys())
-                if len(unique_genres) == 0:
-                    stats['no_metadata'] += 1
-                elif len(unique_genres) == 1:
-                    stats['single_genre'] += 1
-                elif len(unique_genres) >= 2:
-                    stats['multi_genre'] += 1
-                    multi_genre_treebanks.append({
-                        'treebank': tb_code,
-                        'split': split_name,
-                        'genres': unique_genres,
-                        'language': tb['language'],
-                        'sentence_count': sent_count,
-                        'genre_counts': genre_counts,
-                    })
+                            if genres:
+                                primary_genre = genres[0]
+                                genre_counts[primary_genre] = genre_counts.get(primary_genre, 0) + 1
+                                sentence_metadata[(tb_code, split_name, sent_id)] = primary_genre
+                                sent_count += 1
+                    except Exception as e:
+                        logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
+                        stats['load_errors'] += 1
+                        continue
+
+                    # Classify this split
+                    unique_genres = list(genre_counts.keys())
+                    if len(unique_genres) == 0:
+                        stats['no_metadata'] += 1
+                    elif len(unique_genres) == 1:
+                        stats['single_genre'] += 1
+                    elif len(unique_genres) >= 2:
+                        stats['multi_genre'] += 1
+                        multi_genre_treebanks.append({
+                            'treebank': tb_code,
+                            'split': split_name,
+                            'genres': unique_genres,
+                            'language': tb['language'],
+                            'sentence_count': sent_count,
+                            'genre_counts': genre_counts,
+                        })
 
         if len(multi_genre_treebanks) == 0:
             console.print("\n[bold yellow]⚠ No multi-genre treebanks found for clustering evaluation[/bold yellow]")
@@ -688,27 +919,42 @@ def evaluate(
             console.print("\n[blue]Evaluation skipped - no suitable data available[/blue]")
             raise typer.Exit(0)
 
-        if len(multi_genre_treebanks) < n_folds_val:
-            console.print(
-                f"\n[bold yellow]⚠ Insufficient data for {n_folds_val}-fold cross-validation[/bold yellow]"
+        available_multi_treebanks = sorted({tb["treebank"] for tb in multi_genre_treebanks})
+
+        if explicit_eval_sets:
+            evaluation_set_map: Dict[str, List[str]] = {}
+            for set_name, set_treebanks in explicit_eval_sets.items():
+                filtered_treebanks = [tb for tb in set_treebanks if tb in available_multi_treebanks]
+                missing_treebanks = [tb for tb in set_treebanks if tb not in available_multi_treebanks]
+
+                if missing_treebanks:
+                    console.print(
+                        f"[yellow]Set '{set_name}' ignored {len(missing_treebanks)} treebank(s) without "
+                        f"multi-genre data: {', '.join(missing_treebanks)}[/yellow]"
+                    )
+                if not filtered_treebanks:
+                    console.print(
+                        f"[yellow]Set '{set_name}' has no usable multi-genre treebanks after filtering; skipping.[/yellow]"
+                    )
+                    continue
+
+                evaluation_set_map[set_name] = filtered_treebanks
+        elif progressive:
+            evaluation_set_map = build_progressive_treebank_sets(
+                multi_genre_treebanks=multi_genre_treebanks,
+                min_size=n_folds_val,
+                step=progressive_step,
             )
-            console.print(f"[dim]Found {len(multi_genre_treebanks)} multi-genre treebanks, need at least {n_folds_val}[/dim]")
+            if evaluation_set_map:
+                console.print(
+                    f"[blue]Generated {len(evaluation_set_map)} progressive evaluation set(s)[/blue]"
+                )
+        else:
+            evaluation_set_map = {"default": available_multi_treebanks}
 
-            # Display summary
-            console.print("\n[bold]Summary:[/bold]")
-            console.print(f"  • Checked: {stats['checked']} treebank splits")
-            console.print(f"  • Single-genre: {stats['single_genre']} (skipped)")
-            console.print(f"  • Multi-genre: {stats['multi_genre']} (found, but need {n_folds_val} for {n_folds_val}-fold CV)")
-            if stats['no_metadata'] > 0:
-                console.print(f"  • No sentence metadata: {stats['no_metadata']}")
-            if stats['load_errors'] > 0:
-                console.print(f"  • Load errors: {stats['load_errors']}")
-
-            console.print("\n[dim]Suggestions:[/dim]")
-            console.print(f"[dim]  • Reduce n-folds: --n-folds {len(multi_genre_treebanks)}[/dim]")
-            console.print("[dim]  • Include more treebanks in the config[/dim]")
-            console.print("[dim]  • Remove treebank filter to evaluate all available treebanks[/dim]")
-            console.print("\n[blue]Evaluation skipped - insufficient data for cross-validation[/blue]")
+        if not evaluation_set_map:
+            console.print("\n[bold yellow]⚠ No usable evaluation sets available[/bold yellow]")
+            console.print("[blue]Evaluation skipped - all requested sets were empty after filtering[/blue]")
             raise typer.Exit(0)
 
         console.print(f"[blue]Found {len(multi_genre_treebanks)} multi-genre treebank splits for evaluation[/blue]")
@@ -731,62 +977,163 @@ def evaluate(
         console.print()
         console.print(tb_table)
 
+        treebank_eval_stats = build_treebank_eval_stats(multi_genre_treebanks)
+
+        if len(evaluation_set_map) > 1:
+            plan_table = Table(
+                title="Evaluation Set Plan",
+                show_header=True,
+                header_style="bold magenta",
+            )
+            plan_table.add_column("Set", style="cyan")
+            plan_table.add_column("Treebanks", style="blue", justify="right")
+            plan_table.add_column("Splits", style="green", justify="right")
+            plan_table.add_column("Potential Virtual Splits", style="yellow", justify="right")
+            plan_table.add_column("Status", style="magenta")
+
+            for set_name, set_treebanks in evaluation_set_map.items():
+                set_multi = [tb for tb in multi_genre_treebanks if tb["treebank"] in set_treebanks]
+                can_run, reason = check_evaluation_fold_feasibility(
+                    set_multi,
+                    n_folds=n_folds_val,
+                    group_by=group_by_val,
+                )
+                set_split_count = sum(
+                    treebank_eval_stats[tb_code]["splits"]
+                    for tb_code in set_treebanks
+                    if tb_code in treebank_eval_stats
+                )
+                set_virtual_split_count = sum(
+                    treebank_eval_stats[tb_code]["virtual_splits"]
+                    for tb_code in set_treebanks
+                    if tb_code in treebank_eval_stats
+                )
+                plan_table.add_row(
+                    set_name,
+                    str(len(set_treebanks)),
+                    str(set_split_count),
+                    str(set_virtual_split_count),
+                    "ready" if can_run else f"skip ({reason})",
+                )
+
+            console.print()
+            console.print(plan_table)
+
         # Generate embeddings for all multi-genre treebanks
         console.print(f"\n[yellow]Generating/loading embeddings...[/yellow]")
-        treebank_ids_to_embed = list(set(tb['treebank'] for tb in multi_genre_treebanks))
+        treebank_ids_to_embed = sorted({
+            tb_code
+            for set_treebanks in evaluation_set_map.values()
+            for tb_code in set_treebanks
+        })
         embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_ids_to_embed)
 
-        # Run clustering evaluation
+        # Run clustering evaluation for each set
         console.print(f"\n[yellow]Running {n_folds_val}-fold clustering evaluation...[/yellow]")
-        results = evaluator.k_fold_validate(
-            multi_genre_treebanks=multi_genre_treebanks,
-            sentence_metadata=sentence_metadata,
-            embeddings_by_tb=embeddings_by_tb,
-            clusterer=bootstrapper.clusterer,
-        )
+        successful_results = {}
 
+        for set_name, set_treebanks in evaluation_set_map.items():
+            set_multi_treebanks = [
+                tb_info for tb_info in multi_genre_treebanks
+                if tb_info["treebank"] in set_treebanks
+            ]
+            can_run, reason = check_evaluation_fold_feasibility(
+                set_multi_treebanks,
+                n_folds=n_folds_val,
+                group_by=group_by_val,
+            )
+            if not can_run:
+                console.print(f"[yellow]Skipping set '{set_name}': {reason}[/yellow]")
+                continue
 
-        # Save confusion matrix as PNG if output path specified
-        if cfg.output.genres_path and "confusion_matrix" in results and "genre_labels" in results:
-            try:
-                import matplotlib.pyplot as plt
-                import seaborn as sns
-                import numpy as np
+            if len(evaluation_set_map) > 1 or set_name != "default":
+                console.print(f"\n[bold cyan]Evaluation Set: {set_name}[/bold cyan]")
+                console.print(
+                    f"[blue]Treebanks:[/blue] {len(set_treebanks)}  "
+                    f"[blue]Splits:[/blue] {len(set_multi_treebanks)}"
+                )
 
+            set_results = evaluator.k_fold_validate(
+                multi_genre_treebanks=set_multi_treebanks,
+                sentence_metadata=sentence_metadata,
+                embeddings_by_tb=embeddings_by_tb,
+                clusterer=bootstrapper.clusterer,
+            )
+            successful_results[set_name] = {
+                "results": set_results,
+                "treebanks": set_treebanks,
+                "splits": len(set_multi_treebanks),
+            }
+
+            # Save confusion matrix as PNG if output path specified
+            if cfg.output.genres_path and "confusion_matrix" in set_results and "genre_labels" in set_results:
                 output_dir = Path(cfg.output.genres_path) / "evaluation"
                 output_dir.mkdir(parents=True, exist_ok=True)
-
-                conf_matrix = np.array(results["confusion_matrix"])
-                genre_labels = results["genre_labels"]
-
-                # Create heatmap
-                plt.figure(figsize=(10, 8))
-                sns.heatmap(
-                    conf_matrix,
-                    annot=True,
-                    fmt='d',
-                    cmap='Blues',
-                    xticklabels=genre_labels,
-                    yticklabels=genre_labels,
-                    cbar_kws={'label': 'Count'}
+                result_label = None if len(evaluation_set_map) == 1 and set_name == "default" else set_name
+                confusion_matrix_path = _save_clustering_confusion_matrix(
+                    set_results,
+                    output_dir=output_dir,
+                    result_label=result_label,
                 )
-                plt.xlabel('Predicted Genre')
-                plt.ylabel('True Genre')
-                plt.title(f'Clustering Evaluation - {results["num_folds"]}-Fold CV (Sentence-Level)')
-                plt.tight_layout()
+                if confusion_matrix_path is not None:
+                    console.print(f"[blue]Confusion matrix saved to:[/blue] {confusion_matrix_path}")
 
-                # Save
-                confusion_matrix_path = output_dir / "confusion_matrix_clustering.png"
-                plt.savefig(confusion_matrix_path, dpi=150, bbox_inches='tight')
-                plt.close()
+            _display_evaluation_results(set_results)
 
-                console.print(f"[blue]Confusion matrix saved to:[/blue] {confusion_matrix_path}")
-            except ImportError as e:
-                console.print(f"[yellow]Warning: Could not save confusion matrix PNG. Install visualization dependencies with: uv pip install .[viz][/yellow]")
-                logger.warning(f"Failed to save confusion matrix: {e}")
+        if not successful_results:
+            console.print("\n[bold yellow]⚠ No evaluation sets satisfied fold constraints[/bold yellow]")
+            console.print("[blue]Evaluation skipped - insufficient grouped data for requested n-fold setting[/blue]")
+            raise typer.Exit(0)
 
-        # Display results
-        _display_evaluation_results(results)
+        if len(successful_results) > 1:
+            summary_table = Table(
+                title="Evaluation Set Comparison",
+                show_header=True,
+                header_style="bold magenta",
+            )
+            summary_table.add_column("Set", style="cyan")
+            summary_table.add_column("Treebanks", style="blue", justify="right")
+            summary_table.add_column("Splits", style="green", justify="right")
+            summary_table.add_column("Potential Virtual Splits", style="yellow", justify="right")
+            summary_table.add_column("Overall Accuracy", style="magenta", justify="right")
+            summary_table.add_column("Micro-F1", style="magenta", justify="right")
+            summary_table.add_column("PUR", style="magenta", justify="right")
+            summary_table.add_column("AGR", style="magenta", justify="right")
+            summary_table.add_column("ΔBC", style="magenta", justify="right")
+            summary_table.add_column("Mean Fold Acc", style="magenta", justify="right")
+
+            def _fmt_metric(result: Dict, key: str) -> str:
+                value = result.get(key)
+                if value is None:
+                    return "n/a"
+                return f"{value:.4f}"
+
+            for set_name, payload in sorted(
+                successful_results.items(),
+                key=lambda item: item[1]["results"].get("overall_accuracy", -1.0),
+                reverse=True,
+            ):
+                set_virtual_split_count = sum(
+                    treebank_eval_stats[tb_code]["virtual_splits"]
+                    for tb_code in payload["treebanks"]
+                    if tb_code in treebank_eval_stats
+                )
+                set_results = payload["results"]
+                summary_table.add_row(
+                    set_name,
+                    str(len(payload["treebanks"])),
+                    str(payload["splits"]),
+                    str(set_virtual_split_count),
+                    _fmt_metric(set_results, "overall_accuracy"),
+                    _fmt_metric(set_results, "micro_f1_instance"),
+                    _fmt_metric(set_results, "purity"),
+                    _fmt_metric(set_results, "agreement"),
+                    _fmt_metric(set_results, "overlap_error"),
+                    f"{set_results['mean_accuracy']:.4f} ± {set_results['std_accuracy']:.4f}",
+                )
+
+            console.print()
+            console.print(summary_table)
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -2248,6 +2595,64 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
     console.print(f"[green]✓ Saved cluster state:[/green] {state_file}")
 
 
+def _save_clustering_confusion_matrix(
+    results: dict,
+    output_dir: Path,
+    result_label: Optional[str] = None,
+) -> Optional[Path]:
+    """Save clustering confusion matrix heatmap to disk.
+
+    Returns:
+        Path to saved PNG if successful, else None.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import numpy as np
+    except ImportError as e:
+        console.print(
+            "[yellow]Warning: Could not save confusion matrix PNG. "
+            "Install visualization dependencies with: uv pip install .[viz][/yellow]"
+        )
+        logger.warning(f"Failed to import plotting dependencies: {e}")
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    conf_matrix = np.array(results["confusion_matrix"])
+    genre_labels = results["genre_labels"]
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(
+        conf_matrix,
+        annot=True,
+        fmt='d',
+        cmap='Blues',
+        xticklabels=genre_labels,
+        yticklabels=genre_labels,
+        cbar_kws={'label': 'Count'},
+    )
+    plt.xlabel('Predicted Genre')
+    plt.ylabel('True Genre')
+
+    title = f'Clustering Evaluation - {results["num_folds"]}-Fold CV (Sentence-Level)'
+    if result_label:
+        title += f"\nSet: {result_label}"
+    plt.title(title)
+    plt.tight_layout()
+
+    if result_label:
+        filename = f"confusion_matrix_clustering_{safe_label_for_filename(result_label)}.png"
+    else:
+        filename = "confusion_matrix_clustering.png"
+
+    confusion_matrix_path = output_dir / filename
+    plt.savefig(confusion_matrix_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    return confusion_matrix_path
+
+
 def _display_evaluation_results(results: dict):
     """Display cross-validation results."""
     console.print("\n[bold cyan]Cross-Validation Results[/bold cyan]")
@@ -2256,6 +2661,16 @@ def _display_evaluation_results(results: dict):
     console.print(f"\nMean Accuracy: {results['mean_accuracy']:.4f} ± {results['std_accuracy']:.4f}")
     console.print(f"Overall Accuracy: {results['overall_accuracy']:.4f}")
     console.print(f"Number of Folds: {results['num_folds']}")
+    if "micro_f1_instance" in results:
+        console.print(f"Micro-F1 (instance-labeled): {results['micro_f1_instance']:.4f}")
+    if "purity" in results:
+        console.print(f"Purity (PUR): {results['purity']:.4f}")
+    if "agreement" in results:
+        console.print(f"Agreement (AGR): {results['agreement']:.4f}")
+    if "overlap_error" in results:
+        console.print(f"Overlap Error (ΔBC): {results['overlap_error']:.4f}")
+    if "instance_labeled_treebanks" in results:
+        console.print(f"Instance-labeled Treebanks: {results['instance_labeled_treebanks']}")
 
     # Fold accuracies
     console.print("\n[bold]Per-Fold Accuracies:[/bold]")

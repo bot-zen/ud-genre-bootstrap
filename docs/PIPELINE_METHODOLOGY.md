@@ -452,6 +452,10 @@ bootstrapping:
   fail_on_incomplete: false
 
 evaluation:
+  treebank_sets:               # Optional named sets for reproducible comparisons
+    literature_small:
+      - "de_pud"
+      - "cs_pdtc"
   metadata_validation:
     coverage_threshold: 0.95    # Also used as production virtual-split gate
     min_genre_sentences: 100    # Also used as production virtual-split gate
@@ -546,9 +550,15 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - Grouping options: by language, by treebank, or ungrouped
 - **Important:** When `group_by="treebank"`, all splits of the same treebank stay together in the same fold to prevent data leakage
 - Stratification to maintain genre distribution
+- Supports reusable named treebank sets (`evaluation.treebank_sets` + `--set`) for literature comparisons
+- Supports progressive cumulative set evaluation (`--progressive`) to assess scaling up to full virtual-split coverage
 
 **Metrics:**
 - Overall accuracy: Percentage of correctly labeled sentences
+- Micro-F1 (instance-labeled treebanks): Sentence-level micro-averaged F1
+- Purity (PUR): Standard cluster purity over predicted label groups
+- Agreement (AGR): Cross-treebank dominant-label consistency for the same true genre
+- Overlap error (ΔBC): Inverse Bhattacharyya overlap between predicted and true treebank genre distributions
 - Per-genre precision, recall, F1-score
 - Confusion matrix: Genre-to-genre error patterns
 - Per-fold variance: Stability across different train/test splits
