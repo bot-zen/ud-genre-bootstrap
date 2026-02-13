@@ -859,6 +859,8 @@ class ClusteringEvaluator:
             accuracies.append(result["accuracy"])
             total_sentences.append(result["num_sentences"])
 
+        fold_metric_summary = self._compute_fold_metric_summary(fold_results)
+
         if len(all_true) == 0:
             logger.warning("No sentence-level predictions across folds")
             return {
@@ -880,6 +882,7 @@ class ClusteringEvaluator:
                 "overlap_error_by_treebank": {},
                 "micro_f1_instance": 0.0,
                 "instance_labeled_treebanks": 0,
+                **fold_metric_summary,
             }
 
         # Compute overall metrics
@@ -923,4 +926,54 @@ class ClusteringEvaluator:
             "total_sentences": sum(total_sentences),
             "num_sentences_per_fold": total_sentences,
             **extra_metrics,
+            **fold_metric_summary,
         }
+
+    def _compute_fold_metric_summary(self, fold_results: List[Dict]) -> Dict:
+        """Compute per-fold mean/std for cross-fold comparable metrics."""
+        metric_keys = (
+            "micro_f1_instance",
+            "purity",
+            "agreement",
+            "overlap_error",
+        )
+        per_metric_values = {key: [] for key in metric_keys}
+
+        for result in fold_results:
+            true_genres = result.get("true_genres", [])
+            pred_genres = result.get("pred_genres", [])
+            if len(true_genres) == 0 or len(pred_genres) == 0:
+                continue
+
+            treebank_keys = result.get("treebank_split_keys", [])
+            if len(treebank_keys) != len(true_genres):
+                sent_refs = result.get("sent_ids", [])
+                backfilled_treebank_keys = []
+                for sent_ref in sent_refs:
+                    parts = sent_ref.split(":", 2)
+                    if len(parts) >= 2:
+                        backfilled_treebank_keys.append((parts[0], parts[1]))
+                treebank_keys = backfilled_treebank_keys
+
+            if len(treebank_keys) != len(true_genres):
+                treebank_keys = [("unknown", "unknown")] * len(true_genres)
+
+            fold_metrics = ClusteringEvaluationMetrics.compute_all(
+                true_genres=true_genres,
+                pred_genres=pred_genres,
+                treebank_keys=treebank_keys,
+            )
+            for key in metric_keys:
+                per_metric_values[key].append(float(fold_metrics.get(key, 0.0)))
+
+        summary = {}
+        for key in metric_keys:
+            values = per_metric_values[key]
+            if values:
+                summary[f"mean_{key}"] = float(np.mean(values))
+                summary[f"std_{key}"] = float(np.std(values))
+            else:
+                summary[f"mean_{key}"] = 0.0
+                summary[f"std_{key}"] = 0.0
+
+        return summary

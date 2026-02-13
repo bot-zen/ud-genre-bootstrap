@@ -1173,6 +1173,10 @@ def evaluate(
             summary_table.add_column("Mean Fold Acc", style="magenta", justify="right")
 
             def _fmt_metric(result: Dict, key: str) -> str:
+                mean_key = f"mean_{key}"
+                std_key = f"std_{key}"
+                if mean_key in result and std_key in result:
+                    return f"{result[mean_key]:.4f} +/- {result[std_key]:.4f}"
                 value = result.get(key)
                 if value is None:
                     return "n/a"
@@ -1199,7 +1203,7 @@ def evaluate(
                     _fmt_metric(set_results, "purity"),
                     _fmt_metric(set_results, "agreement"),
                     _fmt_metric(set_results, "overlap_error"),
-                    f"{set_results['mean_accuracy']:.4f} ± {set_results['std_accuracy']:.4f}",
+                    f"{set_results['mean_accuracy']:.4f} +/- {set_results['std_accuracy']:.4f}",
                 )
 
             console.print()
@@ -2742,17 +2746,27 @@ def _display_evaluation_results(results: dict):
     console.print("\n[bold cyan]Cross-Validation Results[/bold cyan]")
     console.print("=" * 60)
 
-    console.print(f"\nMean Accuracy: {results['mean_accuracy']:.4f} ± {results['std_accuracy']:.4f}")
+    console.print(f"\nMean Accuracy: {results['mean_accuracy']:.4f} +/- {results['std_accuracy']:.4f}")
     console.print(f"Overall Accuracy: {results['overall_accuracy']:.4f}")
     console.print(f"Number of Folds: {results['num_folds']}")
-    if "micro_f1_instance" in results:
-        console.print(f"Micro-F1 (instance-labeled): {results['micro_f1_instance']:.4f}")
-    if "purity" in results:
-        console.print(f"Purity (PUR): {results['purity']:.4f}")
-    if "agreement" in results:
-        console.print(f"Agreement (AGR): {results['agreement']:.4f}")
-    if "overlap_error" in results:
-        console.print(f"Overlap Error (ΔBC): {results['overlap_error']:.4f}")
+    metric_specs = [
+        ("micro_f1_instance", "Micro-F1 (instance-labeled)"),
+        ("purity", "Purity (PUR)"),
+        ("agreement", "Agreement (AGR)"),
+        ("overlap_error", "Overlap Error (ΔBC)"),
+    ]
+    for key, label in metric_specs:
+        if key not in results:
+            continue
+        mean_key = f"mean_{key}"
+        std_key = f"std_{key}"
+        if mean_key in results and std_key in results:
+            console.print(
+                f"{label}: {results[key]:.4f} (fold mean +/- std: "
+                f"{results[mean_key]:.4f} +/- {results[std_key]:.4f})"
+            )
+        else:
+            console.print(f"{label}: {results[key]:.4f}")
     if "instance_labeled_treebanks" in results:
         console.print(f"Instance-labeled Treebanks: {results['instance_labeled_treebanks']}")
 
