@@ -31,6 +31,7 @@ clustering:
   seed: 42
   device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
                   # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
+  fit_sample_size: null  # Optional: fit GMM on a random subset (e.g., 50000) for large treebanks, then predict all sentences
 
 bootstrapping:
   min_confidence: 0.8
@@ -73,11 +74,23 @@ genre_extraction:
 evaluation:
   enabled: true
 
+  # Optional named evaluation sets for reproducible comparisons.
+  # Use with: --set literature_small --set literature_full
+  # treebank_sets:
+  #   literature_small:
+  #     - "de_pud"
+  #     - "cs_pdtc"
+  #   literature_full:
+  #     - "de_pud"
+  #     - "cs_pdtc"
+  #     - "en_pud"
+
   metadata_validation:
     method: "kfold"  # kfold, holdout
     k: 5
     stratify_by: "genre"
     group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    anchor_mode: "strict"  # "strict" = fold-train anchors only (generalization), "parity" = adds leakage-safe single-genre anchors (paper comparability)
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
     min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
 

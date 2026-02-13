@@ -64,6 +64,7 @@ class MetadataValidationConfig:
     k: int = 5
     stratify_by: str = "genre"
     group_by: str = "language"  # "language", "treebank", or None
+    anchor_mode: str = "strict"  # "strict" (fold-train anchors only) or "parity" (plus broader single-genre anchors)
     coverage_threshold: float = 0.95  # Minimum sentence-level metadata coverage
     min_genre_sentences: int = 100  # Minimum sentences per genre for virtual splits
 
@@ -175,6 +176,25 @@ class Config:
             f"{field_name} must be an integer or null, got {type(value).__name__}"
         )
 
+    @staticmethod
+    def _parse_anchor_mode(value: Any, field_name: str) -> str:
+        """Parse and validate evaluation anchor mode."""
+        if value is None:
+            return "strict"
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{field_name} must be a string ('strict' or 'parity'), got {type(value).__name__}"
+            )
+
+        normalized = value.strip().lower()
+        if normalized in {"strict", "parity"}:
+            return normalized
+
+        raise ValueError(
+            f"{field_name} must be 'strict' or 'parity', got '{value}'"
+        )
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "Config":
         """Create Config from dictionary."""
@@ -192,9 +212,13 @@ class Config:
 
         # Parse evaluation config
         eval_dict = config_dict.get("evaluation", {})
-        metadata_val = MetadataValidationConfig(
-            **eval_dict.get("metadata_validation", {})
-        )
+        metadata_val_dict = dict(eval_dict.get("metadata_validation", {}))
+        if "anchor_mode" in metadata_val_dict:
+            metadata_val_dict["anchor_mode"] = cls._parse_anchor_mode(
+                metadata_val_dict["anchor_mode"],
+                "evaluation.metadata_validation.anchor_mode",
+            )
+        metadata_val = MetadataValidationConfig(**metadata_val_dict)
         evaluation = EvaluationConfig(
             enabled=eval_dict.get("enabled", True),
             metadata_validation=metadata_val,

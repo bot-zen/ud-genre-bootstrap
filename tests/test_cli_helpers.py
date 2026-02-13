@@ -1,7 +1,13 @@
 """Tests for CLI helper functions."""
 
 import pytest
-from ud_genre_bootstrap.cli import apply_treebank_exclusions
+from ud_genre_bootstrap.cli import (
+    apply_treebank_exclusions,
+    build_progressive_treebank_sets,
+    check_evaluation_fold_feasibility,
+    normalize_anchor_mode,
+    parse_inline_treebank_sets,
+)
 from ud_genre_bootstrap.utils.config import Config
 
 
@@ -193,6 +199,21 @@ class TestExclusionConfiguration:
 
         assert config.exclude_treebanks is None
 
+    def test_config_accepts_named_evaluation_sets(self):
+        """Evaluation config should store named treebank sets for reproducible runs."""
+        config = Config()
+        config.evaluation.treebank_sets = {
+            "lit_small": ["de_pud", "cs_pdtc"],
+            "lit_full": ["de_pud", "cs_pdtc", "en_pud"],
+        }
+
+        assert "lit_small" in config.evaluation.treebank_sets
+        assert config.evaluation.treebank_sets["lit_full"] == [
+            "de_pud",
+            "cs_pdtc",
+            "en_pud",
+        ]
+
 
 class TestExclusionIntegration:
     """Integration tests for exclusion functionality."""
@@ -237,6 +258,105 @@ class TestExclusionIntegration:
 
         # Should return original filter
         assert result == ["en_ewt", "de_gsd"]
+
+
+class TestEvaluationSetHelpers:
+    """Tests for evaluation-set helper logic."""
+
+    def test_parse_inline_treebank_sets(self):
+        """Inline set definitions should parse into named treebank lists."""
+        parsed = parse_inline_treebank_sets(
+            [
+                "lit_small=de_pud,cs_pdtc",
+                "lit_full:de_pud,cs_pdtc,en_pud",
+            ]
+        )
+
+        assert parsed == {
+            "lit_small": ["de_pud", "cs_pdtc"],
+            "lit_full": ["de_pud", "cs_pdtc", "en_pud"],
+        }
+
+    def test_parse_inline_treebank_sets_rejects_invalid_definition(self):
+        """Invalid set definitions should fail fast."""
+        with pytest.raises(ValueError, match="Invalid --treebank-set"):
+            parse_inline_treebank_sets(["invalid_format"])
+
+        with pytest.raises(ValueError, match="Duplicate evaluation set name"):
+            parse_inline_treebank_sets(["a=de_pud", "a=en_pud"])
+
+    def test_build_progressive_treebank_sets_orders_by_virtual_split_potential(self):
+        """Progressive sets should prioritize treebanks contributing more virtual splits."""
+        multi_genre_treebanks = [
+            {
+                "treebank": "tb_alpha",
+                "split": "train",
+                "genres": ["news", "wiki", "social"],
+                "language": "en",
+                "sentence_count": 100,
+            },
+            {
+                "treebank": "tb_beta",
+                "split": "train",
+                "genres": ["news", "wiki"],
+                "language": "de",
+                "sentence_count": 80,
+            },
+            {
+                "treebank": "tb_gamma",
+                "split": "train",
+                "genres": ["news", "fiction"],
+                "language": "fr",
+                "sentence_count": 60,
+            },
+        ]
+
+        progressive_sets = build_progressive_treebank_sets(
+            multi_genre_treebanks,
+            min_size=2,
+            step=1,
+        )
+
+        assert progressive_sets["progressive_top_2"] == ["tb_alpha", "tb_beta"]
+        assert progressive_sets["progressive_top_3"] == ["tb_alpha", "tb_beta", "tb_gamma"]
+
+
+class TestAnchorModeHelpers:
+    """Tests for evaluation anchor-mode parsing."""
+
+    def test_normalize_anchor_mode_prefers_cli_value(self):
+        assert normalize_anchor_mode("parity", "strict") == "parity"
+
+    def test_normalize_anchor_mode_uses_config_default(self):
+        assert normalize_anchor_mode(None, "parity") == "parity"
+
+    def test_normalize_anchor_mode_rejects_invalid_values(self):
+        with pytest.raises(ValueError, match="Invalid anchor mode"):
+            normalize_anchor_mode("unknown", "strict")
+
+    def test_check_evaluation_fold_feasibility_respects_grouping_constraints(self):
+        """Fold feasibility should enforce minimum groups for grouped CV."""
+        multi_genre_treebanks = [
+            {"treebank": "tb1", "split": "train", "language": "en"},
+            {"treebank": "tb2", "split": "train", "language": "en"},
+            {"treebank": "tb3", "split": "train", "language": "de"},
+        ]
+
+        ok, reason = check_evaluation_fold_feasibility(
+            multi_genre_treebanks,
+            n_folds=3,
+            group_by="language",
+        )
+        assert not ok
+        assert "requires at least 3 languages" in reason
+
+        ok, reason = check_evaluation_fold_feasibility(
+            multi_genre_treebanks,
+            n_folds=3,
+            group_by="treebank",
+        )
+        assert ok
+        assert reason == ""
 
 
 class TestLabelCommandFlow:

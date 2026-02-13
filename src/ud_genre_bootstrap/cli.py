@@ -228,6 +228,17 @@ def check_evaluation_fold_feasibility(
     return True, ""
 
 
+def normalize_anchor_mode(anchor_mode: Optional[str], default_mode: str = "strict") -> str:
+    """Normalize evaluation anchor mode from CLI/config inputs."""
+    mode = default_mode if anchor_mode is None else anchor_mode
+    normalized = (mode or "strict").strip().lower()
+    if normalized not in {"strict", "parity"}:
+        raise ValueError(
+            f"Invalid anchor mode '{mode}'. Use 'strict' or 'parity'."
+        )
+    return normalized
+
+
 def safe_label_for_filename(label: str) -> str:
     """Normalize labels for safe file names."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", label).strip("_")
@@ -680,6 +691,11 @@ def evaluate(
         "--group-by",
         help="Variable to group by: 'treebank', 'language', or None (overrides config)",
     ),
+    anchor_mode: Optional[str] = typer.Option(
+        None,
+        "--anchor-mode",
+        help="Reference-anchor mode: 'strict' (fold-train anchors only) or 'parity' (plus broader single-genre anchors).",
+    ),
     eval_set: Optional[List[str]] = typer.Option(
         None,
         "--set",
@@ -724,6 +740,7 @@ def evaluate(
         eval_cfg = cfg.evaluation.metadata_validation
         n_folds_val = n_folds if n_folds is not None else eval_cfg.k
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
+        anchor_mode_val = normalize_anchor_mode(anchor_mode, eval_cfg.anchor_mode)
 
         # Resolve evaluation set definitions (config + inline CLI)
         config_eval_sets = resolve_config_treebank_sets(cfg, eval_set)
@@ -770,6 +787,7 @@ def evaluate(
             console.print("[blue]Evaluating all treebanks[/blue]")
 
         console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}")
+        console.print(f"[blue]Anchor mode:[/blue] {anchor_mode_val}")
         console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
         console.print(f"[blue]Min margin:[/blue] {cfg.bootstrapping.min_margin}")
         if progressive:
@@ -784,6 +802,7 @@ def evaluate(
             min_confidence=cfg.bootstrapping.min_confidence,
             min_margin=cfg.bootstrapping.min_margin,
             max_iterations=cfg.bootstrapping.max_iterations,
+            anchor_mode=anchor_mode_val,
         )
 
         # Load treebank metadata and genre mapper
@@ -820,16 +839,34 @@ def evaluate(
                 tb for tb in all_treebank_data if tb['id'] not in cfg.exclude_treebanks
             ]
 
-        # Filter by treebank if specified
+        # Determine which treebanks are evaluation targets (multi-genre candidates).
         if treebank_filter:
-            all_treebank_data = [
-                tb for tb in all_treebank_data if tb['id'] in treebank_filter
+            evaluation_treebank_ids = {tb_id for tb_id in treebank_filter}
+        else:
+            evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
+
+        # In parity mode, scan all available treebanks for single-genre anchor candidates.
+        # In strict mode, scan only the explicit evaluation pool.
+        if anchor_mode_val == "parity":
+            scan_treebank_data = all_treebank_data
+        else:
+            scan_treebank_data = [
+                tb for tb in all_treebank_data if tb["id"] in evaluation_treebank_ids
             ]
 
-        console.print(f"[blue]Checking {len(all_treebank_data)} treebanks for multi-genre datasets...[/blue]")
+        if anchor_mode_val == "parity" and len(scan_treebank_data) > len(evaluation_treebank_ids):
+            console.print(
+                f"[blue]Scanning {len(scan_treebank_data)} treebanks "
+                f"({len(evaluation_treebank_ids)} evaluation target(s) + broader single-genre anchor pool)[/blue]"
+            )
+        else:
+            console.print(
+                f"[blue]Checking {len(scan_treebank_data)} treebanks for multi-genre datasets...[/blue]"
+            )
 
         # Identify multi-genre treebanks and collect sentence metadata
         multi_genre_treebanks = []
+        single_genre_treebanks = []
         sentence_metadata = {}  # Maps (tb_code, split, sent_id) -> genre
 
         # Track statistics
@@ -840,10 +877,12 @@ def evaluate(
             'load_errors': 0,
             'no_metadata': 0,
         }
+        scanned_splits = 0
 
         with console.status("[blue]Scanning sentence metadata...[/blue]") as status:
-            for tb in all_treebank_data:
+            for tb in scan_treebank_data:
                 tb_code = tb['id']
+                is_evaluation_target = tb_code in evaluation_treebank_ids
                 available_splits = bootstrapper.data_loader.get_available_splits(tb_code)
 
                 if not available_splits:
@@ -851,10 +890,12 @@ def evaluate(
 
                 # Check each split for multi-genre content
                 for split_name in available_splits:
-                    stats['checked'] += 1
+                    scanned_splits += 1
+                    if is_evaluation_target:
+                        stats['checked'] += 1
                     status.update(
                         f"[blue]Scanning {tb_code}:{split_name} "
-                        f"({stats['checked']} split(s) checked)...[/blue]"
+                        f"({scanned_splits} split(s) checked)...[/blue]"
                     )
 
                     # Count genres in this split
@@ -878,25 +919,38 @@ def evaluate(
                                 sent_count += 1
                     except Exception as e:
                         logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
-                        stats['load_errors'] += 1
+                        if is_evaluation_target:
+                            stats['load_errors'] += 1
                         continue
 
                     # Classify this split
                     unique_genres = list(genre_counts.keys())
                     if len(unique_genres) == 0:
-                        stats['no_metadata'] += 1
+                        if is_evaluation_target:
+                            stats['no_metadata'] += 1
                     elif len(unique_genres) == 1:
-                        stats['single_genre'] += 1
+                        if is_evaluation_target:
+                            stats['single_genre'] += 1
+                        if anchor_mode_val == "parity":
+                            single_genre_treebanks.append({
+                                'treebank': tb_code,
+                                'split': split_name,
+                                'genres': unique_genres,
+                                'language': tb['language'],
+                                'sentence_count': sent_count,
+                                'genre_counts': genre_counts,
+                            })
                     elif len(unique_genres) >= 2:
-                        stats['multi_genre'] += 1
-                        multi_genre_treebanks.append({
-                            'treebank': tb_code,
-                            'split': split_name,
-                            'genres': unique_genres,
-                            'language': tb['language'],
-                            'sentence_count': sent_count,
-                            'genre_counts': genre_counts,
-                        })
+                        if is_evaluation_target:
+                            stats['multi_genre'] += 1
+                            multi_genre_treebanks.append({
+                                'treebank': tb_code,
+                                'split': split_name,
+                                'genres': unique_genres,
+                                'language': tb['language'],
+                                'sentence_count': sent_count,
+                                'genre_counts': genre_counts,
+                            })
 
         if len(multi_genre_treebanks) == 0:
             console.print("\n[bold yellow]⚠ No multi-genre treebanks found for clustering evaluation[/bold yellow]")
@@ -1027,6 +1081,13 @@ def evaluate(
             for set_treebanks in evaluation_set_map.values()
             for tb_code in set_treebanks
         })
+        if anchor_mode_val == "parity" and single_genre_treebanks:
+            parity_anchor_treebanks = {tb["treebank"] for tb in single_genre_treebanks}
+            treebank_ids_to_embed = sorted(set(treebank_ids_to_embed).union(parity_anchor_treebanks))
+            console.print(
+                f"[blue]Parity anchors:[/blue] {len(single_genre_treebanks)} single-genre split(s) "
+                f"from {len(parity_anchor_treebanks)} treebank(s)"
+            )
         embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_ids_to_embed)
 
         # Run clustering evaluation for each set
@@ -1059,6 +1120,7 @@ def evaluate(
                 sentence_metadata=sentence_metadata,
                 embeddings_by_tb=embeddings_by_tb,
                 clusterer=bootstrapper.clusterer,
+                single_genre_treebanks=single_genre_treebanks if anchor_mode_val == "parity" else None,
             )
             successful_results[set_name] = {
                 "results": set_results,

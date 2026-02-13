@@ -384,6 +384,7 @@ class ClusteringEvaluator:
         min_confidence: float = 0.8,
         min_margin: float = 0.05,
         max_iterations: int = 10,
+        anchor_mode: str = "strict",
     ):
         """Initialize clustering evaluator.
 
@@ -394,6 +395,7 @@ class ClusteringEvaluator:
             min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
             min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
             max_iterations: Maximum bootstrap schedule iterations
+            anchor_mode: Anchor source mode ('strict' or 'parity')
         """
         self.n_folds = n_folds
         self.group_by = group_by
@@ -401,6 +403,9 @@ class ClusteringEvaluator:
         self.min_confidence = min_confidence
         self.min_margin = min_margin
         self.scheduler = BootstrapScheduler(max_iterations=max_iterations)
+        self.anchor_mode = (anchor_mode or "strict").strip().lower()
+        if self.anchor_mode not in {"strict", "parity"}:
+            raise ValueError(f"Invalid anchor_mode '{anchor_mode}'. Use 'strict' or 'parity'.")
 
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
@@ -414,6 +419,7 @@ class ClusteringEvaluator:
         sentence_metadata: Dict,
         embeddings_by_tb: Dict,
         clusterer,
+        single_genre_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
         """Perform k-fold cross-validation on clustering + labeling.
 
@@ -428,12 +434,15 @@ class ClusteringEvaluator:
             sentence_metadata: Dict mapping (treebank, split, sent_id) -> genre
             embeddings_by_tb: Dict mapping (treebank, split) -> {'embedding': ndarray, 'sent_id': list}
             clusterer: Clustering algorithm instance (GMM or K-Means)
+            single_genre_treebanks: Optional single-genre split metadata used as
+                additional anchors in `parity` mode
 
         Returns:
             Dictionary with cross-validation results including sentence-level accuracy
         """
         logger.info(f"Starting {self.n_folds}-fold clustering evaluation")
         logger.info(f"  Evaluating {len(multi_genre_treebanks)} multi-genre treebanks")
+        logger.info(f"  Anchor mode: {self.anchor_mode}")
 
         if len(multi_genre_treebanks) < self.n_folds:
             logger.error(
@@ -480,6 +489,18 @@ class ClusteringEvaluator:
                 f"testing on {len(test_treebanks)} treebanks"
             )
 
+            parity_single_anchor_keys = None
+            if self.anchor_mode == "parity" and single_genre_treebanks:
+                parity_single_anchor_keys = self._select_parity_single_anchor_keys(
+                    single_genre_treebanks=single_genre_treebanks,
+                    test_treebanks=test_treebanks,
+                )
+                logger.info(
+                    "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
+                    len(parity_single_anchor_keys),
+                    len({tb for tb, _ in parity_single_anchor_keys}),
+                )
+
             # For each test treebank, cluster and evaluate
             fold_result = self._evaluate_fold(
                 test_treebanks,
@@ -487,6 +508,7 @@ class ClusteringEvaluator:
                 sentence_metadata,
                 embeddings_by_tb,
                 clusterer,
+                parity_single_anchor_keys=parity_single_anchor_keys,
             )
 
             fold_results.append(fold_result)
@@ -494,40 +516,58 @@ class ClusteringEvaluator:
         # Aggregate results across folds
         return self._aggregate_fold_results(fold_results)
 
-    def _evaluate_fold(
+    def _select_parity_single_anchor_keys(
         self,
+        single_genre_treebanks: List[Dict],
         test_treebanks: List[Dict],
-        train_treebanks: List[Tuple[str, str]],
+    ) -> List[Tuple[str, str]]:
+        """Select leakage-safe single-genre anchor splits for parity mode."""
+        test_treebank_codes = {tb["treebank"] for tb in test_treebanks}
+        test_split_keys = {(tb["treebank"], tb["split"]) for tb in test_treebanks}
+        test_languages = {tb["language"] for tb in test_treebanks if tb.get("language")}
+
+        selected: List[Tuple[str, str]] = []
+        seen = set()
+
+        for anchor in single_genre_treebanks:
+            anchor_key = (anchor["treebank"], anchor["split"])
+            if anchor_key in seen:
+                continue
+
+            # Never use test treebank data as anchors.
+            if anchor_key in test_split_keys or anchor["treebank"] in test_treebank_codes:
+                continue
+
+            # Respect language holdout when language grouping is active.
+            if self.group_by == "language" and anchor.get("language") in test_languages:
+                continue
+
+            seen.add(anchor_key)
+            selected.append(anchor_key)
+
+        return selected
+
+    def _add_virtual_split_anchors(
+        self,
+        treebank_keys: List[Tuple[str, str]],
+        source_tag: str,
         sentence_metadata: Dict,
         embeddings_by_tb: Dict,
-        clusterer,
-    ) -> Dict:
-        """Evaluate clustering on test treebanks for one fold.
+        genre_combination_clusters: Dict,
+        reference_genres: set,
+    ) -> int:
+        """Create anchor centroids from virtual splits and add them to the pool."""
+        if not treebank_keys:
+            return 0
 
-        Args:
-            test_treebanks: List of test treebank metadata dicts
-            train_treebanks: List of (treebank, split) tuples for training
-            sentence_metadata: Sentence-level genre metadata
-            embeddings_by_tb: Precomputed embeddings
-            clusterer: Clustering algorithm
-
-        Returns:
-            Fold results with sentence-level predictions
-        """
-
-        # Build bootstrap cluster pool:
-        # - single-genre anchor clusters from training virtual splits
-        # - multi-genre clusters from held-out test treebanks
-        train_treebank_groups = self.clustering_ops.group_splits_by_treebank(
-            train_treebanks, embeddings_by_tb
+        treebank_groups = self.clustering_ops.group_splits_by_treebank(
+            treebank_keys, embeddings_by_tb
         )
 
-        genre_combination_clusters = defaultdict(dict)
-        reference_genres = set()
-
-        for tb_code, tb_keys in train_treebank_groups.items():
+        anchors_added = 0
+        for tb_code, tb_keys in treebank_groups.items():
             try:
-                combined_train_embeddings, all_train_sent_ids, sent_id_to_split = (
+                combined_embeddings, all_sent_ids, sent_id_to_split = (
                     self.clustering_ops.combine_treebank_splits(tb_keys, embeddings_by_tb)
                 )
             except ValueError:
@@ -535,8 +575,8 @@ class ClusteringEvaluator:
 
             virtual_splits = self.clustering_ops.create_virtual_splits(
                 tb_code,
-                combined_train_embeddings,
-                all_train_sent_ids,
+                combined_embeddings,
+                all_sent_ids,
                 sent_id_to_split,
                 sentence_metadata,
             )
@@ -551,8 +591,9 @@ class ClusteringEvaluator:
                     sent_ids = []
                 if embeddings is None or len(embeddings) == 0:
                     continue
+
                 centroid = np.mean(embeddings, axis=0)
-                anchor_key = (tb_code, "__virtual__", genre)
+                anchor_key = (tb_code, source_tag, genre)
                 genre_combination_clusters[(genre,)][anchor_key] = [
                     {
                         "cluster_id": 0,
@@ -562,8 +603,64 @@ class ClusteringEvaluator:
                     }
                 ]
                 reference_genres.add(genre)
+                anchors_added += 1
 
-        logger.info(f"  Reference genres from training: {sorted(reference_genres)}")
+        return anchors_added
+
+    def _evaluate_fold(
+        self,
+        test_treebanks: List[Dict],
+        train_treebanks: List[Tuple[str, str]],
+        sentence_metadata: Dict,
+        embeddings_by_tb: Dict,
+        clusterer,
+        parity_single_anchor_keys: Optional[List[Tuple[str, str]]] = None,
+    ) -> Dict:
+        """Evaluate clustering on test treebanks for one fold.
+
+        Args:
+            test_treebanks: List of test treebank metadata dicts
+            train_treebanks: List of (treebank, split) tuples for training
+            sentence_metadata: Sentence-level genre metadata
+            embeddings_by_tb: Precomputed embeddings
+            clusterer: Clustering algorithm
+            parity_single_anchor_keys: Optional additional single-genre anchor
+                split keys used in parity mode
+
+        Returns:
+            Fold results with sentence-level predictions
+        """
+
+        # Build bootstrap cluster pool:
+        # - single-genre anchor clusters from training virtual splits
+        # - multi-genre clusters from held-out test treebanks
+        genre_combination_clusters = defaultdict(dict)
+        reference_genres = set()
+        train_anchor_count = self._add_virtual_split_anchors(
+            treebank_keys=train_treebanks,
+            source_tag="__virtual__",
+            sentence_metadata=sentence_metadata,
+            embeddings_by_tb=embeddings_by_tb,
+            genre_combination_clusters=genre_combination_clusters,
+            reference_genres=reference_genres,
+        )
+        parity_anchor_count = 0
+        if parity_single_anchor_keys:
+            parity_anchor_count = self._add_virtual_split_anchors(
+                treebank_keys=parity_single_anchor_keys,
+                source_tag="__single_anchor__",
+                sentence_metadata=sentence_metadata,
+                embeddings_by_tb=embeddings_by_tb,
+                genre_combination_clusters=genre_combination_clusters,
+                reference_genres=reference_genres,
+            )
+
+        logger.info(
+            "  Reference genres from anchors: %s (train anchors=%d, parity anchors=%d)",
+            sorted(reference_genres),
+            train_anchor_count,
+            parity_anchor_count,
+        )
 
         # Use shared operation: Group test treebanks by treebank code
         test_treebank_keys = [(tb['treebank'], tb['split']) for tb in test_treebanks]

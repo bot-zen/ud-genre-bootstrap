@@ -543,12 +543,16 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 
 **Bootstrap Configuration:**
 - **`min_confidence` / `min_margin`**: Evaluation uses the same uncertainty thresholds as production. Cluster assignments are always labeled, but tracked as `bootstrap-labeled` vs `bootstrap-inferred` for analysis.
-- **`max_iterations`**: Not used in evaluation. The bootstrap schedule is only needed in production for iteratively resolving unknown genres. In evaluation, all training genres are "known" from sentence metadata, so no iterative discovery is needed.
+- **`max_iterations`**: Upper bound for schedule iterations in the shared bootstrap runner.
+- **`anchor_mode`**:
+  - `strict`: only fold-train anchors (best for unknown-data generalization estimates)
+  - `parity`: adds leakage-safe single-genre anchors for literature-style comparability
 
 **Cross-Validation:**
 - K-fold cross-validation (configurable K)
 - Grouping options: by language, by treebank, or ungrouped
 - **Important:** When `group_by="treebank"`, all splits of the same treebank stay together in the same fold to prevent data leakage
+- In `parity` anchor mode, additional single-genre anchors are filtered to avoid test leakage (same test treebank always excluded; same test language excluded when `group_by="language"`)
 - Stratification to maintain genre distribution
 - Supports reusable named treebank sets (`evaluation.treebank_sets` + `--set`) for literature comparisons
 - Supports progressive cumulative set evaluation (`--progressive`) to assess scaling up to full virtual-split coverage

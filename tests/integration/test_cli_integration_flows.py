@@ -211,9 +211,18 @@ class StubBootstrapper:
 class StubClusteringEvaluator:
     """Small evaluator stub for evaluate command integration."""
 
-    def __init__(self, n_folds: int, group_by: str, min_confidence: float, min_margin: float):
+    def __init__(
+        self,
+        n_folds: int,
+        group_by: str,
+        min_confidence: float,
+        min_margin: float,
+        max_iterations: int = 10,
+        anchor_mode: str = "strict",
+    ):
         self.n_folds = n_folds
         self.group_by = group_by
+        self.anchor_mode = anchor_mode
 
     def k_fold_validate(
         self,
@@ -221,6 +230,7 @@ class StubClusteringEvaluator:
         sentence_metadata: Dict,
         embeddings_by_tb: Dict,
         clusterer,
+        single_genre_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
         return {
             "mean_accuracy": 0.5,

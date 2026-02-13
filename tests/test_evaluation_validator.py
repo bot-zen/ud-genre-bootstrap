@@ -446,3 +446,100 @@ def test_clustering_evaluator_metrics_backfill_treebank_keys_from_sent_ids():
 
     assert result["instance_labeled_treebanks"] == 1
     assert result["overlap_error_by_treebank"]["tbx:test"] == pytest.approx(0.0)
+
+
+def test_select_parity_single_anchor_keys_respects_leakage_constraints():
+    evaluator = ClusteringEvaluator(n_folds=2, group_by="language", anchor_mode="parity")
+
+    single_genre_treebanks = [
+        {"treebank": "mono_de", "split": "train", "language": "de"},
+        {"treebank": "mono_en", "split": "train", "language": "en"},
+        {"treebank": "test_tb", "split": "train", "language": "en"},
+        {"treebank": "mono_fr", "split": "train", "language": "fr"},
+        {"treebank": "mono_fr", "split": "train", "language": "fr"},  # duplicate
+    ]
+    test_treebanks = [
+        {"treebank": "test_tb", "split": "test", "language": "en", "genres": ["news", "wiki"]},
+    ]
+
+    selected = evaluator._select_parity_single_anchor_keys(
+        single_genre_treebanks=single_genre_treebanks,
+        test_treebanks=test_treebanks,
+    )
+
+    assert ("mono_de", "train") in selected
+    assert ("mono_fr", "train") in selected
+    assert ("mono_en", "train") not in selected
+    assert ("test_tb", "train") not in selected
+    assert selected.count(("mono_fr", "train")) == 1
+
+
+def test_k_fold_validate_filters_parity_anchors_by_test_language(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=2, group_by="language", anchor_mode="parity")
+
+    multi_genre_treebanks = [
+        {
+            "treebank": "tb_en",
+            "split": "train",
+            "genres": ["news", "wiki"],
+            "language": "en",
+        },
+        {
+            "treebank": "tb_de",
+            "split": "train",
+            "genres": ["news", "wiki"],
+            "language": "de",
+        },
+    ]
+    single_genre_treebanks = [
+        {"treebank": "mono_en", "split": "train", "language": "en"},
+        {"treebank": "mono_de", "split": "train", "language": "de"},
+        {"treebank": "mono_fr", "split": "train", "language": "fr"},
+    ]
+    anchor_language_by_key = {
+        (item["treebank"], item["split"]): item["language"]
+        for item in single_genre_treebanks
+    }
+
+    captured_fold_inputs = []
+
+    def _fake_evaluate_fold(
+        test_treebanks,
+        train_treebanks,
+        sentence_metadata,
+        embeddings_by_tb,
+        clusterer,
+        parity_single_anchor_keys=None,
+    ):
+        captured_fold_inputs.append(
+            {
+                "test_languages": {tb["language"] for tb in test_treebanks},
+                "parity_keys": list(parity_single_anchor_keys or []),
+            }
+        )
+        return {
+            "accuracy": 1.0,
+            "num_test": len(test_treebanks),
+            "num_sentences": 1,
+            "true_genres": ["news"],
+            "pred_genres": ["news"],
+            "sent_ids": ["tb:test:s1"],
+            "treebank_split_keys": [("tb", "test")],
+        }
+
+    monkeypatch.setattr(evaluator, "_evaluate_fold", _fake_evaluate_fold)
+
+    result = evaluator.k_fold_validate(
+        multi_genre_treebanks=multi_genre_treebanks,
+        sentence_metadata={},
+        embeddings_by_tb={},
+        clusterer=object(),
+        single_genre_treebanks=single_genre_treebanks,
+    )
+
+    assert result["num_folds"] == 2
+    assert len(captured_fold_inputs) == 2
+    for fold_input in captured_fold_inputs:
+        test_languages = fold_input["test_languages"]
+        for anchor_key in fold_input["parity_keys"]:
+            assert anchor_language_by_key[anchor_key] not in test_languages

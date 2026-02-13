@@ -27,6 +27,9 @@ This tool automatically classifies Universal Dependencies sentences into genres 
 3. **Bootstrapping**: Progressively label clusters by comparing to known single-genre treebanks
 4. **Evaluation**: Cross-validate results against metadata
 
+HF parquet comment markers (`__SENT_ID__`/`__TEXT__`) are materialized at read time in
+the metadata extraction path, so HF and local CoNLL-U genre extraction behave the same.
+
 ## Installation
 
 ### Production Use
@@ -91,7 +94,19 @@ ud-genre-bootstrap run \
 ud-genre-bootstrap embed --model xlm-roberta-base --output embeddings/
 ud-genre-bootstrap cluster --embeddings embeddings/ --output clusters/
 ud-genre-bootstrap label --clusters clusters/ --output genres/
-ud-genre-bootstrap evaluate --genres genres/ --output evaluation/
+ud-genre-bootstrap evaluate --config configs/default.yaml
+
+# Evaluate a literature-comparable explicit set
+ud-genre-bootstrap evaluate --treebank de_pud,cs_pdtc,en_pud --n-folds 5
+
+# Evaluate multiple named sets in one run
+ud-genre-bootstrap evaluate \
+  --treebank-set lit_small=de_pud,cs_pdtc \
+  --treebank-set lit_full=de_pud,cs_pdtc,en_pud \
+  --n-folds 5
+
+# Progressive cumulative evaluation (adds more treebanks each stage)
+ud-genre-bootstrap evaluate --progressive --progressive-step 2 --n-folds 5
 
 # Efficient workflow: cluster command saves state, label command loads it
 ud-genre-bootstrap cluster --config config.yaml --treebank en_ewt
@@ -240,6 +255,7 @@ evaluation:
     k: 5
     stratify_by: "genre"
     group_by: "language"
+    anchor_mode: "strict"  # "strict" (generalization) or "parity" (broader single-genre anchors)
     min_genre_sentences: 100  # Minimum sentences per genre for evaluation
 
 output:

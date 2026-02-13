@@ -213,7 +213,15 @@ def test_test_genres_with_real_metadata_fixtures(real_fixture_setup):
 class _StubClusteringEvaluator:
     """Lightweight evaluator for CLI evaluate flow."""
 
-    def __init__(self, n_folds: int, group_by: str, min_confidence: float, min_margin: float):
+    def __init__(
+        self,
+        n_folds: int,
+        group_by: str,
+        min_confidence: float,
+        min_margin: float,
+        max_iterations: int = 10,
+        anchor_mode: str = "strict",
+    ):
         self.n_folds = n_folds
 
     def k_fold_validate(
@@ -222,6 +230,7 @@ class _StubClusteringEvaluator:
         sentence_metadata,
         embeddings_by_tb,
         clusterer,
+        single_genre_treebanks=None,
     ):
         return {
             "mean_accuracy": 0.5,
