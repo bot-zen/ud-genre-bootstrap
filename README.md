@@ -238,6 +238,7 @@ clustering:
 
 bootstrapping:
   min_confidence: 0.8
+  reference_weighting: "sentence_count"  # or "uniform"
   max_iterations: 10
   fail_on_incomplete: false
 

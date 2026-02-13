@@ -64,7 +64,7 @@ All sentences from treebanks (or virtual splits) containing only a single genre 
 
 #### Stage 6: Bootstrap Labeling
 
-Following the schedule from Stage 4, multi-genre clusters are labeled by comparing their centroid embeddings to reference genre embeddings. Reference embeddings are computed as sentence-count weighted averages of cluster centroids from all known single-genre sources.
+Following the schedule from Stage 4, multi-genre clusters are labeled by comparing their centroid embeddings to reference genre embeddings. Reference embeddings are computed from cluster centroids of all known single-genre sources, using configurable weighting (`sentence_count` by default, or `uniform`).
 
 For each unlabeled cluster:
 1. Compute cosine similarity to all known genre embeddings
@@ -368,7 +368,7 @@ genre_embedding[g] = weighted_mean(
 )
 ```
 
-This computes sentence-count weighted averages of cluster centroids from:
+By default, this computes sentence-count weighted averages of cluster centroids from:
 1. Single-genre treebanks with genre `g`
 2. Virtual splits with genre `g`
 
@@ -529,11 +529,11 @@ The evaluation faithfully mirrors the production implementation in two key ways:
    - **Combines all splits** (train/dev/test) of the same training treebank
    - Creates virtual splits from the combined data using sentence-level metadata
    - Computes cluster centroids for each virtual split
-   - Computes sentence-count weighted averages of these cluster centroids per genre to create reference embeddings
+   - Computes weighted averages of these cluster centroids per genre to create reference embeddings (`bootstrapping.reference_weighting`, default: `sentence_count`)
    - Example:
      - `cs_pdtc:train` + `cs_pdtc:dev` (70K sentences) → combined
      - Extract `cs_pdtc:news` virtual split (40K sentences) → cluster centroid
-     - Reference for 'news' = sentence-count weighted mean of all 'news' cluster centroids
+     - Reference for 'news' = weighted mean of all 'news' cluster centroids
    - This matches production's use of virtual split cluster embeddings as references
 
 2. **Treebank-Level Clustering (Test Data):**
@@ -543,6 +543,7 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 
 **Bootstrap Configuration:**
 - **`min_confidence` / `min_margin`**: Evaluation uses the same uncertainty thresholds as production. Cluster assignments are always labeled, but tracked as `bootstrap-labeled` vs `bootstrap-inferred` for analysis.
+- **`reference_weighting`**: Shared reference aggregation strategy (`sentence_count` or `uniform`) used by both production labeling and evaluation.
 - **`max_iterations`**: Upper bound for schedule iterations in the shared bootstrap runner.
 - **`anchor_mode`**:
   - `strict`: only fold-train anchors (best for unknown-data generalization estimates)

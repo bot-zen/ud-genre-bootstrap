@@ -790,6 +790,7 @@ def evaluate(
         console.print(f"[blue]Anchor mode:[/blue] {anchor_mode_val}")
         console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
         console.print(f"[blue]Min margin:[/blue] {cfg.bootstrapping.min_margin}")
+        console.print(f"[blue]Reference weighting:[/blue] {cfg.bootstrapping.reference_weighting}")
         if progressive:
             console.print(f"[blue]Progressive mode:[/blue] enabled (step={progressive_step})")
 
@@ -803,6 +804,7 @@ def evaluate(
             min_margin=cfg.bootstrapping.min_margin,
             max_iterations=cfg.bootstrapping.max_iterations,
             anchor_mode=anchor_mode_val,
+            reference_weighting=cfg.bootstrapping.reference_weighting,
         )
 
         # Load treebank metadata and genre mapper
@@ -2008,6 +2010,7 @@ def info(
         table.add_row("[bold]Bootstrapping[/bold]", "")
         table.add_row("  Min Confidence", str(cfg.bootstrapping.min_confidence))
         table.add_row("  Min Margin", str(cfg.bootstrapping.min_margin))
+        table.add_row("  Reference Weighting", str(cfg.bootstrapping.reference_weighting))
         table.add_row("  Max Iterations", str(cfg.bootstrapping.max_iterations))
         table.add_row("  Fail on Incomplete", str(cfg.bootstrapping.fail_on_incomplete))
         table.add_row(

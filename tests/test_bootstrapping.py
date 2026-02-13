@@ -657,6 +657,60 @@ class TestReferenceEmbeddingConstruction:
 
         np.testing.assert_allclose(known["news"], np.array([1.5, 0.5]))
 
+    def test_get_known_genre_embeddings_can_use_uniform_weighting(self):
+        """Uniform weighting should average cluster centroids equally across sources."""
+        config = Config()
+        config.bootstrapping.reference_weighting = "uniform"
+        bootstrapper = GenreBootstrapper(config)
+        bootstrapper.genre_combination_clusters = {
+            ("news",): {
+                ("tb_small", "train"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": ["s1"],
+                        "embedding": np.array([0.0, 2.0]),
+                        "confidence": 1.0,
+                    }
+                ],
+                ("tb_large", "train"): [
+                    {
+                        "cluster_id": 0,
+                        "sent_ids": [f"l{i}" for i in range(9)],
+                        "embedding": np.array([2.0, 0.0]),
+                        "confidence": 1.0,
+                    }
+                ],
+            }
+        }
+
+        known = bootstrapper._get_known_genre_embeddings(["news"])
+
+        np.testing.assert_allclose(known["news"], np.array([1.0, 1.0]))
+
+    def test_virtual_split_reference_embeddings_can_use_uniform_weighting(self):
+        """Uniform weighting should average virtual split centroids equally."""
+        ops = ClusteringOperations(reference_weighting="uniform")
+        virtual_splits_by_treebank = {
+            "tb_small": {
+                "news": {
+                    "sent_ids": ["s1"],
+                    "embeddings": np.array([[0.0, 2.0]]),
+                    "split_distribution": {"train": 1},
+                }
+            },
+            "tb_large": {
+                "news": {
+                    "sent_ids": ["l1", "l2", "l3"],
+                    "embeddings": np.array([[2.0, 0.0], [2.0, 0.0], [2.0, 0.0]]),
+                    "split_distribution": {"train": 3},
+                }
+            },
+        }
+
+        known = ops.build_reference_embeddings_from_virtual_splits(virtual_splits_by_treebank)
+
+        np.testing.assert_allclose(known["news"], np.array([1.0, 1.0]))
+
 
 class TestSharedClusterLabeling:
     """Tests for shared cluster labeling logic used across pipelines."""

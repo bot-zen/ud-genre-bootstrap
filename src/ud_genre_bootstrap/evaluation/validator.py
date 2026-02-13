@@ -385,6 +385,7 @@ class ClusteringEvaluator:
         min_margin: float = 0.05,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
+        reference_weighting: str = "sentence_count",
     ):
         """Initialize clustering evaluator.
 
@@ -396,6 +397,8 @@ class ClusteringEvaluator:
             min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
             max_iterations: Maximum bootstrap schedule iterations
             anchor_mode: Anchor source mode ('strict' or 'parity')
+            reference_weighting: Reference centroid aggregation strategy
+                ('sentence_count' or 'uniform')
         """
         self.n_folds = n_folds
         self.group_by = group_by
@@ -406,11 +409,17 @@ class ClusteringEvaluator:
         self.anchor_mode = (anchor_mode or "strict").strip().lower()
         if self.anchor_mode not in {"strict", "parity"}:
             raise ValueError(f"Invalid anchor_mode '{anchor_mode}'. Use 'strict' or 'parity'.")
+        self.reference_weighting = (reference_weighting or "sentence_count").strip().lower()
+        if self.reference_weighting not in {"sentence_count", "uniform"}:
+            raise ValueError(
+                f"Invalid reference_weighting '{reference_weighting}'. Use 'sentence_count' or 'uniform'."
+            )
 
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
             min_confidence=min_confidence,
             min_margin=min_margin,
+            reference_weighting=self.reference_weighting,
         )
 
     def k_fold_validate(
@@ -443,6 +452,7 @@ class ClusteringEvaluator:
         logger.info(f"Starting {self.n_folds}-fold clustering evaluation")
         logger.info(f"  Evaluating {len(multi_genre_treebanks)} multi-genre treebanks")
         logger.info(f"  Anchor mode: {self.anchor_mode}")
+        logger.info(f"  Reference weighting: {self.reference_weighting}")
 
         if len(multi_genre_treebanks) < self.n_folds:
             logger.error(

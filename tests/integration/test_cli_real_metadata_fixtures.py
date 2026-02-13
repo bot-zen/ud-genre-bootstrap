@@ -221,6 +221,7 @@ class _StubClusteringEvaluator:
         min_margin: float,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
+        reference_weighting: str = "sentence_count",
     ):
         self.n_folds = n_folds
 

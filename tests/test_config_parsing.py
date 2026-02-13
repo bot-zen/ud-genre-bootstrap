@@ -30,3 +30,13 @@ def test_parse_metadata_anchor_mode_rejects_invalid_value():
         Config.from_dict(
             {"evaluation": {"metadata_validation": {"anchor_mode": "invalid"}}}
         )
+
+
+def test_parse_reference_weighting_uniform():
+    cfg = Config.from_dict({"bootstrapping": {"reference_weighting": "uniform"}})
+    assert cfg.bootstrapping.reference_weighting == "uniform"
+
+
+def test_parse_reference_weighting_rejects_invalid_value():
+    with pytest.raises(ValueError, match="bootstrapping.reference_weighting"):
+        Config.from_dict({"bootstrapping": {"reference_weighting": "invalid"}})

@@ -42,6 +42,7 @@ class BootstrappingConfig:
 
     min_confidence: float = 0.8
     min_margin: float = 0.05
+    reference_weighting: str = "sentence_count"  # "sentence_count" or "uniform"
     max_iterations: int = 10
     fail_on_incomplete: bool = False
     unresolved_handling: str = "null"
@@ -195,6 +196,25 @@ class Config:
             f"{field_name} must be 'strict' or 'parity', got '{value}'"
         )
 
+    @staticmethod
+    def _parse_reference_weighting(value: Any, field_name: str) -> str:
+        """Parse and validate reference embedding weighting mode."""
+        if value is None:
+            return "sentence_count"
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{field_name} must be a string ('sentence_count' or 'uniform'), got {type(value).__name__}"
+            )
+
+        normalized = value.strip().lower()
+        if normalized in {"sentence_count", "uniform"}:
+            return normalized
+
+        raise ValueError(
+            f"{field_name} must be 'sentence_count' or 'uniform', got '{value}'"
+        )
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "Config":
         """Create Config from dictionary."""
@@ -207,7 +227,13 @@ class Config:
                 "clustering.fit_sample_size",
             )
         clustering = ClusteringConfig(**clustering_dict)
-        bootstrapping = BootstrappingConfig(**config_dict.get("bootstrapping", {}))
+        bootstrapping_dict = dict(config_dict.get("bootstrapping", {}))
+        if "reference_weighting" in bootstrapping_dict:
+            bootstrapping_dict["reference_weighting"] = cls._parse_reference_weighting(
+                bootstrapping_dict["reference_weighting"],
+                "bootstrapping.reference_weighting",
+            )
+        bootstrapping = BootstrappingConfig(**bootstrapping_dict)
         genre_extraction = GenreExtractionConfig(**config_dict.get("genre_extraction", {}))
 
         # Parse evaluation config

@@ -24,15 +24,33 @@ class ClusteringOperations:
     By sharing this code, production and evaluation are guaranteed to stay consistent.
     """
 
-    def __init__(self, min_confidence: float = 0.8, min_margin: float = 0.05):
+    def __init__(
+        self,
+        min_confidence: float = 0.8,
+        min_margin: float = 0.05,
+        reference_weighting: str = "sentence_count",
+    ):
         """Initialize clustering operations.
 
         Args:
             min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
             min_margin: Minimum gap between top-1 and top-2 similarity for high-confidence labeling
+            reference_weighting: Reference centroid aggregation strategy
+                ('sentence_count' or 'uniform')
         """
         self.min_confidence = min_confidence
         self.min_margin = min_margin
+        self.reference_weighting = (reference_weighting or "sentence_count").strip().lower()
+        if self.reference_weighting not in {"sentence_count", "uniform"}:
+            raise ValueError(
+                f"Invalid reference_weighting '{reference_weighting}'. Use 'sentence_count' or 'uniform'."
+            )
+
+    def _reference_weight_for_size(self, size: int) -> float:
+        """Compute per-centroid weight under the configured reference strategy."""
+        if self.reference_weighting == "uniform":
+            return 1.0
+        return float(size if size > 0 else 1)
 
     def group_splits_by_treebank(
         self,
@@ -195,7 +213,7 @@ class ClusteringOperations:
         """Build genre reference embeddings from virtual splits.
 
         Computes cluster centroids for each virtual split, then computes
-        sentence-count weighted averages across treebanks for each genre.
+        weighted averages across treebanks for each genre.
 
         This is the core reference construction used by both production and evaluation.
 
@@ -215,7 +233,7 @@ class ClusteringOperations:
                 centroid = np.mean(split_data['embeddings'], axis=0)
                 reference_genre_embeddings[genre].append(centroid)
                 split_size = len(split_data.get('sent_ids', []))
-                reference_genre_weights[genre].append(float(split_size if split_size > 0 else 1))
+                reference_genre_weights[genre].append(self._reference_weight_for_size(split_size))
 
                 splits_info = split_data.get('split_distribution', {})
                 if splits_info:
@@ -226,7 +244,7 @@ class ClusteringOperations:
                         f"→ cluster centroid"
                     )
 
-        # Sentence-count weighted average centroids per genre
+        # Weighted average centroids per genre
         known_genre_embeddings = {}
         for genre, centroids in reference_genre_embeddings.items():
             if len(centroids) > 0:
@@ -237,7 +255,7 @@ class ClusteringOperations:
                 )
                 logger.debug(
                     f"    Built reference for '{genre}' from {len(centroids)} cluster centroid(s), "
-                    f"weighted by {int(sum(reference_genre_weights[genre]))} sentence(s)"
+                    f"weighting={self.reference_weighting}"
                 )
 
         return known_genre_embeddings
@@ -255,7 +273,7 @@ class ClusteringOperations:
             known_genres: Genres currently available as bootstrap anchors.
 
         Returns:
-            Dict mapping known genre -> sentence-count weighted reference embedding.
+            Dict mapping known genre -> weighted reference embedding.
         """
         known_embeddings: Dict[str, np.ndarray] = {}
 
@@ -271,7 +289,7 @@ class ClusteringOperations:
                         continue
                     all_embeddings.append(embedding)
                     cluster_size = len(cluster.get("sent_ids", []))
-                    all_weights.append(float(cluster_size if cluster_size > 0 else 1))
+                    all_weights.append(self._reference_weight_for_size(cluster_size))
 
             if all_embeddings:
                 known_embeddings[genre] = np.average(

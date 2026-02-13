@@ -95,6 +95,7 @@ class GenreBootstrapper:
         self.clustering_ops = ClusteringOperations(
             min_confidence=config.bootstrapping.min_confidence,
             min_margin=config.bootstrapping.min_margin,
+            reference_weighting=config.bootstrapping.reference_weighting,
         )
 
         # Storage for results
@@ -745,8 +746,9 @@ class GenreBootstrapper:
     def _get_known_genre_embeddings(self, known_genres: List[str]) -> Dict[str, np.ndarray]:
         """Get reference embeddings for known single-genre sources.
 
-        Reference embeddings are computed as sentence-count weighted means of
-        cluster centroids for each known genre.
+        Reference embeddings are computed as weighted means of cluster centroids
+        for each known genre. Weighting behavior is controlled by
+        ``bootstrapping.reference_weighting``.
 
         Args:
             known_genres: List of known genre labels
