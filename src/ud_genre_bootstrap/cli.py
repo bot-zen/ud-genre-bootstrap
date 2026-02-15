@@ -727,7 +727,7 @@ def evaluate(
     """Evaluate clustering + labeling on multi-genre treebanks.
 
     Tests the actual problem the framework solves: clustering mixed sentences
-    and assigning genres. Reports sentence-level accuracy against ground truth
+    and assigning genres. Reports sentence-level micro-F1-equivalent accuracy against ground truth
     metadata.
 
     For each cross-validation fold:
@@ -1165,12 +1165,14 @@ def evaluate(
             summary_table.add_column("Treebanks", style="blue", justify="right")
             summary_table.add_column("Splits", style="green", justify="right")
             summary_table.add_column("Potential Virtual Splits", style="yellow", justify="right")
-            summary_table.add_column("Overall Accuracy", style="magenta", justify="right")
-            summary_table.add_column("Micro-F1", style="magenta", justify="right")
+            summary_table.add_column("Overall Acc (Micro-F1)", style="magenta", justify="right")
+            summary_table.add_column("Macro-F1", style="magenta", justify="right")
             summary_table.add_column("PUR", style="magenta", justify="right")
-            summary_table.add_column("AGR", style="magenta", justify="right")
-            summary_table.add_column("ΔBC", style="magenta", justify="right")
-            summary_table.add_column("Mean Fold Acc", style="magenta", justify="right")
+            summary_table.add_column("AGR (TB)", style="magenta", justify="right")
+            summary_table.add_column("ΔBC (TB)", style="magenta", justify="right")
+            summary_table.add_column("AGR (Split)", style="magenta", justify="right")
+            summary_table.add_column("ΔBC (Split)", style="magenta", justify="right")
+            summary_table.add_column("Mean Fold Acc (Micro-F1)", style="magenta", justify="right")
 
             def _fmt_metric(result: Dict, key: str) -> str:
                 mean_key = f"mean_{key}"
@@ -1199,10 +1201,12 @@ def evaluate(
                     str(payload["splits"]),
                     str(set_virtual_split_count),
                     _fmt_metric(set_results, "overall_accuracy"),
-                    _fmt_metric(set_results, "micro_f1_instance"),
+                    _fmt_metric(set_results, "macro_f1_instance"),
                     _fmt_metric(set_results, "purity"),
-                    _fmt_metric(set_results, "agreement"),
-                    _fmt_metric(set_results, "overlap_error"),
+                    _fmt_metric(set_results, "agreement_treebank"),
+                    _fmt_metric(set_results, "overlap_error_treebank"),
+                    _fmt_metric(set_results, "agreement_split"),
+                    _fmt_metric(set_results, "overlap_error_split"),
                     f"{set_results['mean_accuracy']:.4f} +/- {set_results['std_accuracy']:.4f}",
                 )
 
@@ -2746,14 +2750,19 @@ def _display_evaluation_results(results: dict):
     console.print("\n[bold cyan]Cross-Validation Results[/bold cyan]")
     console.print("=" * 60)
 
-    console.print(f"\nMean Accuracy: {results['mean_accuracy']:.4f} +/- {results['std_accuracy']:.4f}")
-    console.print(f"Overall Accuracy: {results['overall_accuracy']:.4f}")
+    console.print(
+        f"\nMean Fold Acc (Micro-F1): "
+        f"{results['mean_accuracy']:.4f} +/- {results['std_accuracy']:.4f}"
+    )
+    console.print(f"Overall Acc (Micro-F1): {results['overall_accuracy']:.4f}")
     console.print(f"Number of Folds: {results['num_folds']}")
     metric_specs = [
-        ("micro_f1_instance", "Micro-F1 (instance-labeled)"),
+        ("macro_f1_instance", "Macro-F1 (instance-labeled)"),
         ("purity", "Purity (PUR)"),
-        ("agreement", "Agreement (AGR)"),
-        ("overlap_error", "Overlap Error (ΔBC)"),
+        ("agreement_treebank", "Agreement (AGR, treebank-level)"),
+        ("overlap_error_treebank", "Overlap Error (ΔBC, treebank-level)"),
+        ("agreement_split", "Agreement (AGR, split-level diagnostic)"),
+        ("overlap_error_split", "Overlap Error (ΔBC, split-level diagnostic)"),
     ]
     for key, label in metric_specs:
         if key not in results:
@@ -2767,8 +2776,16 @@ def _display_evaluation_results(results: dict):
             )
         else:
             console.print(f"{label}: {results[key]:.4f}")
-    if "instance_labeled_treebanks" in results:
-        console.print(f"Instance-labeled Treebanks: {results['instance_labeled_treebanks']}")
+    if "instance_labeled_treebanks_treebank" in results:
+        console.print(
+            f"Instance-labeled Treebanks (treebank-level): "
+            f"{results['instance_labeled_treebanks_treebank']}"
+        )
+    if "instance_labeled_treebanks_split" in results:
+        console.print(
+            f"Instance-labeled Treebank Splits (diagnostic): "
+            f"{results['instance_labeled_treebanks_split']}"
+        )
 
     # Fold accuracies
     console.print("\n[bold]Per-Fold Accuracies:[/bold]")

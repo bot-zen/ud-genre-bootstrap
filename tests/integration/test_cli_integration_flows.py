@@ -238,10 +238,14 @@ class StubClusteringEvaluator:
             "std_accuracy": 0.0,
             "overall_accuracy": 0.5,
             "micro_f1_instance": 0.5,
+            "macro_f1_instance": 0.5,
             "purity": 0.5,
-            "agreement": 0.75,
-            "overlap_error": 0.25,
-            "instance_labeled_treebanks": len({tb["treebank"] for tb in multi_genre_treebanks}),
+            "agreement_treebank": 0.75,
+            "overlap_error_treebank": 0.25,
+            "agreement_split": 0.70,
+            "overlap_error_split": 0.30,
+            "instance_labeled_treebanks_treebank": len({tb["treebank"] for tb in multi_genre_treebanks}),
+            "instance_labeled_treebanks_split": len(multi_genre_treebanks),
             "num_folds": self.n_folds,
             "fold_accuracies": [0.5] * self.n_folds,
         }
@@ -308,10 +312,10 @@ def test_evaluate_multi_set_comparison_shows_extended_metrics(monkeypatch, cfg: 
 
     assert result.exit_code == 0, result.stdout
     assert "Evaluation Set Comparison" in result.stdout
-    assert "Micro-F1" in result.stdout
+    assert "Macro-F1" in result.stdout
     assert "PUR" in result.stdout
     assert "AGR" in result.stdout
-    assert "Overlap Error (ΔBC)" in result.stdout
+    assert "ΔBC" in result.stdout
 
 
 def test_coverage_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):

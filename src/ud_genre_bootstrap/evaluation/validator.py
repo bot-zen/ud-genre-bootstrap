@@ -690,6 +690,7 @@ class ClusteringEvaluator:
         all_true = []
         all_pred = []
         all_sent_refs = []
+        all_treebank_keys = []
         all_treebank_splits = []
 
         for tb_code, tb_keys in test_treebank_groups.items():
@@ -803,6 +804,7 @@ class ClusteringEvaluator:
                     all_true.append(true_genre)
                     all_pred.append(pred_genre)
                     all_sent_refs.append(f"{tb_code}:{split_name}:{sent_id}")
+                    all_treebank_keys.append(tb_code)
                     all_treebank_splits.append((tb_code, split_name))
 
         if len(all_pred) == 0:
@@ -825,6 +827,7 @@ class ClusteringEvaluator:
             "true_genres": all_true,
             "pred_genres": all_pred,
             "sent_ids": all_sent_refs,
+            "treebank_keys": all_treebank_keys,
             "treebank_split_keys": all_treebank_splits,
         }
 
@@ -841,21 +844,26 @@ class ClusteringEvaluator:
         all_true = []
         all_pred = []
         all_sent_ids = []
+        all_treebank_keys = []
         all_treebank_splits = []
         accuracies = []
         total_sentences = []
 
         for result in fold_results:
-            all_true.extend(result.get("true_genres", []))
-            all_pred.extend(result.get("pred_genres", []))
-            all_sent_ids.extend(result.get("sent_ids", []))
-            if "treebank_split_keys" in result:
-                all_treebank_splits.extend(result["treebank_split_keys"])
-            else:
-                for sent_ref in result.get("sent_ids", []):
-                    parts = sent_ref.split(":", 2)
-                    if len(parts) >= 2:
-                        all_treebank_splits.append((parts[0], parts[1]))
+            true_genres = result.get("true_genres", [])
+            pred_genres = result.get("pred_genres", [])
+            sent_ids = result.get("sent_ids", [])
+
+            all_true.extend(true_genres)
+            all_pred.extend(pred_genres)
+            all_sent_ids.extend(sent_ids)
+
+            true_count = len(true_genres)
+            split_keys = self._resolve_fold_split_keys(result, true_count)
+            treebank_keys = self._resolve_fold_treebank_keys(result, true_count, split_keys)
+
+            all_treebank_splits.extend(split_keys)
+            all_treebank_keys.extend(treebank_keys)
             accuracies.append(result["accuracy"])
             total_sentences.append(result["num_sentences"])
 
@@ -875,13 +883,20 @@ class ClusteringEvaluator:
                 "total_sentences": 0,
                 "num_sentences_per_fold": total_sentences,
                 "purity": 0.0,
-                "agreement": 0.0,
-                "agreement_by_genre": {},
-                "overlap_error": 0.0,
-                "overlap_error_weighted": 0.0,
-                "overlap_error_by_treebank": {},
+                "agreement_treebank": 0.0,
+                "agreement_by_genre_treebank": {},
+                "overlap_error_treebank": 0.0,
+                "overlap_error_weighted_treebank": 0.0,
+                "overlap_error_by_treebank_treebank": {},
+                "agreement_split": 0.0,
+                "agreement_by_genre_split": {},
+                "overlap_error_split": 0.0,
+                "overlap_error_weighted_split": 0.0,
+                "overlap_error_by_treebank_split": {},
                 "micro_f1_instance": 0.0,
-                "instance_labeled_treebanks": 0,
+                "macro_f1_instance": 0.0,
+                "instance_labeled_treebanks_treebank": 0,
+                "instance_labeled_treebanks_split": 0,
                 **fold_metric_summary,
             }
 
@@ -895,18 +910,31 @@ class ClusteringEvaluator:
             zero_division=0,
         )
 
-        # Get unique genre labels in sorted order for confusion matrix axes
+        # Get unique genre labels in sorted order for confusion matrix axes.
         genre_labels = sorted(set(all_true))
+        if len(all_treebank_keys) != len(all_true):
+            logger.warning(
+                "Treebank-level key count mismatch (%d keys, %d labels); "
+                "falling back to a single synthetic treebank key for paper metrics",
+                len(all_treebank_keys),
+                len(all_true),
+            )
+            all_treebank_keys = ["unknown"] * len(all_true)
         if len(all_treebank_splits) != len(all_true):
             logger.warning(
-                "Treebank key count mismatch (%d keys, %d labels); "
-                "falling back to a single synthetic treebank key for paper metrics",
+                "Split-level key count mismatch (%d keys, %d labels); "
+                "falling back to a single synthetic split key for diagnostics",
                 len(all_treebank_splits),
                 len(all_true),
             )
             all_treebank_splits = [("unknown", "unknown")] * len(all_true)
 
-        extra_metrics = ClusteringEvaluationMetrics.compute_all(
+        treebank_metrics = ClusteringEvaluationMetrics.compute_all(
+            true_genres=all_true,
+            pred_genres=all_pred,
+            treebank_keys=all_treebank_keys,
+        )
+        split_metrics = ClusteringEvaluationMetrics.compute_all(
             true_genres=all_true,
             pred_genres=all_pred,
             treebank_keys=all_treebank_splits,
@@ -925,17 +953,76 @@ class ClusteringEvaluator:
             "num_folds": len(fold_results),
             "total_sentences": sum(total_sentences),
             "num_sentences_per_fold": total_sentences,
-            **extra_metrics,
+            "micro_f1_instance": treebank_metrics["micro_f1_instance"],
+            "macro_f1_instance": treebank_metrics["macro_f1_instance"],
+            "purity": treebank_metrics["purity"],
+            "agreement_treebank": treebank_metrics["agreement"],
+            "agreement_by_genre_treebank": treebank_metrics["agreement_by_genre"],
+            "overlap_error_treebank": treebank_metrics["overlap_error"],
+            "overlap_error_weighted_treebank": treebank_metrics["overlap_error_weighted"],
+            "overlap_error_by_treebank_treebank": treebank_metrics["overlap_error_by_treebank"],
+            "instance_labeled_treebanks_treebank": treebank_metrics["instance_labeled_treebanks"],
+            "agreement_split": split_metrics["agreement"],
+            "agreement_by_genre_split": split_metrics["agreement_by_genre"],
+            "overlap_error_split": split_metrics["overlap_error"],
+            "overlap_error_weighted_split": split_metrics["overlap_error_weighted"],
+            "overlap_error_by_treebank_split": split_metrics["overlap_error_by_treebank"],
+            "instance_labeled_treebanks_split": split_metrics["instance_labeled_treebanks"],
             **fold_metric_summary,
         }
+
+    @staticmethod
+    def _resolve_fold_split_keys(result: Dict, true_count: int) -> List[Tuple[str, str]]:
+        """Resolve split-level grouping keys for one fold result."""
+        split_keys = result.get("treebank_split_keys", [])
+        if len(split_keys) == true_count:
+            return split_keys
+
+        sent_refs = result.get("sent_ids", [])
+        backfilled = []
+        for sent_ref in sent_refs:
+            parts = sent_ref.split(":", 2)
+            if len(parts) >= 2:
+                backfilled.append((parts[0], parts[1]))
+        if len(backfilled) == true_count:
+            return backfilled
+
+        return [("unknown", "unknown")] * true_count
+
+    @staticmethod
+    def _resolve_fold_treebank_keys(
+        result: Dict,
+        true_count: int,
+        split_keys: List[Tuple[str, str]],
+    ) -> List[str]:
+        """Resolve treebank-level grouping keys for one fold result."""
+        treebank_keys = result.get("treebank_keys", [])
+        if len(treebank_keys) == true_count:
+            return treebank_keys
+
+        if len(split_keys) == true_count:
+            return [tb_code for tb_code, _split in split_keys]
+
+        sent_refs = result.get("sent_ids", [])
+        backfilled = []
+        for sent_ref in sent_refs:
+            parts = sent_ref.split(":", 2)
+            if len(parts) >= 1:
+                backfilled.append(parts[0])
+        if len(backfilled) == true_count:
+            return backfilled
+
+        return ["unknown"] * true_count
 
     def _compute_fold_metric_summary(self, fold_results: List[Dict]) -> Dict:
         """Compute per-fold mean/std for cross-fold comparable metrics."""
         metric_keys = (
-            "micro_f1_instance",
+            "macro_f1_instance",
             "purity",
-            "agreement",
-            "overlap_error",
+            "agreement_treebank",
+            "overlap_error_treebank",
+            "agreement_split",
+            "overlap_error_split",
         )
         per_metric_values = {key: [] for key in metric_keys}
 
@@ -945,26 +1032,34 @@ class ClusteringEvaluator:
             if len(true_genres) == 0 or len(pred_genres) == 0:
                 continue
 
-            treebank_keys = result.get("treebank_split_keys", [])
-            if len(treebank_keys) != len(true_genres):
-                sent_refs = result.get("sent_ids", [])
-                backfilled_treebank_keys = []
-                for sent_ref in sent_refs:
-                    parts = sent_ref.split(":", 2)
-                    if len(parts) >= 2:
-                        backfilled_treebank_keys.append((parts[0], parts[1]))
-                treebank_keys = backfilled_treebank_keys
+            true_count = len(true_genres)
+            split_keys = self._resolve_fold_split_keys(result, true_count)
+            treebank_keys = self._resolve_fold_treebank_keys(result, true_count, split_keys)
 
-            if len(treebank_keys) != len(true_genres):
-                treebank_keys = [("unknown", "unknown")] * len(true_genres)
-
-            fold_metrics = ClusteringEvaluationMetrics.compute_all(
+            treebank_metrics = ClusteringEvaluationMetrics.compute_all(
                 true_genres=true_genres,
                 pred_genres=pred_genres,
                 treebank_keys=treebank_keys,
             )
-            for key in metric_keys:
-                per_metric_values[key].append(float(fold_metrics.get(key, 0.0)))
+            split_metrics = ClusteringEvaluationMetrics.compute_all(
+                true_genres=true_genres,
+                pred_genres=pred_genres,
+                treebank_keys=split_keys,
+            )
+            per_metric_values["macro_f1_instance"].append(
+                float(treebank_metrics["macro_f1_instance"])
+            )
+            per_metric_values["purity"].append(float(treebank_metrics["purity"]))
+            per_metric_values["agreement_treebank"].append(
+                float(treebank_metrics["agreement"])
+            )
+            per_metric_values["overlap_error_treebank"].append(
+                float(treebank_metrics["overlap_error"])
+            )
+            per_metric_values["agreement_split"].append(float(split_metrics["agreement"]))
+            per_metric_values["overlap_error_split"].append(
+                float(split_metrics["overlap_error"])
+            )
 
         summary = {}
         for key in metric_keys:

@@ -23,12 +23,15 @@ def _write_config(
     cache_dir: Path,
     mapping_path: Path,
     patterns_path: Path,
+    include_treebanks: list[str] | None = None,
+    eval_k: int = 1,
+    eval_group_by: str = "treebank",
 ) -> Path:
     """Write a minimal config file for CLI integration tests."""
     config = {
         "ud_version": "2.17",
         "ud_source": ud_source,
-        "include_treebanks": ["xx_demo"],
+        "include_treebanks": include_treebanks or ["xx_demo"],
         "embeddings": {
             "model": "xlm-roberta-base",
             "pooling": "mean",
@@ -43,8 +46,8 @@ def _write_config(
         },
         "evaluation": {
             "metadata_validation": {
-                "k": 1,
-                "group_by": "treebank",
+                "k": eval_k,
+                "group_by": eval_group_by,
                 "coverage_threshold": 0.95,
             },
         },
@@ -282,3 +285,265 @@ def test_evaluate_with_real_metadata_scan(real_fixture_setup, monkeypatch: pytes
     assert result.exit_code == 0, result.stdout
     assert "Found 1 multi-genre treebank splits for evaluation" in result.stdout
     assert "Cross-Validation Results" in result.stdout
+
+
+@pytest.fixture(params=["local", "hf"])
+def real_eval_golden_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+):
+    """Build deterministic multi-split fixtures for golden evaluate-metrics tests."""
+    source_mode = request.param
+    ud_root = tmp_path / "ud"
+    treebank_dir = ud_root / "UD_Demo" / "r2.17"
+    treebank_dir.mkdir(parents=True, exist_ok=True)
+
+    def _split_rows(split_name: str):
+        return [
+            {
+                "sent_id": f"n_{split_name}_1",
+                "text": f"{split_name} sentence 1 (news).",
+                "genre": "news",
+            },
+            {
+                "sent_id": f"n_{split_name}_2",
+                "text": f"{split_name} sentence 2 (news).",
+                "genre": "news",
+            },
+            {
+                "sent_id": f"w_{split_name}_1",
+                "text": f"{split_name} sentence 1 (wiki).",
+                "genre": "wiki",
+            },
+            {
+                "sent_id": f"w_{split_name}_2",
+                "text": f"{split_name} sentence 2 (wiki).",
+                "genre": "wiki",
+            },
+        ]
+
+    parquet_paths = {}
+    for split_name in ("train", "dev"):
+        conllu_path = treebank_dir / f"xx_demo-ud-{split_name}.conllu"
+        lines = []
+        for row in _split_rows(split_name):
+            lines.extend(
+                [
+                    f"# sent_id = {row['sent_id']}",
+                    f"# text = {row['text']}",
+                    "1\tToken\ttoken\tNOUN\t_\t_\t0\troot\t_\t_",
+                    "",
+                ]
+            )
+        conllu_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        parquet_path = tmp_path / f"xx_demo-{split_name}.parquet"
+        Dataset.from_list(
+            [
+                {
+                    "sent_id": row["sent_id"],
+                    "text": row["text"],
+                    "comments": ["__SENT_ID__", "__TEXT__"],
+                }
+                for row in _split_rows(split_name)
+            ]
+        ).to_parquet(parquet_path)
+        parquet_paths[split_name] = parquet_path
+
+    mapping_path = tmp_path / "genre_mappings.json"
+    mapping_path.write_text('{"n": "news", "w": "wiki"}', encoding="utf-8")
+
+    patterns_path = tmp_path / "metadata_patterns.json"
+    patterns_path.write_text(
+        '{"xx_demo": [{"pattern": "(?:#\\\\s*)?sent_id\\\\s*=\\\\s*([nw])", "genre": "$1"}]}',
+        encoding="utf-8",
+    )
+
+    metadata: Dict = {
+        "xx_demo": {
+            "lcode": "xx",
+            "genre": ["news", "wiki"],
+            "splits": {
+                "train": {
+                    "files": ["UD_Demo/r2.17/xx_demo-ud-train.conllu"],
+                },
+                "dev": {
+                    "files": ["UD_Demo/r2.17/xx_demo-ud-dev.conllu"],
+                },
+            },
+        }
+    }
+    monkeypatch.setattr(data_loader_module.UDDataLoader, "_load_metadata", lambda self: metadata)
+
+    if source_mode == "hf":
+
+        def _fake_load_dataset(repo_id: str, treebank_code: str, split: str, revision: str):
+            assert repo_id == "dummy/repo"
+            assert treebank_code == "xx_demo"
+            return datasets_load_dataset(
+                "parquet",
+                data_files={split: str(parquet_paths[split])},
+                split=split,
+            )
+
+        monkeypatch.setattr(data_loader_module, "load_dataset", _fake_load_dataset)
+        ud_source = "hf://dummy/repo"
+    else:
+        ud_source = f"local://{ud_root}"
+
+    output_dir = tmp_path / "output"
+    cache_dir = tmp_path / "embeddings"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    config_path = _write_config(
+        config_path=tmp_path / f"config-golden-{source_mode}.yaml",
+        ud_source=ud_source,
+        output_dir=output_dir,
+        cache_dir=cache_dir,
+        mapping_path=mapping_path,
+        patterns_path=patterns_path,
+        include_treebanks=["xx_demo"],
+        eval_k=2,
+        eval_group_by="none",
+    )
+
+    return {
+        "mode": source_mode,
+        "config_path": config_path,
+    }
+
+
+def test_evaluate_reports_full_deterministic_metric_bundle(real_eval_golden_setup, monkeypatch: pytest.MonkeyPatch):
+    """Evaluate should emit a stable full metric bundle on deterministic fixtures."""
+    captured_results = []
+
+    def _capture_results(results: Dict):
+        captured_results.append(results)
+
+    def _fake_generate_embeddings(self, treebank_filter=None, overwrite=False):
+        genre_to_embedding = {
+            "news": np.array([1.0, 0.0], dtype=np.float32),
+            "wiki": np.array([0.0, 1.0], dtype=np.float32),
+        }
+        embeddings_by_tb = {}
+        treebanks = treebank_filter or self.data_loader.get_treebank_codes()
+
+        for tb_code in treebanks:
+            for split_name in self.data_loader.get_available_splits(tb_code):
+                sent_ids = []
+                vectors = []
+                sentence_iter = self.data_loader.iter_treebank_sentences(
+                    tb_code,
+                    split_name,
+                    metadata_only=True,
+                )
+                for idx, sentence in enumerate(sentence_iter):
+                    sent_id = sentence.get("sent_id", f"{tb_code}_{split_name}_{idx}")
+                    genres = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+                    if not genres:
+                        continue
+                    sent_ids.append(sent_id)
+                    vectors.append(genre_to_embedding[genres[0]])
+
+                embeddings_by_tb[(tb_code, split_name)] = {
+                    "sent_id": sent_ids,
+                    "embedding": np.stack(vectors).astype(np.float32),
+                }
+        return embeddings_by_tb
+
+    monkeypatch.setattr(cli_module.GenreBootstrapper, "_generate_embeddings", _fake_generate_embeddings)
+    monkeypatch.setattr(cli_module, "_display_evaluation_results", _capture_results)
+    monkeypatch.setattr(cli_module, "_save_clustering_confusion_matrix", lambda *_args, **_kwargs: None)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "evaluate",
+            "--config",
+            str(real_eval_golden_setup["config_path"]),
+            "--treebank",
+            "xx_demo",
+            "--n-folds",
+            "2",
+            "--group-by",
+            "none",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(captured_results) == 1
+
+    metrics = captured_results[0]
+    expected_keys = {
+        "mean_accuracy",
+        "std_accuracy",
+        "overall_accuracy",
+        "confusion_matrix",
+        "genre_labels",
+        "classification_report",
+        "fold_accuracies",
+        "num_folds",
+        "total_sentences",
+        "num_sentences_per_fold",
+        "micro_f1_instance",
+        "macro_f1_instance",
+        "purity",
+        "agreement_treebank",
+        "agreement_by_genre_treebank",
+        "overlap_error_treebank",
+        "overlap_error_weighted_treebank",
+        "overlap_error_by_treebank_treebank",
+        "instance_labeled_treebanks_treebank",
+        "agreement_split",
+        "agreement_by_genre_split",
+        "overlap_error_split",
+        "overlap_error_weighted_split",
+        "overlap_error_by_treebank_split",
+        "instance_labeled_treebanks_split",
+        "mean_macro_f1_instance",
+        "std_macro_f1_instance",
+        "mean_purity",
+        "std_purity",
+        "mean_agreement_treebank",
+        "std_agreement_treebank",
+        "mean_overlap_error_treebank",
+        "std_overlap_error_treebank",
+        "mean_agreement_split",
+        "std_agreement_split",
+        "mean_overlap_error_split",
+        "std_overlap_error_split",
+    }
+    assert set(metrics.keys()) == expected_keys
+
+    assert metrics["num_folds"] == 2
+    assert metrics["total_sentences"] == 8
+    assert metrics["num_sentences_per_fold"] == [4, 4]
+    assert metrics["fold_accuracies"] == pytest.approx([1.0, 1.0])
+    assert metrics["mean_accuracy"] == pytest.approx(1.0)
+    assert metrics["std_accuracy"] == pytest.approx(0.0)
+    assert metrics["overall_accuracy"] == pytest.approx(1.0)
+    assert metrics["micro_f1_instance"] == pytest.approx(1.0)
+    assert metrics["macro_f1_instance"] == pytest.approx(1.0)
+    assert metrics["purity"] == pytest.approx(1.0)
+    assert metrics["agreement_treebank"] == pytest.approx(1.0)
+    assert metrics["agreement_split"] == pytest.approx(1.0)
+    assert metrics["overlap_error_treebank"] == pytest.approx(0.0)
+    assert metrics["overlap_error_split"] == pytest.approx(0.0)
+    assert metrics["overlap_error_weighted_treebank"] == pytest.approx(0.0)
+    assert metrics["overlap_error_weighted_split"] == pytest.approx(0.0)
+
+    assert metrics["instance_labeled_treebanks_treebank"] == 1
+    assert metrics["instance_labeled_treebanks_split"] == 2
+    assert metrics["genre_labels"] == ["news", "wiki"]
+    assert metrics["confusion_matrix"] == [[4, 0], [0, 4]]
+
+    assert metrics["agreement_by_genre_treebank"] == {"news": 1.0, "wiki": 1.0}
+    assert metrics["agreement_by_genre_split"] == {"news": 1.0, "wiki": 1.0}
+    assert metrics["overlap_error_by_treebank_treebank"] == {"xx_demo": 0.0}
+    assert metrics["overlap_error_by_treebank_split"] == {
+        "xx_demo:dev": 0.0,
+        "xx_demo:train": 0.0,
+    }

@@ -418,23 +418,29 @@ def test_clustering_evaluator_reports_paper_aligned_metrics():
     result = evaluator._aggregate_fold_results(fold_results)
 
     assert result["micro_f1_instance"] == pytest.approx(0.75)
+    assert result["macro_f1_instance"] == pytest.approx(0.7333333333, abs=1e-8)
     assert result["purity"] == pytest.approx(0.75)
-    assert result["agreement"] == pytest.approx(0.75)
-    assert result["overlap_error"] == pytest.approx(0.1464466094, abs=1e-8)
-    assert result["overlap_error_weighted"] == pytest.approx(0.1464466094, abs=1e-8)
-    assert result["instance_labeled_treebanks"] == 2
-    assert result["mean_micro_f1_instance"] == pytest.approx(0.75)
-    assert result["std_micro_f1_instance"] == pytest.approx(0.0)
+    assert result["agreement_treebank"] == pytest.approx(0.75)
+    assert result["overlap_error_treebank"] == pytest.approx(0.1464466094, abs=1e-8)
+    assert result["overlap_error_weighted_treebank"] == pytest.approx(0.1464466094, abs=1e-8)
+    assert result["instance_labeled_treebanks_treebank"] == 2
+    assert result["agreement_split"] == pytest.approx(0.75)
+    assert result["overlap_error_split"] == pytest.approx(0.1464466094, abs=1e-8)
+    assert result["instance_labeled_treebanks_split"] == 2
+    assert result["mean_macro_f1_instance"] == pytest.approx(0.7333333333, abs=1e-8)
+    assert result["std_macro_f1_instance"] == pytest.approx(0.0)
     assert result["mean_purity"] == pytest.approx(0.75)
     assert result["std_purity"] == pytest.approx(0.0)
-    assert result["mean_agreement"] == pytest.approx(0.75)
-    assert result["std_agreement"] == pytest.approx(0.0)
-    assert result["mean_overlap_error"] == pytest.approx(0.1464466094, abs=1e-8)
-    assert result["std_overlap_error"] == pytest.approx(0.0)
-    assert result["agreement_by_genre"]["news"] == pytest.approx(1.0)
-    assert result["agreement_by_genre"]["wiki"] == pytest.approx(0.5)
-    assert result["overlap_error_by_treebank"]["tb1:test"] == pytest.approx(0.2928932188, abs=1e-8)
-    assert result["overlap_error_by_treebank"]["tb2:test"] == pytest.approx(0.0)
+    assert result["mean_agreement_treebank"] == pytest.approx(0.75)
+    assert result["std_agreement_treebank"] == pytest.approx(0.0)
+    assert result["mean_overlap_error_treebank"] == pytest.approx(0.1464466094, abs=1e-8)
+    assert result["std_overlap_error_treebank"] == pytest.approx(0.0)
+    assert result["agreement_by_genre_treebank"]["news"] == pytest.approx(1.0)
+    assert result["agreement_by_genre_treebank"]["wiki"] == pytest.approx(0.5)
+    assert result["overlap_error_by_treebank_treebank"]["tb1"] == pytest.approx(0.2928932188, abs=1e-8)
+    assert result["overlap_error_by_treebank_treebank"]["tb2"] == pytest.approx(0.0)
+    assert result["overlap_error_by_treebank_split"]["tb1:test"] == pytest.approx(0.2928932188, abs=1e-8)
+    assert result["overlap_error_by_treebank_split"]["tb2:test"] == pytest.approx(0.0)
 
 
 def test_clustering_evaluator_metrics_backfill_treebank_keys_from_sent_ids():
@@ -452,8 +458,10 @@ def test_clustering_evaluator_metrics_backfill_treebank_keys_from_sent_ids():
 
     result = evaluator._aggregate_fold_results(fold_results)
 
-    assert result["instance_labeled_treebanks"] == 1
-    assert result["overlap_error_by_treebank"]["tbx:test"] == pytest.approx(0.0)
+    assert result["instance_labeled_treebanks_treebank"] == 1
+    assert result["instance_labeled_treebanks_split"] == 1
+    assert result["overlap_error_by_treebank_treebank"]["tbx"] == pytest.approx(0.0)
+    assert result["overlap_error_by_treebank_split"]["tbx:test"] == pytest.approx(0.0)
 
 
 def test_select_parity_single_anchor_keys_respects_leakage_constraints():

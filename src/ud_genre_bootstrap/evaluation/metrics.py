@@ -344,6 +344,7 @@ class ClusteringEvaluationMetrics:
                 "overlap_error_weighted": 0.0,
                 "overlap_error_by_treebank": {},
                 "micro_f1_instance": 0.0,
+                "macro_f1_instance": 0.0,
                 "instance_labeled_treebanks": 0,
             }
 
@@ -359,6 +360,9 @@ class ClusteringEvaluationMetrics:
             "overlap_error_by_treebank": overlap["overlap_error_by_treebank"],
             "micro_f1_instance": float(
                 f1_score(true_genres, pred_genres, average="micro", zero_division=0)
+            ),
+            "macro_f1_instance": float(
+                f1_score(true_genres, pred_genres, average="macro", zero_division=0)
             ),
             "instance_labeled_treebanks": len(set(treebank_keys)),
         }

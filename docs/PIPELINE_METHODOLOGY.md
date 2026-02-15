@@ -559,11 +559,12 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - Supports progressive cumulative set evaluation (`--progressive`) to assess scaling up to full virtual-split coverage
 
 **Metrics:**
-- Overall accuracy: Percentage of correctly labeled sentences
-- Micro-F1 (instance-labeled treebanks): Sentence-level micro-averaged F1
+- Overall micro-F1-equivalent accuracy: Percentage of correctly labeled sentences (single-label setting)
+- Macro-F1 (instance-labeled treebanks): Sentence-level macro-averaged F1
 - Purity (PUR): Standard cluster purity over predicted label groups
-- Agreement (AGR): Cross-treebank dominant-label consistency for the same true genre
-- Overlap error (ΔBC): Inverse Bhattacharyya overlap between predicted and true treebank genre distributions
+- Agreement (AGR, treebank-level primary): Cross-treebank dominant-label consistency for the same true genre
+- Overlap error (ΔBC, treebank-level primary): Inverse Bhattacharyya overlap between predicted and true treebank genre distributions
+- Agreement / ΔBC split-level diagnostics: Same metrics computed with `(treebank, split)` grouping to expose split drift without changing primary scores
 - Per-genre precision, recall, F1-score
 - Confusion matrix: Genre-to-genre error patterns
 - Per-fold variance: Stability across different train/test splits
