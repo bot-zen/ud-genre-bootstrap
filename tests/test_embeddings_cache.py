@@ -134,5 +134,55 @@ class TestEmbeddingCache:
         assert embeddings.shape[0] == 1, "Should have embeddings for 1 sentence"
 
 
+class TestEmbeddingInputValidation:
+    """Test validation of sentence text before embedding."""
+
+    def test_embed_dataset_rejects_missing_text(self):
+        dataset = Dataset.from_dict(
+            {
+                "sent_id": ["s1", "s2"],
+                "text": ["valid sentence", None],
+            }
+        )
+        generator = EmbeddingGenerator(model_name="dummy", device="cpu")
+
+        with pytest.raises(ValueError, match="missing or invalid `text` values"):
+            generator.embed_dataset(dataset)
+
+    def test_embed_dataset_rejects_non_string_text(self):
+        dataset = Dataset.from_dict(
+            {
+                "sent_id": ["s1"],
+                "text": [["token1", "token2"]],
+            }
+        )
+        generator = EmbeddingGenerator(model_name="dummy", device="cpu")
+
+        with pytest.raises(ValueError, match="missing or invalid `text` values"):
+            generator.embed_dataset(dataset)
+
+    def test_embed_dataset_passes_plain_strings_to_embed_sentences(self, monkeypatch):
+        dataset = Dataset.from_dict(
+            {
+                "sent_id": ["s1", "s2"],
+                "text": ["Sentence one.", "Sentence two."],
+            }
+        )
+        generator = EmbeddingGenerator(model_name="dummy", device="cpu")
+        captured = {}
+
+        def _fake_embed_sentences(sentences):
+            captured["sentences"] = list(sentences)
+            return np.zeros((len(sentences), 2), dtype=np.float32)
+
+        monkeypatch.setattr(generator, "embed_sentences", _fake_embed_sentences)
+
+        result = generator.embed_dataset(dataset)
+
+        assert captured["sentences"] == ["Sentence one.", "Sentence two."]
+        assert result["sent_id"] == ["s1", "s2"]
+        assert result["embedding"].shape == (2, 2)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

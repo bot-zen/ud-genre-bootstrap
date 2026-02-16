@@ -159,9 +159,44 @@ class EmbeddingGenerator:
         Returns:
             Dictionary with 'sent_id' and 'embedding' arrays
         """
-        # Extract sentences
-        sentences = [item[text_column] for item in dataset]
-        sent_ids = [item["sent_id"] for item in dataset]
+        # Extract and validate sentence texts before tokenization.
+        sentences = []
+        sent_ids = []
+        invalid_rows = []
+
+        for idx, item in enumerate(dataset):
+            sent_id = item.get("sent_id", f"row_{idx}")
+
+            if text_column not in item:
+                invalid_rows.append((sent_id, "missing", None))
+                continue
+
+            text = item[text_column]
+            if not isinstance(text, str):
+                invalid_rows.append((sent_id, f"type={type(text).__name__}", text))
+                continue
+            if text.strip() == "":
+                invalid_rows.append((sent_id, "empty", text))
+                continue
+
+            sent_ids.append(sent_id)
+            sentences.append(text)
+
+        if invalid_rows:
+            preview = ", ".join(
+                f"{sid} ({reason})"
+                for sid, reason, _value in invalid_rows[:5]
+            )
+            if len(invalid_rows) > 5:
+                preview += f", ... (+{len(invalid_rows) - 5} more)"
+
+            raise ValueError(
+                "Embedding input validation failed: "
+                f"{len(invalid_rows)} / {len(sentences) + len(invalid_rows)} row(s) have "
+                f"missing or invalid `{text_column}` values. "
+                "This often indicates missing `# text` metadata in CoNLL-U. "
+                f"Examples: {preview}"
+            )
 
         # Generate embeddings
         embeddings = self.embed_sentences(sentences)
