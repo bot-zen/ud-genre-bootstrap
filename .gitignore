@@ -217,7 +217,7 @@ __marimo__/
 
 # Project-specific
 output/
-embeddings/
+cache/
 *.parquet
 .venv/
 .env
