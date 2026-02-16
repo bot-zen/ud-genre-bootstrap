@@ -1,0 +1,103 @@
+ud_version: '2.17'
+ud_source: hf://commul/universal_dependencies
+embeddings:
+  model: xlm-roberta-large
+  pooling: mean
+  batch_size: 8
+  layer: -1
+  device: auto
+  cache_dir: /tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings
+clustering:
+  method: gmm
+  level: treebank
+  seed: 42
+  device: auto
+  fit_sample_size: null
+bootstrapping:
+  min_confidence: 0.8
+  min_margin: 0.05
+  reference_weighting: sentence_count
+  max_iterations: 32
+  fail_on_incomplete: false
+  unresolved_handling: null
+genre_extraction:
+  mapping_path: configs/genre_mappings.json
+  patterns_path:
+  - configs/metadata_patterns.json
+  - configs/pud-patterns.json
+  canonical_genres: null
+evaluation:
+  enabled: true
+  treebank_sets:
+    how_universal:
+    - be_hse
+    - cs_cac
+    - en_ewt
+    - de_lit
+    - pl_lfg
+    - ru_taiga
+    - ar_pud
+    - cs_pud
+    - de_pud
+    - en_pud
+    - es_pud
+    - fi_pud
+    - fr_pud
+    - hi_pud
+    - id_pud
+    - is_pud
+    - it_pud
+    - ja_pud
+    - ko_pud
+    - pl_pud
+    - pt_pud
+    - ru_pud
+    - sv_pud
+    - th_pud
+    - tr_pud
+    - zh_pud
+  metadata_validation:
+    method: kfold
+    k: 3
+    stratify_by: genre
+    group_by: null
+    anchor_mode: parity
+    coverage_threshold: 0.95
+    min_genre_sentences: 100
+  cluster_metrics:
+  - silhouette
+  - calinski_harabasz
+  - davies_bouldin
+  convergence_metrics:
+  - resolution_rate
+  - disjunct_combinations
+  - confidence_distribution
+xgenre_evaluation:
+  model: classla/xlm-roberta-base-multilingual-text-genre-classifier
+  batch_size: 32
+  device: auto
+  genre_mapping:
+    News: news
+    Legal: legal
+    Information/Explanation: wiki
+    Forum: social
+    Prose/Lyrical: fiction
+    Opinion/Argumentation: reviews
+    Instruction: nonfiction
+    Promotion: web
+    Other: null
+output:
+  genres_path: output/sweeps/2.17/comparability/xlmr_large/genres
+  embeddings_hf_repo: commul/ud-embeddings-xlm-roberta-base
+  embeddings_revision: '2.17'
+  genres_hf_repo: commul/ud-genres
+  genres_revision: '2.17'
+  push_to_hub: false
+  hf_token: ${HF_TOKEN}
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+exclude_treebanks:
+- ar_nyuad
+- ja_bccwj
+- pt_cintil
