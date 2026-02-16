@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -103,11 +103,13 @@ class EmbeddingGenerator:
             raise ValueError(f"Unknown pooling strategy: {self.pooling}")
 
     @torch.no_grad()
-    def embed_sentences(self, sentences: List[str]) -> np.ndarray:
+    def embed_sentences(
+        self, sentences: Union[List[str], List[List[str]]]
+    ) -> np.ndarray:
         """Generate embeddings for a list of sentences.
 
         Args:
-            sentences: List of sentence strings
+            sentences: List of sentence strings or pre-tokenized word lists
 
         Returns:
             Numpy array of embeddings [num_sentences, hidden_dim]
@@ -120,6 +122,7 @@ class EmbeddingGenerator:
         # Process in batches
         for i in tqdm(range(0, len(sentences), self.batch_size), desc="Embedding"):
             batch = sentences[i : i + self.batch_size]
+            batch_is_tokenized = len(batch) > 0 and isinstance(batch[0], list)
 
             # Tokenize
             encoded = self.tokenizer(
@@ -128,6 +131,7 @@ class EmbeddingGenerator:
                 truncation=True,
                 return_tensors="pt",
                 max_length=512,
+                is_split_into_words=batch_is_tokenized,
             )
 
             # Move to device
@@ -147,19 +151,27 @@ class EmbeddingGenerator:
 
         return np.vstack(all_embeddings)
 
+    def _is_valid_token_sequence(self, value: object) -> bool:
+        """Return True if value is a non-empty list of non-empty strings."""
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            return False
+        if len(value) == 0:
+            return False
+        return all(isinstance(token, str) and token.strip() != "" for token in value)
+
     def embed_dataset(
-        self, dataset: Dataset, text_column: str = "text"
+        self, dataset: Dataset, token_column: str = "tokens"
     ) -> Dict[str, np.ndarray]:
         """Generate embeddings for all sentences in a dataset.
 
         Args:
             dataset: HuggingFace Dataset
-            text_column: Name of column containing text
+            token_column: Name of column containing token FORM values
 
         Returns:
             Dictionary with 'sent_id' and 'embedding' arrays
         """
-        # Extract and validate sentence texts before tokenization.
+        # Extract and validate tokenized sentences before tokenization.
         sentences = []
         sent_ids = []
         invalid_rows = []
@@ -167,20 +179,17 @@ class EmbeddingGenerator:
         for idx, item in enumerate(dataset):
             sent_id = item.get("sent_id", f"row_{idx}")
 
-            if text_column not in item:
+            if token_column not in item:
                 invalid_rows.append((sent_id, "missing", None))
                 continue
 
-            text = item[text_column]
-            if not isinstance(text, str):
-                invalid_rows.append((sent_id, f"type={type(text).__name__}", text))
-                continue
-            if text.strip() == "":
-                invalid_rows.append((sent_id, "empty", text))
+            tokens = item[token_column]
+            if not self._is_valid_token_sequence(tokens):
+                invalid_rows.append((sent_id, f"type={type(tokens).__name__}", tokens))
                 continue
 
             sent_ids.append(sent_id)
-            sentences.append(text)
+            sentences.append(list(tokens))
 
         if invalid_rows:
             preview = ", ".join(
@@ -193,8 +202,8 @@ class EmbeddingGenerator:
             raise ValueError(
                 "Embedding input validation failed: "
                 f"{len(invalid_rows)} / {len(sentences) + len(invalid_rows)} row(s) have "
-                f"missing or invalid `{text_column}` values. "
-                "This often indicates missing `# text` metadata in CoNLL-U. "
+                f"missing or invalid `{token_column}` values. "
+                "Expected non-empty token lists aligned with CoNLL-U FORM values. "
                 f"Examples: {preview}"
             )
 

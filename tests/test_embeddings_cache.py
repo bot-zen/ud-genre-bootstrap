@@ -20,10 +20,14 @@ class TestEmbeddingCache:
             cache_dir = Path(tmpdir)
 
             # Create test dataset
-            test_sentences = ["Hello world", "Test sentence", "Another example"]
+            test_tokens = [
+                ["Hello", "world"],
+                ["Test", "sentence"],
+                ["Another", "example"],
+            ]
             test_ids = ["sent_1", "sent_2", "sent_3"]
             dataset = Dataset.from_dict({
-                "text": test_sentences,
+                "tokens": test_tokens,
                 "sent_id": test_ids
             })
 
@@ -83,10 +87,10 @@ class TestEmbeddingCache:
             cache_dir = Path(tmpdir) / "nested" / "cache"
 
             # Create test dataset
-            test_sentences = ["Test"]
+            test_tokens = [["Test"]]
             test_ids = ["sent_1"]
             dataset = Dataset.from_dict({
-                "text": test_sentences,
+                "tokens": test_tokens,
                 "sent_id": test_ids
             })
 
@@ -135,37 +139,37 @@ class TestEmbeddingCache:
 
 
 class TestEmbeddingInputValidation:
-    """Test validation of sentence text before embedding."""
+    """Test validation of sentence tokens before embedding."""
 
-    def test_embed_dataset_rejects_missing_text(self):
+    def test_embed_dataset_rejects_missing_tokens(self):
         dataset = Dataset.from_dict(
             {
                 "sent_id": ["s1", "s2"],
-                "text": ["valid sentence", None],
+                "tokens": [["valid", "sentence"], None],
             }
         )
         generator = EmbeddingGenerator(model_name="dummy", device="cpu")
 
-        with pytest.raises(ValueError, match="missing or invalid `text` values"):
+        with pytest.raises(ValueError, match="missing or invalid `tokens` values"):
             generator.embed_dataset(dataset)
 
-    def test_embed_dataset_rejects_non_string_text(self):
+    def test_embed_dataset_rejects_invalid_token_values(self):
         dataset = Dataset.from_dict(
             {
                 "sent_id": ["s1"],
-                "text": [["token1", "token2"]],
+                "tokens": [[]],
             }
         )
         generator = EmbeddingGenerator(model_name="dummy", device="cpu")
 
-        with pytest.raises(ValueError, match="missing or invalid `text` values"):
+        with pytest.raises(ValueError, match="missing or invalid `tokens` values"):
             generator.embed_dataset(dataset)
 
-    def test_embed_dataset_passes_plain_strings_to_embed_sentences(self, monkeypatch):
+    def test_embed_dataset_passes_token_lists_to_embed_sentences(self, monkeypatch):
         dataset = Dataset.from_dict(
             {
                 "sent_id": ["s1", "s2"],
-                "text": ["Sentence one.", "Sentence two."],
+                "tokens": [["Sentence", "one", "."], ["Sentence", "two", "."]],
             }
         )
         generator = EmbeddingGenerator(model_name="dummy", device="cpu")
@@ -179,7 +183,7 @@ class TestEmbeddingInputValidation:
 
         result = generator.embed_dataset(dataset)
 
-        assert captured["sentences"] == ["Sentence one.", "Sentence two."]
+        assert captured["sentences"] == [["Sentence", "one", "."], ["Sentence", "two", "."]]
         assert result["sent_id"] == ["s1", "s2"]
         assert result["embedding"].shape == (2, 2)
 
