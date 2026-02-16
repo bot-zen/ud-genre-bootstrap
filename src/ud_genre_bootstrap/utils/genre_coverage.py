@@ -138,7 +138,11 @@ class GenreCoverageAnalyzer:
             SplitCoverage object or None if treebank cannot be loaded
         """
         try:
-            dataset = self.data_loader.load_treebank(treebank_code, split_name)
+            sentence_iter = self.data_loader.iter_treebank_sentences(
+                treebank_code,
+                split_name,
+                metadata_only=True,
+            )
         except Exception as e:
             logger.warning(f"Could not load {treebank_code}:{split_name}: {e}")
             return None
@@ -148,19 +152,23 @@ class GenreCoverageAnalyzer:
         sentences_with_genre = 0
         genre_counts = defaultdict(int)
 
-        for idx, sentence in enumerate(dataset):
-            total_sentences += 1
+        try:
+            for sentence in sentence_iter:
+                total_sentences += 1
 
-            # Extract genre from metadata
-            genres = self.genre_mapper.extract_genres_from_metadata(
-                sentence, treebank_code
-            )
+                # Extract genre from metadata
+                genres = self.genre_mapper.extract_genres_from_metadata(
+                    sentence, treebank_code
+                )
 
-            if genres:
-                # Use first genre if multiple
-                primary_genre = genres[0]
-                genre_counts[primary_genre] += 1
-                sentences_with_genre += 1
+                if genres:
+                    # Use first genre if multiple
+                    primary_genre = genres[0]
+                    genre_counts[primary_genre] += 1
+                    sentences_with_genre += 1
+        except Exception as e:
+            logger.warning(f"Could not load {treebank_code}:{split_name}: {e}")
+            return None
 
         coverage = sentences_with_genre / total_sentences if total_sentences > 0 else 0.0
 
@@ -281,20 +289,28 @@ class GenreCoverageAnalyzer:
 
             for split_name in splits:
                 try:
-                    dataset = self.data_loader.load_treebank(tb_code, split_name)
+                    sentence_iter = self.data_loader.iter_treebank_sentences(
+                        tb_code,
+                        split_name,
+                        metadata_only=True,
+                    )
                 except Exception as e:
                     logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
                     continue
 
-                for idx, sentence in enumerate(dataset):
-                    sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
-                    genres = self.genre_mapper.extract_genres_from_metadata(
-                        sentence, tb_code
-                    )
+                try:
+                    for idx, sentence in enumerate(sentence_iter):
+                        sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
+                        genres = self.genre_mapper.extract_genres_from_metadata(
+                            sentence, tb_code
+                        )
 
-                    if genres:
-                        primary_genre = genres[0]
-                        sentence_metadata[(tb_code, split_name, sent_id)] = primary_genre
+                        if genres:
+                            primary_genre = genres[0]
+                            sentence_metadata[(tb_code, split_name, sent_id)] = primary_genre
+                except Exception as e:
+                    logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
+                    continue
 
         return sentence_metadata
 

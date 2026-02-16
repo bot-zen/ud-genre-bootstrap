@@ -264,6 +264,7 @@ class KMeansClusterer:
         embeddings: np.ndarray,
         sent_ids: List[str],
         n_genres: int,
+        compute_metrics: bool = True,
     ) -> Dict:
         """Cluster a treebank's sentences.
 
@@ -271,6 +272,7 @@ class KMeansClusterer:
             embeddings: Sentence embeddings
             sent_ids: Sentence IDs
             n_genres: Number of expected genres
+            compute_metrics: Whether to compute cluster quality metrics
 
         Returns:
             Dictionary with clustering results
@@ -298,7 +300,7 @@ class KMeansClusterer:
 
         # Compute cluster quality metrics
         metrics = {}
-        if n_genres > 1:  # Need at least 2 clusters for metrics
+        if compute_metrics and n_genres > 1:  # Need at least 2 clusters for metrics
             try:
                 from ud_genre_bootstrap.evaluation.metrics import ClusterQualityMetrics
                 metrics = ClusterQualityMetrics.compute_all(embeddings, cluster_ids)

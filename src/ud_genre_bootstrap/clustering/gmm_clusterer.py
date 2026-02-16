@@ -18,6 +18,7 @@ class GMMClusterer:
         pca_components: int = 0,
         device: str = "auto",
         max_iter: int = 300,
+        fit_sample_size: Optional[int] = None,
         reg_covar: float = 1e-4,
     ):
         """Initialize GMM clusterer.
@@ -28,12 +29,15 @@ class GMMClusterer:
             pca_components: If > 0, apply PCA before clustering
             device: Device to use ("auto", "cuda", or "cpu")
             max_iter: Maximum number of EM iterations (default: 300)
+            fit_sample_size: If set, fit GMM on a random subset of this many samples
+                (still predicts labels for all input samples)
             reg_covar: Regularization added to diagonal of covariance (default: 1e-4)
         """
         self.n_components = n_components
         self.random_state = random_state
         self.pca_components = pca_components
         self.max_iter = max_iter
+        self.fit_sample_size = fit_sample_size
         self.reg_covar = reg_covar
         self.device = self._determine_device(device)
         self.use_gpu = self.device == "cuda"
@@ -131,6 +135,25 @@ class GMMClusterer:
             embeddings_input = self.pca.fit_transform(embeddings_input)
             logger.info(f"Applied PCA: {embeddings_input.shape[1]} components")
 
+        # Optionally fit on a deterministic random subset for large datasets.
+        fit_embeddings = embeddings_input
+        fit_sample_size = self.fit_sample_size
+        used_sampling = (
+            fit_sample_size is not None
+            and fit_sample_size > 0
+            and len(embeddings_input) > fit_sample_size
+        )
+        if used_sampling:
+            rng = np.random.default_rng(self.random_state)
+            sample_indices = rng.choice(
+                len(embeddings_input), size=fit_sample_size, replace=False
+            )
+            fit_embeddings = embeddings_input[sample_indices]
+            logger.info(
+                f"Fitting GMM on random sample of {len(fit_embeddings)} / "
+                f"{len(embeddings_input)} sentences"
+            )
+
         # Fit GMM
         self.gmm = self.GaussianMixture(
             n_components=n_components,
@@ -141,7 +164,7 @@ class GMMClusterer:
             random_state=self.random_state,
             verbose=1,
         )
-        self.gmm.fit(embeddings_input)
+        self.gmm.fit(fit_embeddings)
 
         # Get cluster probabilities
         cluster_probs = self.gmm.predict_proba(embeddings_input)
@@ -149,11 +172,16 @@ class GMMClusterer:
         # Convert back to CPU if using GPU
         if self.use_gpu:
             cluster_probs = self.cp.asnumpy(cluster_probs)
-            bic_value = float(self.cp.asnumpy(self.gmm.bic(embeddings_input)))
+            bic_value = float(self.cp.asnumpy(self.gmm.bic(fit_embeddings)))
         else:
-            bic_value = self.gmm.bic(embeddings_input)
+            bic_value = self.gmm.bic(fit_embeddings)
 
-        logger.info(f"GMM fit complete. BIC: {bic_value:.2f}")
+        if used_sampling:
+            logger.info(
+                f"GMM fit complete (sampled). BIC(sample): {bic_value:.2f}"
+            )
+        else:
+            logger.info(f"GMM fit complete. BIC: {bic_value:.2f}")
 
         return cluster_probs
 
@@ -194,6 +222,7 @@ class GMMClusterer:
         embeddings: np.ndarray,
         sent_ids: List[str],
         n_genres: int,
+        compute_metrics: bool = True,
     ) -> Dict:
         """Cluster a treebank's sentences.
 
@@ -201,6 +230,7 @@ class GMMClusterer:
             embeddings: Sentence embeddings
             sent_ids: Sentence IDs
             n_genres: Number of expected genres
+            compute_metrics: Whether to compute cluster quality metrics
 
         Returns:
             Dictionary with clustering results
@@ -228,7 +258,7 @@ class GMMClusterer:
 
         # Compute cluster quality metrics
         metrics = {}
-        if n_genres > 1:  # Need at least 2 clusters for metrics
+        if compute_metrics and n_genres > 1:  # Need at least 2 clusters for metrics
             try:
                 from ud_genre_bootstrap.evaluation.metrics import ClusterQualityMetrics
                 metrics = ClusterQualityMetrics.compute_all(embeddings, cluster_ids)
