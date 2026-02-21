@@ -6,6 +6,7 @@ from ud_genre_bootstrap.cli import (
     build_progressive_treebank_sets,
     check_evaluation_fold_feasibility,
     normalize_anchor_mode,
+    normalize_anchor_pool_policy,
     parse_inline_treebank_sets,
 )
 from ud_genre_bootstrap.utils.config import Config
@@ -357,6 +358,30 @@ class TestAnchorModeHelpers:
         )
         assert ok
         assert reason == ""
+
+    def test_normalize_anchor_pool_policy_auto_resolves_from_mode(self):
+        assert (
+            normalize_anchor_pool_policy(None, "auto", anchor_mode="strict")
+            == "train_virtual"
+        )
+        assert (
+            normalize_anchor_pool_policy(None, "auto", anchor_mode="parity")
+            == "combined"
+        )
+
+    def test_normalize_anchor_pool_policy_accepts_aliases(self):
+        assert (
+            normalize_anchor_pool_policy(
+                "single_genre_only",
+                "auto",
+                anchor_mode="strict",
+            )
+            == "single_genre"
+        )
+
+    def test_normalize_anchor_pool_policy_rejects_invalid_values(self):
+        with pytest.raises(ValueError, match="Invalid anchor pool policy"):
+            normalize_anchor_pool_policy("unknown", "auto", anchor_mode="strict")
 
 
 class TestLabelCommandFlow:

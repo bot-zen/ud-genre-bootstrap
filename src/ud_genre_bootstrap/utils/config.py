@@ -66,6 +66,7 @@ class MetadataValidationConfig:
     stratify_by: str = "genre"
     group_by: str = "language"  # "language", "treebank", or None
     anchor_mode: str = "strict"  # "strict" (fold-train anchors only) or "parity" (plus broader single-genre anchors)
+    anchor_pool_policy: str = "auto"  # "auto", "train_virtual", "single_genre", or "combined"
     coverage_threshold: float = 0.95  # Minimum sentence-level metadata coverage
     min_genre_sentences: int = 100  # Minimum sentences per genre for virtual splits
 
@@ -139,6 +140,7 @@ class Config:
 
     ud_version: str = "2.17"
     ud_source: str = "hf://commul/universal_dependencies"
+    metadata_path: Optional[str] = None  # Optional path to metadata.json
     include_treebanks: Optional[List[str]] = None  # Treebank codes to include (None = all)
     exclude_treebanks: List[str] = field(default_factory=list)  # Treebank codes to exclude
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
@@ -197,6 +199,31 @@ class Config:
         )
 
     @staticmethod
+    def _parse_anchor_pool_policy(value: Any, field_name: str) -> str:
+        """Parse and validate evaluation anchor-pool policy."""
+        if value is None:
+            return "auto"
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{field_name} must be a string ('auto', 'train_virtual', 'single_genre', or 'combined'), got {type(value).__name__}"
+            )
+
+        normalized = value.strip().lower()
+        alias_map = {
+            "train_virtual_only": "train_virtual",
+            "single_genre_only": "single_genre",
+            "virtual_only": "train_virtual",
+        }
+        normalized = alias_map.get(normalized, normalized)
+        if normalized in {"auto", "train_virtual", "single_genre", "combined"}:
+            return normalized
+
+        raise ValueError(
+            f"{field_name} must be 'auto', 'train_virtual', 'single_genre', or 'combined', got '{value}'"
+        )
+
+    @staticmethod
     def _parse_reference_weighting(value: Any, field_name: str) -> str:
         """Parse and validate reference embedding weighting mode."""
         if value is None:
@@ -244,6 +271,11 @@ class Config:
                 metadata_val_dict["anchor_mode"],
                 "evaluation.metadata_validation.anchor_mode",
             )
+        if "anchor_pool_policy" in metadata_val_dict:
+            metadata_val_dict["anchor_pool_policy"] = cls._parse_anchor_pool_policy(
+                metadata_val_dict["anchor_pool_policy"],
+                "evaluation.metadata_validation.anchor_pool_policy",
+            )
         metadata_val = MetadataValidationConfig(**metadata_val_dict)
         evaluation = EvaluationConfig(
             enabled=eval_dict.get("enabled", True),
@@ -260,6 +292,7 @@ class Config:
         return cls(
             ud_version=config_dict.get("ud_version", "2.17"),
             ud_source=config_dict.get("ud_source", "hf://commul/universal_dependencies"),
+            metadata_path=config_dict.get("metadata_path"),
             include_treebanks=config_dict.get("include_treebanks", None),
             exclude_treebanks=config_dict.get("exclude_treebanks", []),
             embeddings=embeddings,

@@ -1,6 +1,7 @@
 """Tests for data loading fast-paths."""
 
 import json
+import pytest
 
 from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 from ud_genre_bootstrap.utils.genre_coverage import GenreCoverageAnalyzer
@@ -154,3 +155,66 @@ def test_iter_treebank_sentences_metadata_only_hf_uses_materialized_comments(mon
     assert rows[0]["comments"] == ["sent_id = s1", "text = Hello", "newdoc id = d1"]
     assert rows[1]["comments"] == ["genre = news"]
     assert rows[1]["genre"] == "news"
+
+
+def test_ud_source_requires_explicit_scheme(tmp_path):
+    """Only local:// and hf:// URIs are accepted for ud_source."""
+    with pytest.raises(ValueError, match="Invalid ud_source"):
+        UDDataLoader(ud_source=str(tmp_path))
+
+
+def test_metadata_auto_loads_from_local_source_root(tmp_path):
+    """Local metadata should load from <local-root>/metadata.json by default."""
+    ud_root = tmp_path / "ud"
+    ud_root.mkdir(parents=True)
+    metadata_path = ud_root / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "xx_testtb": {
+                    "lcode": "xx",
+                    "genre": ["news"],
+                    "splits": {},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loader = UDDataLoader(ud_source=f"local://{ud_root}")
+    assert loader.get_treebank_codes() == ["xx_testtb"]
+
+
+def test_local_split_resolution_has_no_alt_path_fallback(tmp_path):
+    """Local file resolution should use only metadata-declared file paths."""
+    ud_root = tmp_path / "ud"
+    treebank_dir = ud_root / "UD_TestTB"
+    treebank_dir.mkdir(parents=True)
+    # Intentionally place file at a path that does NOT match metadata.
+    (treebank_dir / "xx_testtb-ud-train.conllu").write_text(
+        "# sent_id = s1\n"
+        "# text = Hello\n"
+        "1\tHello\t_\tINTJ\t_\t_\t0\troot\t_\t_\n"
+        "\n",
+        encoding="utf-8",
+    )
+
+    (ud_root / "metadata.json").write_text(
+        json.dumps(
+            {
+                "xx_testtb": {
+                    "lcode": "xx",
+                    "genre": [],
+                    "splits": {
+                        "train": {
+                            "files": ["UD_TestTB/r2.17/xx_testtb-ud-train.conllu"],
+                        }
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loader = UDDataLoader(ud_source=f"local://{ud_root}")
+    assert loader._resolve_local_split_files("xx_testtb", "train") == []

@@ -1184,3 +1184,33 @@ class TestVirtualSplitQualityGates:
         bootstrapper._cluster_treebanks(embeddings_by_tb)
 
         assert "Metadata extraction failed for 1 sentence(s) in xx_demo; skipped them" in caplog.text
+
+
+def test_bootstrapper_passes_configured_metadata_path_to_data_loader(monkeypatch):
+    """GenreBootstrapper should forward Config.metadata_path to UDDataLoader."""
+    captured = {}
+
+    class _DummyDataLoader:
+        def __init__(self, ud_source, ud_version="2.17", metadata_path=None):
+            captured["ud_source"] = ud_source
+            captured["ud_version"] = ud_version
+            captured["metadata_path"] = metadata_path
+
+        def get_treebank_codes(self):
+            return []
+
+    monkeypatch.setattr(
+        "ud_genre_bootstrap.bootstrapping.bootstrapper.UDDataLoader",
+        _DummyDataLoader,
+    )
+
+    config = Config()
+    config.ud_source = "local:///tmp/ud"
+    config.ud_version = "2.8"
+    config.metadata_path = "/tmp/custom-metadata.json"
+
+    GenreBootstrapper(config)
+
+    assert captured["ud_source"] == "local:///tmp/ud"
+    assert captured["ud_version"] == "2.8"
+    assert captured["metadata_path"] == Path("/tmp/custom-metadata.json")

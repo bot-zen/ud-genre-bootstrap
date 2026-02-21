@@ -239,6 +239,31 @@ def normalize_anchor_mode(anchor_mode: Optional[str], default_mode: str = "stric
     return normalized
 
 
+def normalize_anchor_pool_policy(
+    anchor_pool_policy: Optional[str],
+    default_policy: str = "auto",
+    *,
+    anchor_mode: str = "strict",
+) -> str:
+    """Normalize evaluation anchor-pool policy from CLI/config inputs."""
+    raw_policy = default_policy if anchor_pool_policy is None else anchor_pool_policy
+    normalized = (raw_policy or "auto").strip().lower()
+    alias_map = {
+        "train_virtual_only": "train_virtual",
+        "single_genre_only": "single_genre",
+        "virtual_only": "train_virtual",
+    }
+    normalized = alias_map.get(normalized, normalized)
+    if normalized == "auto":
+        return "combined" if anchor_mode == "parity" else "train_virtual"
+    if normalized not in {"train_virtual", "single_genre", "combined"}:
+        raise ValueError(
+            f"Invalid anchor pool policy '{raw_policy}'. "
+            "Use 'auto', 'train_virtual', 'single_genre', or 'combined'."
+        )
+    return normalized
+
+
 def safe_label_for_filename(label: str) -> str:
     """Normalize labels for safe file names."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", label).strip("_")
@@ -701,6 +726,14 @@ def evaluate(
         "--anchor-mode",
         help="Reference-anchor mode: 'strict' (fold-train anchors only) or 'parity' (plus broader single-genre anchors).",
     ),
+    anchor_pool_policy: Optional[str] = typer.Option(
+        None,
+        "--anchor-pool-policy",
+        help=(
+            "Anchor source policy: 'auto', 'train_virtual', 'single_genre', or 'combined'. "
+            "'auto' maps strict->train_virtual and parity->combined."
+        ),
+    ),
     eval_set: Optional[List[str]] = typer.Option(
         None,
         "--set",
@@ -722,6 +755,45 @@ def evaluate(
         "--progressive-step",
         min=1,
         help="Number of treebanks to add per progressive evaluation stage.",
+    ),
+    sentence_split_map: Optional[Path] = typer.Option(
+        None,
+        "--sentence-split-map",
+        help=(
+            "Optional sentence split map (.parquet/.csv/.tsv) with columns "
+            "treebank, split, sent_id and optional partition."
+        ),
+        exists=True,
+        dir_okay=False,
+    ),
+    split_partition: Optional[List[str]] = typer.Option(
+        None,
+        "--split-partition",
+        help=(
+            "Optional partition(s) to select from --sentence-split-map "
+            "(e.g., train/dev/test). Repeat flag for multiple partitions."
+        ),
+    ),
+    fixed_partition: bool = typer.Option(
+        False,
+        "--fixed-partition",
+        help=(
+            "Use one predefined anchor/test partition split from --sentence-split-map "
+            "instead of k-fold cross-validation."
+        ),
+    ),
+    anchor_partition: Optional[List[str]] = typer.Option(
+        None,
+        "--anchor-partition",
+        help=(
+            "Partition(s) used as anchors in --fixed-partition mode "
+            "(default: train + dev). Repeat flag for multiple partitions."
+        ),
+    ),
+    test_partition: str = typer.Option(
+        "test",
+        "--test-partition",
+        help="Partition used as held-out test set in --fixed-partition mode.",
     ),
 ):
     """Evaluate clustering + labeling on multi-genre treebanks.
@@ -746,6 +818,57 @@ def evaluate(
         n_folds_val = n_folds if n_folds is not None else eval_cfg.k
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
         anchor_mode_val = normalize_anchor_mode(anchor_mode, eval_cfg.anchor_mode)
+        anchor_pool_policy_val = normalize_anchor_pool_policy(
+            anchor_pool_policy,
+            getattr(eval_cfg, "anchor_pool_policy", "auto"),
+            anchor_mode=anchor_mode_val,
+        )
+        uses_single_genre_anchors = anchor_pool_policy_val in {"single_genre", "combined"}
+        uses_train_virtual_anchors = anchor_pool_policy_val in {"train_virtual", "combined"}
+        if fixed_partition and sentence_split_map is None:
+            raise ValueError("Fixed-partition mode requires --sentence-split-map.")
+        if fixed_partition and split_partition:
+            raise ValueError(
+                "Use --anchor-partition/--test-partition with --fixed-partition, "
+                "not --split-partition."
+            )
+        if fixed_partition:
+            if n_folds is not None and n_folds != 1:
+                console.print(
+                    f"[yellow]Ignoring --n-folds={n_folds} in fixed-partition mode "
+                    "(single holdout run)[/yellow]"
+                )
+            n_folds_val = 1
+
+        split_map_filter = None
+        split_map_skipped_splits = 0
+        split_map_skipped_sentences = 0
+        if sentence_split_map is not None and not fixed_partition:
+            from ud_genre_bootstrap.utils.sentence_split_map import (
+                filter_embeddings_by_sentence_split_map,
+                load_sentence_split_map,
+            )
+
+            split_map_filter = load_sentence_split_map(
+                sentence_split_map,
+                partitions=split_partition,
+            )
+            selected_partition_label = (
+                ", ".join(split_map_filter.selected_partitions)
+                if split_map_filter.selected_partitions
+                else "all"
+            )
+            console.print(
+                f"[blue]Sentence split map:[/blue] {sentence_split_map} "
+                f"(partition(s): {selected_partition_label}, "
+                f"rows: {split_map_filter.selected_rows}, "
+                f"split keys: {len(split_map_filter.split_to_sent_ids)})"
+            )
+            if split_map_filter.dropped_rows > 0:
+                console.print(
+                    f"[yellow]Split map dropped {split_map_filter.dropped_rows} "
+                    f"row(s) with missing/empty key fields[/yellow]"
+                )
 
         # Resolve evaluation set definitions (config + inline CLI)
         config_eval_sets = resolve_config_treebank_sets(cfg, eval_set)
@@ -763,6 +886,10 @@ def evaluate(
             raise ValueError("Use either --treebank or explicit evaluation sets (--set / --treebank-set), not both.")
         if progressive and explicit_eval_sets:
             raise ValueError("Use either --progressive or explicit evaluation sets, not both together.")
+        if fixed_partition and (explicit_eval_sets or progressive):
+            raise ValueError(
+                "Fixed-partition mode does not support --set/--treebank-set/--progressive."
+            )
 
         # Parse base treebank filter
         treebank_filter = None
@@ -791,8 +918,17 @@ def evaluate(
         else:
             console.print("[blue]Evaluating all treebanks[/blue]")
 
-        console.print(f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}")
+        if fixed_partition:
+            console.print(
+                "[blue]Evaluation mode:[/blue] fixed-partition holdout "
+                "(no cross-validation refolding)"
+            )
+        else:
+            console.print(
+                f"[blue]CV settings:[/blue] {n_folds_val}-fold, group_by={group_by_val}"
+            )
         console.print(f"[blue]Anchor mode:[/blue] {anchor_mode_val}")
+        console.print(f"[blue]Anchor pool policy:[/blue] {anchor_pool_policy_val}")
         console.print(f"[blue]Min confidence:[/blue] {cfg.bootstrapping.min_confidence}")
         console.print(f"[blue]Min margin:[/blue] {cfg.bootstrapping.min_margin}")
         console.print(f"[blue]Reference weighting:[/blue] {cfg.bootstrapping.reference_weighting}")
@@ -809,6 +945,7 @@ def evaluate(
             min_margin=cfg.bootstrapping.min_margin,
             max_iterations=cfg.bootstrapping.max_iterations,
             anchor_mode=anchor_mode_val,
+            anchor_pool_policy=anchor_pool_policy_val,
             reference_weighting=cfg.bootstrapping.reference_weighting,
         )
 
@@ -852,16 +989,379 @@ def evaluate(
         else:
             evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
 
-        # In parity mode, scan all available treebanks for single-genre anchor candidates.
-        # In strict mode, scan only the explicit evaluation pool.
-        if anchor_mode_val == "parity":
+        if fixed_partition:
+            from ud_genre_bootstrap.utils.sentence_split_map import (
+                filter_embeddings_by_sentence_split_map,
+                load_sentence_split_map,
+            )
+
+            anchor_partitions_val = [
+                p.strip() for p in (anchor_partition or ["train", "dev"]) if p and p.strip()
+            ]
+            if not anchor_partitions_val:
+                raise ValueError(
+                    "Fixed-partition mode requires at least one --anchor-partition."
+                )
+            test_partition_val = (test_partition or "").strip()
+            if not test_partition_val:
+                raise ValueError(
+                    "Fixed-partition mode requires a non-empty --test-partition."
+                )
+
+            if test_partition_val in anchor_partitions_val:
+                console.print(
+                    f"[yellow]Test partition '{test_partition_val}' also appears in "
+                    "--anchor-partition; this can leak evaluation data.[/yellow]"
+                )
+
+            anchor_split_map = load_sentence_split_map(
+                sentence_split_map,
+                partitions=anchor_partitions_val,
+            )
+            test_split_map = load_sentence_split_map(
+                sentence_split_map,
+                partitions=[test_partition_val],
+            )
+            combined_split_map = load_sentence_split_map(
+                sentence_split_map,
+                partitions=anchor_partitions_val + [test_partition_val],
+            )
+
+            overlap_sentences = 0
+            for split_key, anchor_sent_ids in anchor_split_map.split_to_sent_ids.items():
+                test_sent_ids = test_split_map.split_to_sent_ids.get(split_key)
+                if test_sent_ids is None:
+                    continue
+                overlap_sentences += len(anchor_sent_ids.intersection(test_sent_ids))
+            if overlap_sentences > 0:
+                console.print(
+                    f"[yellow]Fixed-partition selection has {overlap_sentences} sentence(s) "
+                    "present in both anchor and test partitions.[/yellow]"
+                )
+
+            console.print(
+                f"[blue]Fixed-partition mode:[/blue] anchors="
+                f"{', '.join(anchor_partitions_val)}; test={test_partition_val}"
+            )
+            console.print(
+                f"[blue]Anchor split keys:[/blue] "
+                f"{len(anchor_split_map.split_to_sent_ids)}"
+            )
+            console.print(
+                f"[blue]Test split keys:[/blue] "
+                f"{len(test_split_map.split_to_sent_ids)}"
+            )
+
+            if uses_single_genre_anchors and anchor_mode_val == "parity":
+                scan_treebank_data = all_treebank_data
+            else:
+                scan_treebank_data = [
+                    tb for tb in all_treebank_data if tb["id"] in evaluation_treebank_ids
+                ]
+            console.print(
+                f"[blue]Scanning {len(scan_treebank_data)} treebanks for fixed partitions...[/blue]"
+            )
+
+            test_multi_genre_treebanks = []
+            parity_single_genre_treebanks = []
+            sentence_metadata = {}
+            train_treebank_keys = set()
+            stats = {
+                "checked": 0,
+                "anchor_splits": 0,
+                "test_splits": 0,
+                "single_genre_test": 0,
+                "multi_genre_test": 0,
+                "load_errors": 0,
+                "no_metadata_test": 0,
+            }
+
+            with console.status(
+                "[blue]Scanning sentence metadata for fixed partitions...[/blue]"
+            ) as status:
+                for tb in scan_treebank_data:
+                    tb_code = tb["id"]
+                    language = tb.get("language", tb_code.split("_")[0])
+                    is_evaluation_target = tb_code in evaluation_treebank_ids
+                    available_splits = bootstrapper.data_loader.get_available_splits(tb_code)
+                    if not available_splits:
+                        continue
+
+                    for split_name in available_splits:
+                        in_anchor_split = anchor_split_map.includes_split(tb_code, split_name)
+                        in_test_split = test_split_map.includes_split(tb_code, split_name)
+                        if not in_anchor_split and not in_test_split:
+                            continue
+
+                        if is_evaluation_target:
+                            stats["checked"] += 1
+                        status.update(
+                            f"[blue]Scanning {tb_code}:{split_name} "
+                            f"({stats['checked']} split(s) checked)...[/blue]"
+                        )
+
+                        anchor_genre_counts = {}
+                        test_genre_counts = {}
+                        anchor_sentence_count = 0
+                        test_sentence_count = 0
+
+                        try:
+                            sentence_iter = bootstrapper.data_loader.iter_treebank_sentences(
+                                tb_code,
+                                split_name,
+                                metadata_only=True,
+                            )
+                            for idx, sentence in enumerate(sentence_iter):
+                                sent_id = sentence.get(
+                                    "sent_id",
+                                    f"{tb_code}_{split_name}_{idx}",
+                                )
+                                in_anchor_sentence = (
+                                    in_anchor_split
+                                    and anchor_split_map.includes_sentence(
+                                        tb_code, split_name, sent_id
+                                    )
+                                )
+                                in_test_sentence = (
+                                    is_evaluation_target
+                                    and
+                                    in_test_split
+                                    and test_split_map.includes_sentence(
+                                        tb_code, split_name, sent_id
+                                    )
+                                )
+                                if not in_anchor_sentence and not in_test_sentence:
+                                    continue
+
+                                genres = genre_mapper.extract_genres_from_metadata(
+                                    sentence, tb_code
+                                )
+                                if not genres:
+                                    continue
+
+                                primary_genre = genres[0]
+                                sentence_metadata[(tb_code, split_name, sent_id)] = (
+                                    primary_genre
+                                )
+
+                                if in_anchor_sentence:
+                                    anchor_genre_counts[primary_genre] = (
+                                        anchor_genre_counts.get(primary_genre, 0) + 1
+                                    )
+                                    anchor_sentence_count += 1
+
+                                if in_test_sentence:
+                                    test_genre_counts[primary_genre] = (
+                                        test_genre_counts.get(primary_genre, 0) + 1
+                                    )
+                                    test_sentence_count += 1
+                        except Exception as e:
+                            logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
+                            if is_evaluation_target:
+                                stats["load_errors"] += 1
+                            continue
+
+                        if anchor_sentence_count > 0:
+                            train_treebank_keys.add((tb_code, split_name))
+                            stats["anchor_splits"] += 1
+
+                            anchor_unique_genres = list(anchor_genre_counts.keys())
+                            if (
+                                uses_single_genre_anchors
+                                and len(anchor_unique_genres) == 1
+                            ):
+                                parity_single_genre_treebanks.append(
+                                    {
+                                        "treebank": tb_code,
+                                        "split": split_name,
+                                        "genres": anchor_unique_genres,
+                                        "language": language,
+                                        "sentence_count": anchor_sentence_count,
+                                        "genre_counts": anchor_genre_counts,
+                                    }
+                                )
+
+                        if test_sentence_count > 0:
+                            stats["test_splits"] += 1
+                            unique_test_genres = list(test_genre_counts.keys())
+                            if len(unique_test_genres) >= 2:
+                                stats["multi_genre_test"] += 1
+                                test_multi_genre_treebanks.append(
+                                    {
+                                        "treebank": tb_code,
+                                        "split": split_name,
+                                        "genres": unique_test_genres,
+                                        "language": language,
+                                        "sentence_count": test_sentence_count,
+                                        "genre_counts": test_genre_counts,
+                                    }
+                                )
+                            elif len(unique_test_genres) == 1:
+                                stats["single_genre_test"] += 1
+                            else:
+                                stats["no_metadata_test"] += 1
+
+            if len(test_multi_genre_treebanks) == 0:
+                console.print(
+                    "\n[bold yellow]⚠ No multi-genre test splits found for fixed-partition evaluation[/bold yellow]"
+                )
+                console.print("\n[bold]Summary:[/bold]")
+                console.print(f"  • Checked: {stats['checked']} split(s)")
+                console.print(f"  • Anchor splits: {stats['anchor_splits']}")
+                console.print(f"  • Test splits: {stats['test_splits']}")
+                console.print(f"  • Multi-genre test: {stats['multi_genre_test']}")
+                console.print(f"  • Single-genre test: {stats['single_genre_test']}")
+                if stats["no_metadata_test"] > 0:
+                    console.print(
+                        f"  • No metadata in test partition: {stats['no_metadata_test']}"
+                    )
+                if stats["load_errors"] > 0:
+                    console.print(f"  • Load errors: {stats['load_errors']}")
+                console.print("\n[blue]Evaluation skipped - no suitable test data[/blue]")
+                raise typer.Exit(0)
+
+            train_treebank_keys = sorted(train_treebank_keys)
+            if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
+                raise ValueError(
+                    "Fixed-partition evaluation requires at least one anchor split "
+                    "with sentence-level metadata."
+                )
+            if (
+                uses_single_genre_anchors
+                and not uses_train_virtual_anchors
+                and len(parity_single_genre_treebanks) == 0
+            ):
+                raise ValueError(
+                    "Fixed-partition evaluation with anchor_pool_policy=single_genre "
+                    "requires at least one single-genre anchor split."
+                )
+
+            console.print(
+                f"[blue]Fixed holdout summary:[/blue] "
+                f"{len(train_treebank_keys)} anchor split(s), "
+                f"{len(test_multi_genre_treebanks)} multi-genre test split(s)"
+            )
+            if uses_single_genre_anchors:
+                console.print(
+                    f"[blue]Single-genre anchor candidates:[/blue] "
+                    f"{len(parity_single_genre_treebanks)} split(s)"
+                )
+
+            treebank_ids_to_embed = sorted(
+                {
+                    tb_code
+                    for tb_code, _split_name in train_treebank_keys
+                }.union({tb["treebank"] for tb in test_multi_genre_treebanks})
+            )
+            if uses_single_genre_anchors and parity_single_genre_treebanks:
+                treebank_ids_to_embed = sorted(
+                    set(treebank_ids_to_embed).union(
+                        {tb["treebank"] for tb in parity_single_genre_treebanks}
+                    )
+                )
+
+            console.print("\n[yellow]Generating/loading embeddings...[/yellow]")
+            embeddings_by_tb = bootstrapper._generate_embeddings(
+                treebank_filter=treebank_ids_to_embed
+            )
+            embeddings_by_tb, embedding_filter_stats = (
+                filter_embeddings_by_sentence_split_map(
+                    embeddings_by_tb,
+                    combined_split_map,
+                )
+            )
+            console.print(
+                f"[blue]Split-map embedding filter:[/blue] kept "
+                f"{embedding_filter_stats.kept_sentences} sentence(s) across "
+                f"{embedding_filter_stats.kept_splits} split(s); dropped "
+                f"{embedding_filter_stats.dropped_sentences} sentence(s) across "
+                f"{embedding_filter_stats.dropped_splits} split(s)"
+            )
+
+            available_embedding_splits = set(embeddings_by_tb.keys())
+            train_treebank_keys = [
+                split_key
+                for split_key in train_treebank_keys
+                if split_key in available_embedding_splits
+            ]
+            test_multi_genre_treebanks = [
+                tb_info
+                for tb_info in test_multi_genre_treebanks
+                if (tb_info["treebank"], tb_info["split"]) in available_embedding_splits
+            ]
+            parity_single_genre_treebanks = [
+                tb_info
+                for tb_info in parity_single_genre_treebanks
+                if (tb_info["treebank"], tb_info["split"]) in available_embedding_splits
+            ]
+
+            if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
+                raise ValueError(
+                    "No anchor splits remained after split-map embedding filtering."
+                )
+            if (
+                uses_single_genre_anchors
+                and not uses_train_virtual_anchors
+                and len(parity_single_genre_treebanks) == 0
+            ):
+                raise ValueError(
+                    "No single-genre anchor splits remained after split-map embedding filtering."
+                )
+            if len(test_multi_genre_treebanks) == 0:
+                raise ValueError(
+                    "No test splits remained after split-map embedding filtering."
+                )
+
+            console.print("\n[yellow]Running fixed-partition holdout evaluation...[/yellow]")
+            set_results = evaluator.fixed_partition_validate(
+                test_treebanks=test_multi_genre_treebanks,
+                train_treebanks=train_treebank_keys,
+                sentence_metadata=sentence_metadata,
+                embeddings_by_tb=embeddings_by_tb,
+                clusterer=bootstrapper.clusterer,
+                single_genre_treebanks=(
+                    parity_single_genre_treebanks
+                    if uses_single_genre_anchors
+                    else None
+                ),
+            )
+
+            if (
+                cfg.output.genres_path
+                and "confusion_matrix" in set_results
+                and "genre_labels" in set_results
+            ):
+                output_dir = Path(cfg.output.genres_path) / "evaluation"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                result_label = f"fixed_{test_partition_val}"
+                confusion_matrix_path = _save_clustering_confusion_matrix(
+                    set_results,
+                    output_dir=output_dir,
+                    result_label=result_label,
+                )
+                if confusion_matrix_path is not None:
+                    console.print(
+                        f"[blue]Confusion matrix saved to:[/blue] "
+                        f"{confusion_matrix_path}"
+                    )
+
+            _display_evaluation_results(set_results)
+            return
+
+        # With broader parity anchors, scan all treebanks to build the anchor pool.
+        # Otherwise, scan only explicit evaluation targets.
+        if uses_single_genre_anchors and anchor_mode_val == "parity":
             scan_treebank_data = all_treebank_data
         else:
             scan_treebank_data = [
                 tb for tb in all_treebank_data if tb["id"] in evaluation_treebank_ids
             ]
 
-        if anchor_mode_val == "parity" and len(scan_treebank_data) > len(evaluation_treebank_ids):
+        if (
+            uses_single_genre_anchors
+            and anchor_mode_val == "parity"
+            and len(scan_treebank_data) > len(evaluation_treebank_ids)
+        ):
             console.print(
                 f"[blue]Scanning {len(scan_treebank_data)} treebanks "
                 f"({len(evaluation_treebank_ids)} evaluation target(s) + broader single-genre anchor pool)[/blue]"
@@ -897,6 +1397,12 @@ def evaluate(
 
                 # Check each split for multi-genre content
                 for split_name in available_splits:
+                    if split_map_filter is not None and not split_map_filter.includes_split(
+                        tb_code, split_name
+                    ):
+                        split_map_skipped_splits += 1
+                        continue
+
                     scanned_splits += 1
                     if is_evaluation_target:
                         stats['checked'] += 1
@@ -917,6 +1423,12 @@ def evaluate(
                         )
                         for idx, sentence in enumerate(sentence_iter):
                             sent_id = sentence.get('sent_id', f'{tb_code}_{split_name}_{idx}')
+                            if split_map_filter is not None and not split_map_filter.includes_sentence(
+                                tb_code, split_name, sent_id
+                            ):
+                                split_map_skipped_sentences += 1
+                                continue
+
                             genres = genre_mapper.extract_genres_from_metadata(sentence, tb_code)
 
                             if genres:
@@ -938,7 +1450,7 @@ def evaluate(
                     elif len(unique_genres) == 1:
                         if is_evaluation_target:
                             stats['single_genre'] += 1
-                        if anchor_mode_val == "parity":
+                        if uses_single_genre_anchors:
                             single_genre_treebanks.append({
                                 'treebank': tb_code,
                                 'split': split_name,
@@ -958,6 +1470,13 @@ def evaluate(
                                 'sentence_count': sent_count,
                                 'genre_counts': genre_counts,
                             })
+
+        if split_map_filter is not None:
+            console.print(
+                f"[blue]Split-map scan filter:[/blue] skipped "
+                f"{split_map_skipped_splits} split(s) and "
+                f"{split_map_skipped_sentences} sentence row(s) outside selection"
+            )
 
         if len(multi_genre_treebanks) == 0:
             console.print("\n[bold yellow]⚠ No multi-genre treebanks found for clustering evaluation[/bold yellow]")
@@ -1088,14 +1607,72 @@ def evaluate(
             for set_treebanks in evaluation_set_map.values()
             for tb_code in set_treebanks
         })
-        if anchor_mode_val == "parity" and single_genre_treebanks:
+        if uses_single_genre_anchors and single_genre_treebanks:
             parity_anchor_treebanks = {tb["treebank"] for tb in single_genre_treebanks}
             treebank_ids_to_embed = sorted(set(treebank_ids_to_embed).union(parity_anchor_treebanks))
             console.print(
-                f"[blue]Parity anchors:[/blue] {len(single_genre_treebanks)} single-genre split(s) "
+                f"[blue]Single-genre anchors:[/blue] {len(single_genre_treebanks)} split(s) "
                 f"from {len(parity_anchor_treebanks)} treebank(s)"
             )
         embeddings_by_tb = bootstrapper._generate_embeddings(treebank_filter=treebank_ids_to_embed)
+        if split_map_filter is not None:
+            embeddings_by_tb, embedding_filter_stats = filter_embeddings_by_sentence_split_map(
+                embeddings_by_tb,
+                split_map_filter,
+            )
+            console.print(
+                f"[blue]Split-map embedding filter:[/blue] kept "
+                f"{embedding_filter_stats.kept_sentences} sentence(s) across "
+                f"{embedding_filter_stats.kept_splits} split(s); dropped "
+                f"{embedding_filter_stats.dropped_sentences} sentence(s) across "
+                f"{embedding_filter_stats.dropped_splits} split(s)"
+            )
+
+            available_embedding_splits = set(embeddings_by_tb.keys())
+            pre_filter_multi_count = len(multi_genre_treebanks)
+            multi_genre_treebanks = [
+                tb
+                for tb in multi_genre_treebanks
+                if (tb["treebank"], tb["split"]) in available_embedding_splits
+            ]
+            pre_filter_single_count = len(single_genre_treebanks)
+            single_genre_treebanks = [
+                tb
+                for tb in single_genre_treebanks
+                if (tb["treebank"], tb["split"]) in available_embedding_splits
+            ]
+            dropped_multi = pre_filter_multi_count - len(multi_genre_treebanks)
+            dropped_single = pre_filter_single_count - len(single_genre_treebanks)
+            if dropped_multi > 0 or dropped_single > 0:
+                console.print(
+                    f"[yellow]Split-map removed {dropped_multi} multi-genre split(s) "
+                    f"and {dropped_single} single-genre anchor split(s) without "
+                    "matching embeddings[/yellow]"
+                )
+
+            available_multi_treebanks = sorted({tb["treebank"] for tb in multi_genre_treebanks})
+            filtered_evaluation_sets: Dict[str, List[str]] = {}
+            for set_name, set_treebanks in evaluation_set_map.items():
+                remaining_treebanks = [tb for tb in set_treebanks if tb in available_multi_treebanks]
+                if not remaining_treebanks:
+                    console.print(
+                        f"[yellow]Set '{set_name}' has no multi-genre treebanks after "
+                        "split-map embedding filtering; skipping.[/yellow]"
+                    )
+                    continue
+                filtered_evaluation_sets[set_name] = remaining_treebanks
+            evaluation_set_map = filtered_evaluation_sets
+
+            if not evaluation_set_map:
+                console.print(
+                    "\n[bold yellow]⚠ No usable evaluation sets remain after split-map filtering[/bold yellow]"
+                )
+                console.print(
+                    "[blue]Evaluation skipped - split map selection removed all candidate data[/blue]"
+                )
+                raise typer.Exit(0)
+
+            treebank_eval_stats = build_treebank_eval_stats(multi_genre_treebanks)
 
         # Run clustering evaluation for each set
         console.print(f"\n[yellow]Running {n_folds_val}-fold clustering evaluation...[/yellow]")
@@ -1127,7 +1704,7 @@ def evaluate(
                 sentence_metadata=sentence_metadata,
                 embeddings_by_tb=embeddings_by_tb,
                 clusterer=bootstrapper.clusterer,
-                single_genre_treebanks=single_genre_treebanks if anchor_mode_val == "parity" else None,
+                single_genre_treebanks=single_genre_treebanks if uses_single_genre_anchors else None,
             )
             successful_results[set_name] = {
                 "results": set_results,
@@ -1216,6 +1793,133 @@ def evaluate(
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
         logger.exception("Evaluation failed")
+        raise typer.Exit(1)
+
+
+@app.command("build-sentence-split-map")
+def build_sentence_split_map(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    ud_source: Optional[str] = typer.Option(
+        None,
+        "--ud-source",
+        help=(
+            "UD source URI (e.g., 'hf://commul/universal_dependencies' or "
+            "'local:///path/to/UD_repos'). Overrides config."
+        ),
+    ),
+    ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version/revision (used as HF revision). Overrides config.",
+    ),
+    metadata_path: Optional[Path] = typer.Option(
+        None,
+        "--metadata-path",
+        help="Optional explicit metadata.json path. Overrides config.",
+        exists=True,
+        dir_okay=False,
+        file_okay=True,
+    ),
+    split_pickle: Path = typer.Option(
+        ...,
+        "--split-pickle",
+        help="Path to paper split pickle (e.g., 102-915-204.pkl).",
+        exists=True,
+        dir_okay=False,
+        file_okay=True,
+    ),
+    output: Path = typer.Option(
+        ...,
+        "--output",
+        "-o",
+        help="Output split map file (.parquet, .csv, or .tsv).",
+    ),
+    partition: Optional[List[str]] = typer.Option(
+        None,
+        "--partition",
+        "-p",
+        help=(
+            "Partition(s) to export from split pickle (e.g., train/dev/test). "
+            "Repeat for multiple partitions; defaults to all."
+        ),
+    ),
+):
+    """Convert global sentence-index split files into explicit sentence mapping rows."""
+    console.print("\n[bold cyan]Build Sentence Split Map[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        from ud_genre_bootstrap.utils.paper_split_converter import (
+            build_sentence_split_map_from_index_split,
+        )
+
+        cfg = load_config_from_path(config)
+        ud_source_val = ud_source if ud_source is not None else cfg.ud_source
+        ud_version_val = ud_version if ud_version is not None else cfg.ud_version
+        metadata_path_val = metadata_path
+        if metadata_path_val is None and cfg.metadata_path:
+            metadata_path_val = Path(cfg.metadata_path)
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        stats = build_sentence_split_map_from_index_split(
+            split_pickle_path=split_pickle,
+            output_path=output,
+            partitions=partition,
+            ud_source=ud_source_val,
+            ud_version=ud_version_val,
+            metadata_path=metadata_path_val,
+        )
+
+        selected_partitions = ", ".join(stats.selected_partitions)
+        available_partitions = ", ".join(stats.available_partitions)
+
+        console.print(f"[blue]UD source:[/blue] {ud_source_val}")
+        console.print(f"[blue]UD version:[/blue] {ud_version_val}")
+        if metadata_path_val is not None:
+            console.print(f"[blue]Metadata path:[/blue] {metadata_path_val}")
+        console.print(f"[blue]Split pickle:[/blue] {split_pickle}")
+        console.print(f"[blue]Output:[/blue] {stats.output_path}")
+        console.print(f"[blue]Partitions:[/blue] {selected_partitions} (available: {available_partitions})")
+        console.print(f"[blue]Scanned treebanks:[/blue] {stats.scanned_treebanks}")
+        console.print(f"[blue]Scanned split units:[/blue] {stats.scanned_files}")
+        console.print(f"[blue]Scanned sentences:[/blue] {stats.scanned_sentences}")
+        console.print(f"[blue]Target indices:[/blue] {stats.target_indices}")
+        console.print(f"[green]Matched indices:[/green] {stats.matched_target_indices}")
+        console.print(f"[green]Rows written:[/green] {stats.rows_written}")
+
+        if stats.rows_missing_sent_id > 0:
+            console.print(
+                f"[yellow]Rows skipped (missing sent_id):[/yellow] {stats.rows_missing_sent_id}"
+            )
+        if stats.load_errors > 0:
+            treebanks = ", ".join(stats.load_error_treebanks)
+            console.print(
+                f"[yellow]Splits skipped (load errors):[/yellow] {stats.load_errors} "
+                f"(treebanks: {treebanks})"
+            )
+        if stats.unsupported_files > 0:
+            console.print(
+                f"[yellow]Files skipped (non-standard filename):[/yellow] {stats.unsupported_files}"
+            )
+        if stats.unmatched_target_indices > 0:
+            console.print(
+                f"[bold yellow]⚠ Unmatched target indices:[/bold yellow] "
+                f"{stats.unmatched_target_indices} "
+                f"(max target index={stats.max_target_index}, scanned={stats.scanned_sentences})"
+            )
+        else:
+            console.print("[bold green]✓ All selected target indices were matched[/bold green]")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Split-map conversion failed")
         raise typer.Exit(1)
 
 
@@ -1619,6 +2323,7 @@ def evaluate_xgenre(
         data_loader = UDDataLoader(
             ud_source=cfg.ud_source,
             ud_version=cfg.ud_version,
+            metadata_path=Path(cfg.metadata_path) if cfg.metadata_path else None,
         )
 
         # Build sent_id -> text mapping
@@ -1890,6 +2595,7 @@ def test_genres(
         data_loader = UDDataLoader(
             ud_source=cfg.ud_source,
             ud_version=cfg.ud_version,
+            metadata_path=Path(cfg.metadata_path) if cfg.metadata_path else None,
         )
 
         # Initialize genre mapper with patterns
@@ -2008,6 +2714,7 @@ def info(
 
         table.add_row("UD Version", cfg.ud_version)
         table.add_row("UD Source", cfg.ud_source)
+        table.add_row("Metadata Path", cfg.metadata_path or "auto")
         table.add_row("", "")
         table.add_row("[bold]Embeddings[/bold]", "")
         table.add_row("  Model", cfg.embeddings.model)
@@ -2786,6 +3493,25 @@ def _display_evaluation_results(results: dict):
             f"Instance-labeled Treebank Splits (diagnostic): "
             f"{results['instance_labeled_treebanks_split']}"
         )
+    if "anchor_policy" in results:
+        console.print(f"Anchor Policy: {results['anchor_policy']}")
+    if "anchor_counts_by_genre" in results:
+        anchor_counts = results["anchor_counts_by_genre"] or {}
+        if anchor_counts:
+            anchor_summary = ", ".join(
+                f"{genre}={count}" for genre, count in sorted(anchor_counts.items())
+            )
+            console.print(f"Anchors by Genre: {anchor_summary}")
+        else:
+            console.print("Anchors by Genre: [yellow]none[/yellow]")
+    if "missing_anchor_genres" in results:
+        missing_anchor_genres = results["missing_anchor_genres"] or []
+        if missing_anchor_genres:
+            console.print(
+                f"Missing Anchor Genres: [yellow]{', '.join(sorted(missing_anchor_genres))}[/yellow]"
+            )
+        else:
+            console.print("Missing Anchor Genres: [green]none[/green]")
 
     # Fold accuracies
     console.print("\n[bold]Per-Fold Accuracies:[/bold]")

@@ -385,6 +385,7 @@ class ClusteringEvaluator:
         min_margin: float = 0.05,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
+        anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
     ):
         """Initialize clustering evaluator.
@@ -397,6 +398,8 @@ class ClusteringEvaluator:
             min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
             max_iterations: Maximum bootstrap schedule iterations
             anchor_mode: Anchor source mode ('strict' or 'parity')
+            anchor_pool_policy: Anchor source policy ('auto', 'train_virtual',
+                'single_genre', or 'combined')
             reference_weighting: Reference centroid aggregation strategy
                 ('sentence_count' or 'uniform')
         """
@@ -409,6 +412,10 @@ class ClusteringEvaluator:
         self.anchor_mode = (anchor_mode or "strict").strip().lower()
         if self.anchor_mode not in {"strict", "parity"}:
             raise ValueError(f"Invalid anchor_mode '{anchor_mode}'. Use 'strict' or 'parity'.")
+        self.anchor_pool_policy = self._normalize_anchor_pool_policy(
+            anchor_pool_policy,
+            anchor_mode=self.anchor_mode,
+        )
         self.reference_weighting = (reference_weighting or "sentence_count").strip().lower()
         if self.reference_weighting not in {"sentence_count", "uniform"}:
             raise ValueError(
@@ -421,6 +428,25 @@ class ClusteringEvaluator:
             min_margin=min_margin,
             reference_weighting=self.reference_weighting,
         )
+
+    @staticmethod
+    def _normalize_anchor_pool_policy(policy: Optional[str], *, anchor_mode: str) -> str:
+        """Normalize anchor-pool policy and resolve `auto` by anchor mode."""
+        normalized = (policy or "auto").strip().lower()
+        alias_map = {
+            "train_virtual_only": "train_virtual",
+            "single_genre_only": "single_genre",
+            "virtual_only": "train_virtual",
+        }
+        normalized = alias_map.get(normalized, normalized)
+        if normalized == "auto":
+            return "combined" if anchor_mode == "parity" else "train_virtual"
+        if normalized not in {"train_virtual", "single_genre", "combined"}:
+            raise ValueError(
+                f"Invalid anchor_pool_policy '{policy}'. "
+                "Use 'auto', 'train_virtual', 'single_genre', or 'combined'."
+            )
+        return normalized
 
     def k_fold_validate(
         self,
@@ -452,6 +478,7 @@ class ClusteringEvaluator:
         logger.info(f"Starting {self.n_folds}-fold clustering evaluation")
         logger.info(f"  Evaluating {len(multi_genre_treebanks)} multi-genre treebanks")
         logger.info(f"  Anchor mode: {self.anchor_mode}")
+        logger.info(f"  Anchor pool policy: {self.anchor_pool_policy}")
         logger.info(f"  Reference weighting: {self.reference_weighting}")
 
         if len(multi_genre_treebanks) < self.n_folds:
@@ -499,8 +526,9 @@ class ClusteringEvaluator:
                 f"testing on {len(test_treebanks)} treebanks"
             )
 
+            uses_single_genre_anchors = self.anchor_pool_policy in {"single_genre", "combined"}
             parity_single_anchor_keys = None
-            if self.anchor_mode == "parity" and single_genre_treebanks:
+            if uses_single_genre_anchors and single_genre_treebanks:
                 parity_single_anchor_keys = self._select_parity_single_anchor_keys(
                     single_genre_treebanks=single_genre_treebanks,
                     test_treebanks=test_treebanks,
@@ -525,6 +553,69 @@ class ClusteringEvaluator:
 
         # Aggregate results across folds
         return self._aggregate_fold_results(fold_results)
+
+    def fixed_partition_validate(
+        self,
+        test_treebanks: List[Dict],
+        train_treebanks: List[Tuple[str, str]],
+        sentence_metadata: Dict,
+        embeddings_by_tb: Dict,
+        clusterer,
+        single_genre_treebanks: Optional[List[Dict]] = None,
+    ) -> Dict:
+        """Evaluate one predefined train/test partition without cross-validation.
+
+        Args:
+            test_treebanks: Held-out multi-genre split descriptors.
+            train_treebanks: Anchor split keys used to build reference embeddings.
+            sentence_metadata: Dict mapping (treebank, split, sent_id) -> genre.
+            embeddings_by_tb: Precomputed embeddings keyed by (treebank, split).
+            clusterer: Clustering algorithm instance.
+            single_genre_treebanks: Optional additional single-genre candidates for
+                parity mode (filtered for leakage safety).
+
+        Returns:
+            Aggregated metrics over a single fixed holdout run.
+        """
+        logger.info("Starting fixed-partition clustering evaluation")
+        logger.info("  Training anchor splits: %d", len(train_treebanks))
+        logger.info("  Held-out test splits: %d", len(test_treebanks))
+        logger.info("  Anchor mode: %s", self.anchor_mode)
+        logger.info("  Anchor pool policy: %s", self.anchor_pool_policy)
+        logger.info("  Reference weighting: %s", self.reference_weighting)
+
+        if (
+            self.anchor_pool_policy in {"train_virtual", "combined"}
+            and len(train_treebanks) == 0
+        ):
+            raise ValueError(
+                "Fixed-partition evaluation requires at least one training anchor split"
+            )
+        if len(test_treebanks) == 0:
+            raise ValueError("Fixed-partition evaluation requires at least one held-out test split")
+
+        uses_single_genre_anchors = self.anchor_pool_policy in {"single_genre", "combined"}
+        parity_single_anchor_keys = None
+        if uses_single_genre_anchors and single_genre_treebanks:
+            parity_single_anchor_keys = self._select_parity_single_anchor_keys(
+                single_genre_treebanks=single_genre_treebanks,
+                test_treebanks=test_treebanks,
+            )
+            logger.info(
+                "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
+                len(parity_single_anchor_keys),
+                len({tb for tb, _ in parity_single_anchor_keys}),
+            )
+
+        fold_result = self._evaluate_fold(
+            test_treebanks=test_treebanks,
+            train_treebanks=train_treebanks,
+            sentence_metadata=sentence_metadata,
+            embeddings_by_tb=embeddings_by_tb,
+            clusterer=clusterer,
+            parity_single_anchor_keys=parity_single_anchor_keys,
+        )
+        return self._aggregate_fold_results([fold_result])
 
     def _select_parity_single_anchor_keys(
         self,
@@ -564,17 +655,16 @@ class ClusteringEvaluator:
         sentence_metadata: Dict,
         embeddings_by_tb: Dict,
         genre_combination_clusters: Dict,
-        reference_genres: set,
-    ) -> int:
+    ) -> Dict[str, int]:
         """Create anchor centroids from virtual splits and add them to the pool."""
         if not treebank_keys:
-            return 0
+            return {}
 
         treebank_groups = self.clustering_ops.group_splits_by_treebank(
             treebank_keys, embeddings_by_tb
         )
 
-        anchors_added = 0
+        anchor_counts_by_genre = defaultdict(int)
         for tb_code, tb_keys in treebank_groups.items():
             try:
                 combined_embeddings, all_sent_ids, sent_id_to_split = (
@@ -612,10 +702,9 @@ class ClusteringEvaluator:
                         "confidence": 1.0,
                     }
                 ]
-                reference_genres.add(genre)
-                anchors_added += 1
+                anchor_counts_by_genre[genre] += 1
 
-        return anchors_added
+        return dict(anchor_counts_by_genre)
 
     def _evaluate_fold(
         self,
@@ -641,42 +730,40 @@ class ClusteringEvaluator:
             Fold results with sentence-level predictions
         """
 
-        # Build bootstrap cluster pool:
-        # - single-genre anchor clusters from training virtual splits
-        # - multi-genre clusters from held-out test treebanks
+        # Build bootstrap cluster pool from configured anchor sources.
         genre_combination_clusters = defaultdict(dict)
-        reference_genres = set()
-        train_anchor_count = self._add_virtual_split_anchors(
-            treebank_keys=train_treebanks,
-            source_tag="__virtual__",
-            sentence_metadata=sentence_metadata,
-            embeddings_by_tb=embeddings_by_tb,
-            genre_combination_clusters=genre_combination_clusters,
-            reference_genres=reference_genres,
-        )
-        parity_anchor_count = 0
-        if parity_single_anchor_keys:
-            parity_anchor_count = self._add_virtual_split_anchors(
+        anchor_counts_by_genre = defaultdict(int)
+        uses_train_virtual_anchors = self.anchor_pool_policy in {"train_virtual", "combined"}
+        uses_single_genre_anchors = self.anchor_pool_policy in {"single_genre", "combined"}
+
+        train_anchor_count = 0
+        if uses_train_virtual_anchors:
+            train_anchor_counts = self._add_virtual_split_anchors(
+                treebank_keys=train_treebanks,
+                source_tag="__virtual__",
+                sentence_metadata=sentence_metadata,
+                embeddings_by_tb=embeddings_by_tb,
+                genre_combination_clusters=genre_combination_clusters,
+            )
+            for genre, count in train_anchor_counts.items():
+                anchor_counts_by_genre[genre] += count
+            train_anchor_count = sum(train_anchor_counts.values())
+
+        single_anchor_count = 0
+        if uses_single_genre_anchors and parity_single_anchor_keys:
+            single_anchor_counts = self._add_virtual_split_anchors(
                 treebank_keys=parity_single_anchor_keys,
                 source_tag="__single_anchor__",
                 sentence_metadata=sentence_metadata,
                 embeddings_by_tb=embeddings_by_tb,
                 genre_combination_clusters=genre_combination_clusters,
-                reference_genres=reference_genres,
             )
+            for genre, count in single_anchor_counts.items():
+                anchor_counts_by_genre[genre] += count
+            single_anchor_count = sum(single_anchor_counts.values())
 
-        logger.info(
-            "  Reference genres from anchors: %s (train anchors=%d, parity anchors=%d)",
-            sorted(reference_genres),
-            train_anchor_count,
-            parity_anchor_count,
-        )
-
-        # Use shared operation: Group test treebanks by treebank code
-        test_treebank_keys = [(tb['treebank'], tb['split']) for tb in test_treebanks]
-        test_treebank_groups = self.clustering_ops.group_splits_by_treebank(
-            test_treebank_keys, embeddings_by_tb
-        )
+        if uses_single_genre_anchors and not parity_single_anchor_keys:
+            logger.info("  No leakage-safe single-genre anchor keys available for this fold")
 
         # Aggregate expected genres per treebank across all test splits.
         # This ensures cluster count reflects the full combined test treebank.
@@ -684,6 +771,31 @@ class ClusteringEvaluator:
         for test_tb in test_treebanks:
             tb_code = test_tb['treebank']
             treebank_genres_map[tb_code].update(test_tb.get('genres', []))
+
+        expected_test_genres = sorted({
+            genre
+            for genres in treebank_genres_map.values()
+            for genre in genres
+        })
+        missing_anchor_genres = sorted(
+            set(expected_test_genres) - set(anchor_counts_by_genre.keys())
+        )
+        logger.info(
+            "  Reference genres from anchors: %s (train anchors=%d, single-genre anchors=%d, policy=%s)",
+            sorted(anchor_counts_by_genre.keys()),
+            train_anchor_count,
+            single_anchor_count,
+            self.anchor_pool_policy,
+        )
+        logger.info("  Anchor counts by genre: %s", dict(sorted(anchor_counts_by_genre.items())))
+        if missing_anchor_genres:
+            logger.info("  Missing anchor genres in this fold: %s", missing_anchor_genres)
+
+        # Use shared operation: Group test treebanks by treebank code
+        test_treebank_keys = [(tb['treebank'], tb['split']) for tb in test_treebanks]
+        test_treebank_groups = self.clustering_ops.group_splits_by_treebank(
+            test_treebank_keys, embeddings_by_tb
+        )
 
         # Cluster each held-out treebank and add descriptors to shared pool.
         test_sentence_batches = []
@@ -766,6 +878,13 @@ class ClusteringEvaluator:
                 "accuracy": 0.0,
                 "num_test": len(test_treebanks),
                 "num_sentences": 0,
+                "anchor_policy": self.anchor_pool_policy,
+                "anchors_train_virtual": train_anchor_count,
+                "anchors_single_genre": single_anchor_count,
+                "anchors_total": train_anchor_count + single_anchor_count,
+                "anchors_by_genre": dict(sorted(anchor_counts_by_genre.items())),
+                "expected_test_genres": expected_test_genres,
+                "missing_anchor_genres": missing_anchor_genres,
             }
 
         schedule = self.scheduler.create_schedule(set(genre_combination_clusters.keys()))
@@ -813,6 +932,13 @@ class ClusteringEvaluator:
                 "accuracy": 0.0,
                 "num_test": len(test_treebanks),
                 "num_sentences": 0,
+                "anchor_policy": self.anchor_pool_policy,
+                "anchors_train_virtual": train_anchor_count,
+                "anchors_single_genre": single_anchor_count,
+                "anchors_total": train_anchor_count + single_anchor_count,
+                "anchors_by_genre": dict(sorted(anchor_counts_by_genre.items())),
+                "expected_test_genres": expected_test_genres,
+                "missing_anchor_genres": missing_anchor_genres,
             }
 
         # Compute accuracy
@@ -829,6 +955,13 @@ class ClusteringEvaluator:
             "sent_ids": all_sent_refs,
             "treebank_keys": all_treebank_keys,
             "treebank_split_keys": all_treebank_splits,
+            "anchor_policy": self.anchor_pool_policy,
+            "anchors_train_virtual": train_anchor_count,
+            "anchors_single_genre": single_anchor_count,
+            "anchors_total": train_anchor_count + single_anchor_count,
+            "anchors_by_genre": dict(sorted(anchor_counts_by_genre.items())),
+            "expected_test_genres": expected_test_genres,
+            "missing_anchor_genres": missing_anchor_genres,
         }
 
     def _aggregate_fold_results(self, fold_results: List[Dict]) -> Dict:
@@ -848,6 +981,9 @@ class ClusteringEvaluator:
         all_treebank_splits = []
         accuracies = []
         total_sentences = []
+        aggregate_anchor_counts = defaultdict(int)
+        missing_anchor_genres = set()
+        fold_anchor_diagnostics = []
 
         for result in fold_results:
             true_genres = result.get("true_genres", [])
@@ -866,6 +1002,21 @@ class ClusteringEvaluator:
             all_treebank_keys.extend(treebank_keys)
             accuracies.append(result["accuracy"])
             total_sentences.append(result["num_sentences"])
+            result_anchor_counts = result.get("anchors_by_genre", {}) or {}
+            for genre, count in result_anchor_counts.items():
+                aggregate_anchor_counts[genre] += int(count)
+            missing_anchor_genres.update(result.get("missing_anchor_genres", []))
+            fold_anchor_diagnostics.append(
+                {
+                    "anchor_policy": result.get("anchor_policy", self.anchor_pool_policy),
+                    "anchors_train_virtual": int(result.get("anchors_train_virtual", 0)),
+                    "anchors_single_genre": int(result.get("anchors_single_genre", 0)),
+                    "anchors_total": int(result.get("anchors_total", 0)),
+                    "anchors_by_genre": dict(sorted(result_anchor_counts.items())),
+                    "expected_test_genres": sorted(result.get("expected_test_genres", [])),
+                    "missing_anchor_genres": sorted(result.get("missing_anchor_genres", [])),
+                }
+            )
 
         fold_metric_summary = self._compute_fold_metric_summary(fold_results)
 
@@ -897,6 +1048,10 @@ class ClusteringEvaluator:
                 "macro_f1_instance": 0.0,
                 "instance_labeled_treebanks_treebank": 0,
                 "instance_labeled_treebanks_split": 0,
+                "anchor_policy": self.anchor_pool_policy,
+                "anchor_counts_by_genre": dict(sorted(aggregate_anchor_counts.items())),
+                "missing_anchor_genres": sorted(missing_anchor_genres),
+                "fold_anchor_diagnostics": fold_anchor_diagnostics,
                 **fold_metric_summary,
             }
 
@@ -968,6 +1123,10 @@ class ClusteringEvaluator:
             "overlap_error_weighted_split": split_metrics["overlap_error_weighted"],
             "overlap_error_by_treebank_split": split_metrics["overlap_error_by_treebank"],
             "instance_labeled_treebanks_split": split_metrics["instance_labeled_treebanks"],
+            "anchor_policy": self.anchor_pool_policy,
+            "anchor_counts_by_genre": dict(sorted(aggregate_anchor_counts.items())),
+            "missing_anchor_genres": sorted(missing_anchor_genres),
+            "fold_anchor_diagnostics": fold_anchor_diagnostics,
             **fold_metric_summary,
         }
 

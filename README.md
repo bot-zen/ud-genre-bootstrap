@@ -108,6 +108,28 @@ ud-genre-bootstrap evaluate \
 # Progressive cumulative evaluation (adds more treebanks each stage)
 ud-genre-bootstrap evaluate --progressive --progressive-step 2 --n-folds 5
 
+# Build explicit sentence split map from paper global-index split
+ud-genre-bootstrap build-sentence-split-map \
+  --ud-source hf://commul/universal_dependencies \
+  --ud-version 2.8 \
+  --split-pickle /tmp/ud-genre-personads/ud28/splits/102-915-204.pkl \
+  --output configs/paper-split-map.parquet
+
+# Run evaluation constrained to mapped paper partition(s)
+ud-genre-bootstrap evaluate \
+  --sentence-split-map configs/paper-split-map.parquet \
+  --split-partition train \
+  --split-partition dev \
+  --n-folds 5
+
+# Run strict fixed-partition holdout (anchors=train+dev, test=test)
+ud-genre-bootstrap evaluate \
+  --fixed-partition \
+  --sentence-split-map configs/paper-split-map.parquet \
+  --anchor-partition train \
+  --anchor-partition dev \
+  --test-partition test
+
 # Efficient workflow: cluster command saves state, label command loads it
 ud-genre-bootstrap cluster --config config.yaml --treebank en_ewt
 # Creates: output/clusters/cluster_state.pkl (contains clusters + embeddings)
@@ -209,6 +231,8 @@ The `ud_source` configuration accepts:
 - **Local files**: `local:///absolute/path/to/UD_repos/` - Load from local CoNLL-U files (absolute path)
 - **Local files**: `local://../relative/path/to/UD_repos/` - Load from local CoNLL-U files (relative path)
 
+Optional: set `metadata_path` when metadata is not in the default auto-detected location (for example when using a local mirror or a different UD revision checkout).
+
 Relative paths are resolved relative to the current working directory.
 
 Example `config.yaml`:
@@ -216,6 +240,7 @@ Example `config.yaml`:
 ```yaml
 ud_version: "2.15"
 ud_source: "hf://commul/universal_dependencies"
+metadata_path: null  # e.g. "../huggingface/universal_dependencies/metadata.json"
 
 # Optional: Only process specific treebanks
 include_treebanks:

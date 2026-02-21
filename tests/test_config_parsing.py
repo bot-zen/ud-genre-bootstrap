@@ -32,6 +32,27 @@ def test_parse_metadata_anchor_mode_rejects_invalid_value():
         )
 
 
+def test_parse_metadata_anchor_pool_policy_single_genre():
+    cfg = Config.from_dict(
+        {"evaluation": {"metadata_validation": {"anchor_pool_policy": "single_genre"}}}
+    )
+    assert cfg.evaluation.metadata_validation.anchor_pool_policy == "single_genre"
+
+
+def test_parse_metadata_anchor_pool_policy_rejects_invalid_value():
+    with pytest.raises(
+        ValueError,
+        match="evaluation.metadata_validation.anchor_pool_policy",
+    ):
+        Config.from_dict(
+            {
+                "evaluation": {
+                    "metadata_validation": {"anchor_pool_policy": "invalid"}
+                }
+            }
+        )
+
+
 def test_parse_reference_weighting_uniform():
     cfg = Config.from_dict({"bootstrapping": {"reference_weighting": "uniform"}})
     assert cfg.bootstrapping.reference_weighting == "uniform"
@@ -40,3 +61,8 @@ def test_parse_reference_weighting_uniform():
 def test_parse_reference_weighting_rejects_invalid_value():
     with pytest.raises(ValueError, match="bootstrapping.reference_weighting"):
         Config.from_dict({"bootstrapping": {"reference_weighting": "invalid"}})
+
+
+def test_parse_metadata_path():
+    cfg = Config.from_dict({"metadata_path": "configs/metadata.json"})
+    assert cfg.metadata_path == "configs/metadata.json"

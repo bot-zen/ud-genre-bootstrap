@@ -18,13 +18,13 @@ The pipeline consists of seven primary stages:
 
 All sentences across all treebanks are encoded into a shared multilingual semantic space using a pre-trained transformer encoder. This stage produces dense vector representations that capture both linguistic and topical properties of the text.
 
-**Input:** Raw sentence text from Universal Dependencies treebanks
+**Input:** CoNLL-U token `FORM` sequences (`tokens` field) from Universal Dependencies treebanks
 **Output:** Dense embeddings (typically 768 or 1024 dimensions) for each sentence
 **Purpose:** Transform heterogeneous text into a comparable geometric space
 
 #### Stage 2: Clustering
 
-Each treebank is clustered based on the expected number of genres indicated by its metadata. Crucially, when a treebank has multiple splits (train/dev/test), all splits are combined before clustering to ensure consistent genre structure across the entire treebank. The resulting clusters are kept as treebank-combined labeling units.
+Each treebank is clustered based on the expected number of genres indicated by metadata (sentence-level extraction preferred, treebank-level fallback). Crucially, when a treebank has multiple splits (train/dev/test), all available splits on that side of processing are combined before clustering to ensure consistent genre structure across the treebank. The resulting clusters are kept as treebank-combined labeling units.
 
 For treebanks with sentence-level genre annotations, virtual splits are created by separating sentences according to their genre labels, effectively treating each genre subset as a distinct single-genre treebank. Virtual splits span all available splits of the treebank.
 
@@ -114,13 +114,16 @@ This architectural pattern ensures that any improvements or bug fixes automatica
 ### 2.1 Embedding Generation
 
 **Model Architecture:**
-The default embedding model is `intfloat/multilingual-e5-large` (Wang et al., 2024), a 560M parameter multilingual transformer encoder trained on 1 billion text pairs across 100+ languages.
+The code default embedding model is `xlm-roberta-base`; many sweep/production configs override this to `intfloat/multilingual-e5-large` (Wang et al., 2024), a 560M parameter multilingual transformer encoder trained on 1 billion text pairs across 100+ languages.
 
 **Technical Implementation:**
 - **Framework:** HuggingFace Transformers (Wolf et al., 2020)
 - **Tokenizer:** `AutoTokenizer` with model-specific vocabulary
 - **Model:** `AutoModel` (encoder-only architecture)
 - **Device:** Automatic CUDA/CPU detection with configurable override
+
+**Input Representation:**
+Embeddings are built from tokenized sentence inputs (`tokens` lists from CoNLL-U `FORM`), passed to the tokenizer with `is_split_into_words=True`. Rows with missing/invalid token sequences fail fast during embedding generation.
 
 **Pooling Strategy:**
 Two pooling methods are supported:
@@ -131,19 +134,20 @@ Two pooling methods are supported:
 2. **CLS pooling**: Use the first token ([CLS]) representation
 
 **Configuration Parameters:**
-- `model`: HuggingFace model identifier (default: `intfloat/multilingual-e5-large`)
+- `model`: HuggingFace model identifier (default: `xlm-roberta-base`)
 - `pooling`: Pooling strategy (`mean` or `cls`)
 - `layer`: Transformer layer to extract embeddings from (default: `-1` = final layer)
-- `batch_size`: Number of sentences per batch (default: `8`)
+- `batch_size`: Number of sentences per batch (default: `64`)
 - `device`: Compute device (`auto`, `cuda`, or `cpu`)
 - `cache_dir`: Directory for caching computed embeddings to avoid recomputation
 
 **Caching Mechanism:**
-Embeddings are cached on disk using a deterministic naming scheme:
+Embeddings are cached on disk per treebank/split using deterministic file names:
 ```
-{cache_dir}/{treebank_code}_{split}_{model_hash}.npz
+{cache_dir}/{treebank_code}-{split}.npy
+{cache_dir}/{treebank_code}-{split}_ids.txt
 ```
-This enables efficient re-use across multiple pipeline runs.
+The cache directory itself is typically model-specific via config templating (e.g., includes model/pooling/layer), enabling efficient re-use across runs.
 
 **Output Format:**
 For each treebank split:
@@ -198,7 +202,7 @@ Two clustering algorithms are available, configurable via `clustering.method`:
 - `n_clusters`: Number of clusters (determined by treebank metadata)
 - `init`: Initialization method (`k-means++` for better convergence)
 - `n_init`: Number of initializations (scikit-learn: `auto`, cuML: `10`)
-- `max_iter`: Maximum EM iterations (default: `300`)
+- `max_iter`: Maximum K-Means iterations (default: `300`)
 - `random_state`: Random seed for reproducibility
 - `device`: Compute device (cuML-specific)
 
@@ -271,9 +275,9 @@ can_create_virtual_splits = (
 **Decomposition:**
 For each genre `g` in a multi-genre treebank:
 1. Extract sentences with `genre == g` from all splits
-2. Group by original split for storage
-3. Create virtual split key: `(treebank_code, split, genre)`
-4. Store as single-genre cluster (trivial assignment)
+2. Preserve original split distribution for diagnostics/traceability
+3. Create one combined virtual split key: `(treebank_code, "__combined__", genre)`
+4. Store as single-genre cluster (trivial assignment, confidence 1.0)
 
 If a sentence yields multiple conflicting genre labels from metadata extraction,
 it is excluded from virtual split assignment (no arbitrary first-label choice).
@@ -282,15 +286,15 @@ and affected items are skipped.
 
 **Example:**
 ```
-de_pud:test (1000 sentences, genres: [news, wiki])
-→ de_pud:test:news (500 sentences, genre: news)
-→ de_pud:test:wiki (500 sentences, genre: wiki)
+de_pud:train/dev/test (1000 sentences, genres: [news, wiki])
+→ key: (de_pud, "__combined__", news)  (500 sentences; source split distribution retained)
+→ key: (de_pud, "__combined__", wiki)  (500 sentences; source split distribution retained)
 
 cs_pdtc:train/dev/test (70,000 sentences, genres: [academic, news, spoken, learner-essays])
-→ cs_pdtc:train:academic (4,000 sentences, genre: academic)
-→ cs_pdtc:train:news     (40,000 sentences, genre: news)
-→ cs_pdtc:train:spoken   (6,000 sentences, genre: spoken)
-→ ... (similar for dev and test)
+→ key: (cs_pdtc, "__combined__", academic)
+→ key: (cs_pdtc, "__combined__", news)
+→ key: (cs_pdtc, "__combined__", spoken)
+→ ...
 ```
 
 Both virtual splits and the original multi-genre treebank are retained for different purposes:
@@ -374,28 +378,21 @@ By default, this computes sentence-count weighted averages of cluster centroids 
 
 #### 2.4.2 Cluster Labeling
 
-For each cluster `c` in a multi-genre treebank:
+Within each predictable treebank combination, assignment uses a one-to-one strategy with fallbacks:
 
-1. **Compute similarities:**
-   ```python
-   similarity[g] = 1 - cosine_distance(cluster_emb[c], genre_emb[g])
-   ```
-
-2. **Assign best match:**
-   ```python
-   best_genre = argmax_g(similarity[g])
-   confidence = similarity[best_genre]
-   ```
-
-3. **Apply uncertainty thresholds:**
+1. **Compute similarities:** cosine similarity of each cluster centroid to reference genre embeddings.
+2. **Greedy one-to-one matching:** pick highest-similarity cluster↔genre pairs, enforcing unique cluster and unique genre use within that treebank.
+3. **Fallback rules:**
+   - If exactly one unresolved genre and one cluster remain, infer that mapping (`bootstrap-inferred`).
+   - If all genres in the combination are already predictable but clusters remain, assign by independent nearest-neighbor.
+4. **Apply uncertainty thresholds for method tagging:**
    ```python
    margin = top1_similarity - top2_similarity
-   if confidence >= min_confidence and margin >= min_margin:
-       method = "bootstrap-labeled"
-   else:
-       method = "bootstrap-inferred"
-   label_all_sentences(cluster[c], best_genre, confidence, method)
+   method = "bootstrap-labeled" if (
+       confidence >= min_confidence and margin >= min_margin
+   ) else "bootstrap-inferred"
    ```
+5. Propagate cluster labels to all member sentences.
 
 **Parameters:**
 - `min_confidence`: Minimum top-1 cosine similarity threshold (default: `0.8`)
@@ -432,7 +429,7 @@ The pipeline uses YAML configuration files for reproducibility:
 embeddings:
   model: "intfloat/multilingual-e5-large"
   pooling: "mean"
-  batch_size: 8
+  batch_size: 64
   layer: -1
   device: "auto"
   cache_dir: "/path/to/cache/"
@@ -448,6 +445,7 @@ clustering:
 bootstrapping:
   min_confidence: 0.8
   min_margin: 0.05
+  reference_weighting: "sentence_count" # or "uniform"
   max_iterations: 10
   fail_on_incomplete: false
 
@@ -457,27 +455,30 @@ evaluation:
       - "de_pud"
       - "cs_pdtc"
   metadata_validation:
+    anchor_mode: strict
+    anchor_pool_policy: auto    # auto->strict/train_virtual, parity/combined
     coverage_threshold: 0.95    # Also used as production virtual-split gate
     min_genre_sentences: 100    # Also used as production virtual-split gate
 
 genre_extraction:
   mapping_path: "configs/genre_mappings.json"
-  patterns_path: ["configs/metadata_patterns.json"]
+  patterns_path: ["configs/metadata_patterns.json", "configs/pud-patterns.json"]
   canonical_genres: null     # or list of genre labels
 ```
 
 ### 2.6 Output Format
 
-Results are exported as Apache Parquet files maintaining UD structure:
+Primary sentence-level results are exported as Apache Parquet. When clustering artifacts are requested/saved, additional cluster files are written:
 
 **File Structure:**
 ```
 output/
 ├── genres/
-│   ├── {treebank_code}-{split}.parquet
 │   └── all_genres.parquet
 └── clusters/
-    └── cluster_assignments.parquet
+    ├── cluster_assignments.parquet
+    ├── cluster_statistics.json
+    └── cluster_state.pkl
 ```
 
 **Parquet Schema:**
@@ -517,16 +518,16 @@ The pipeline computes several quality indicators:
 The evaluation framework tests the actual clustering and labeling performance on multi-genre treebanks with known sentence-level genre metadata.
 
 **Methodology:**
-1. Split multi-genre treebanks into train/test folds
-2. For training treebanks: **Combine all splits (train/dev/test) of the same treebank**, create virtual splits using sentence metadata from combined data, compute cluster centroids for each virtual split, and build reference genre embeddings from these centroids (mirroring production)
-3. For test treebanks: **Combine all splits (train/dev/test) of the same treebank**, cluster once, and label clusters using the reference embeddings
+1. Split multi-genre treebank split-units into train/test folds (with optional grouping by `language`/`treebank`)
+2. For training side treebanks: combine all splits available on the training side for each treebank, create virtual splits from sentence metadata, compute virtual-split centroids, and build reference genre embeddings
+3. For test side treebanks: combine all splits available on the test side for each treebank, cluster once, and label clusters using the reference embeddings
 4. Evaluate sentence-level accuracy against ground truth
 
 **Mirroring Production in Evaluation:**
 The evaluation faithfully mirrors the production implementation in two key ways:
 
 1. **Reference Construction (Training Data):**
-   - **Combines all splits** (train/dev/test) of the same training treebank
+   - Combines all splits available on the training side for each treebank
    - Creates virtual splits from the combined data using sentence-level metadata
    - Computes cluster centroids for each virtual split
    - Computes weighted averages of these cluster centroids per genre to create reference embeddings (`bootstrapping.reference_weighting`, default: `sentence_count`)
@@ -537,7 +538,7 @@ The evaluation faithfully mirrors the production implementation in two key ways:
    - This matches production's use of virtual split cluster embeddings as references
 
 2. **Treebank-Level Clustering (Test Data):**
-   - **Combines all splits** (train/dev/test) of the same test treebank before clustering
+   - Combines all splits available on the test side for each treebank before clustering
    - This ensures the evaluation tests the same clustering structure used in production
    - Example: If `de_pud` is in the test fold, all its splits are combined, clustered together, and evaluated jointly
 
@@ -548,18 +549,31 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - **`anchor_mode`**:
   - `strict`: only fold-train anchors (best for unknown-data generalization estimates)
   - `parity`: adds leakage-safe single-genre anchors for literature-style comparability
+- **`anchor_pool_policy`**:
+  - `train_virtual`: use fold-train virtual-split anchors only
+  - `single_genre`: use leakage-safe single-genre anchors only
+  - `combined`: use both pools
+  - `auto`: resolves to `train_virtual` in `strict`, `combined` in `parity`
 
 **Cross-Validation:**
 - K-fold cross-validation (configurable K)
 - Grouping options: by language, by treebank, or ungrouped
 - **Important:** When `group_by="treebank"`, all splits of the same treebank stay together in the same fold to prevent data leakage
 - In `parity` anchor mode, additional single-genre anchors are filtered to avoid test leakage (same test treebank always excluded; same test language excluded when `group_by="language"`)
-- Stratification to maintain genre distribution
+- Splitter behavior:
+  - `group_by` set → `GroupKFold`
+  - `group_by` unset → `KFold` (shuffled with seed)
+  - `metadata_validation.stratify_by` is currently retained for compatibility and not used by the splitter
 - Supports reusable named treebank sets (`evaluation.treebank_sets` + `--set`) for literature comparisons
 - Supports progressive cumulative set evaluation (`--progressive`) to assess scaling up to full virtual-split coverage
+- Supports sentence-level split-map filtering (`--sentence-split-map` + `--split-partition`) for exact protocol replay (e.g., paper index splits mapped to `(treebank, split, sent_id)`)
+- Supports fixed-partition holdout mode (`--fixed-partition` with `--anchor-partition`/`--test-partition`) to evaluate a predefined train/dev→test protocol without k-fold refolding
+
+For index-based paper splits, use:
+- `ud-genre-bootstrap build-sentence-split-map --ud-source hf://commul/universal_dependencies --ud-version 2.8 --split-pickle ... --output ...`
 
 **Metrics:**
-- Overall micro-F1-equivalent accuracy: Percentage of correctly labeled sentences (single-label setting)
+- Mean fold and overall micro-F1-equivalent accuracy (reported in CLI as `Mean Fold Acc (Micro-F1)` and `Overall Acc (Micro-F1)`)
 - Macro-F1 (instance-labeled treebanks): Sentence-level macro-averaged F1
 - Purity (PUR): Standard cluster purity over predicted label groups
 - Agreement (AGR, treebank-level primary): Cross-treebank dominant-label consistency for the same true genre
@@ -570,7 +584,7 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - Per-fold variance: Stability across different train/test splits
 
 **Distinction from Production:**
-The evaluation clusters *mixed* sentences (testing actual problem), whereas production receives pre-separated virtual splits (when available). This ensures evaluation measures realistic performance.
+Both production and evaluation cluster mixed treebank-combined sentences. Virtual splits act as anchor/reference sources (metadata-derived single-genre pools), not as a replacement for clustering mixed inputs. This keeps evaluation behavior aligned with production labeling logic.
 
 ## 4. Computational Requirements
 

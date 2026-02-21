@@ -2,6 +2,7 @@
 
 ud_version: "2.17"
 ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
+metadata_path: null  # Optional explicit metadata.json path; set this when source metadata lives outside default auto-detect locations
 
 # Optional: Include only specific treebanks (None = all treebanks)
 # CLI --treebank flag overrides this setting
@@ -92,6 +93,7 @@ evaluation:
     stratify_by: "genre"
     group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
     anchor_mode: "strict"  # "strict" = fold-train anchors only (generalization), "parity" = adds leakage-safe single-genre anchors (paper comparability)
+    anchor_pool_policy: "auto"  # "auto" -> strict=train_virtual, parity=combined; explicit: "train_virtual", "single_genre", "combined"
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
     min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
 

@@ -559,3 +559,220 @@ def test_k_fold_validate_filters_parity_anchors_by_test_language(monkeypatch):
         test_languages = fold_input["test_languages"]
         for anchor_key in fold_input["parity_keys"]:
             assert anchor_language_by_key[anchor_key] not in test_languages
+
+
+def test_fixed_partition_validate_runs_single_holdout(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=5, group_by="language", anchor_mode="strict")
+
+    test_treebanks = [
+        {
+            "treebank": "tb_test",
+            "split": "test",
+            "genres": ["news", "wiki"],
+            "language": "en",
+        }
+    ]
+    train_treebanks = [("tb_train", "train")]
+
+    def _fake_evaluate_fold(
+        test_treebanks,
+        train_treebanks,
+        sentence_metadata,
+        embeddings_by_tb,
+        clusterer,
+        parity_single_anchor_keys=None,
+    ):
+        return {
+            "accuracy": 0.5,
+            "num_test": len(test_treebanks),
+            "num_sentences": 2,
+            "true_genres": ["news", "wiki"],
+            "pred_genres": ["news", "news"],
+            "sent_ids": ["tb_test:test:s1", "tb_test:test:s2"],
+            "treebank_keys": ["tb_test", "tb_test"],
+            "treebank_split_keys": [("tb_test", "test"), ("tb_test", "test")],
+        }
+
+    monkeypatch.setattr(evaluator, "_evaluate_fold", _fake_evaluate_fold)
+
+    result = evaluator.fixed_partition_validate(
+        test_treebanks=test_treebanks,
+        train_treebanks=train_treebanks,
+        sentence_metadata={},
+        embeddings_by_tb={},
+        clusterer=object(),
+    )
+
+    assert result["num_folds"] == 1
+    assert result["fold_accuracies"] == [0.5]
+    assert result["overall_accuracy"] == pytest.approx(0.5)
+    assert result["mean_accuracy"] == pytest.approx(0.5)
+    assert result["std_accuracy"] == pytest.approx(0.0)
+
+
+def test_fixed_partition_validate_parity_filters_anchors(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=5, group_by="language", anchor_mode="parity")
+
+    test_treebanks = [
+        {
+            "treebank": "tb_test",
+            "split": "test",
+            "genres": ["news", "wiki"],
+            "language": "en",
+        }
+    ]
+    train_treebanks = [("tb_train", "train")]
+    single_genre_treebanks = [
+        {"treebank": "mono_en", "split": "train", "language": "en"},
+        {"treebank": "mono_de", "split": "train", "language": "de"},
+    ]
+
+    captured = {}
+
+    def _fake_evaluate_fold(
+        test_treebanks,
+        train_treebanks,
+        sentence_metadata,
+        embeddings_by_tb,
+        clusterer,
+        parity_single_anchor_keys=None,
+    ):
+        captured["parity_keys"] = list(parity_single_anchor_keys or [])
+        return {
+            "accuracy": 1.0,
+            "num_test": len(test_treebanks),
+            "num_sentences": 1,
+            "true_genres": ["news"],
+            "pred_genres": ["news"],
+            "sent_ids": ["tb_test:test:s1"],
+            "treebank_split_keys": [("tb_test", "test")],
+        }
+
+    monkeypatch.setattr(evaluator, "_evaluate_fold", _fake_evaluate_fold)
+
+    result = evaluator.fixed_partition_validate(
+        test_treebanks=test_treebanks,
+        train_treebanks=train_treebanks,
+        sentence_metadata={},
+        embeddings_by_tb={},
+        clusterer=object(),
+        single_genre_treebanks=single_genre_treebanks,
+    )
+
+    assert result["num_folds"] == 1
+    assert ("mono_de", "train") in captured["parity_keys"]
+    assert ("mono_en", "train") not in captured["parity_keys"]
+
+
+def test_anchor_pool_policy_auto_resolves_from_anchor_mode():
+    strict_eval = ClusteringEvaluator(anchor_mode="strict")
+    parity_eval = ClusteringEvaluator(anchor_mode="parity")
+
+    assert strict_eval.anchor_pool_policy == "train_virtual"
+    assert parity_eval.anchor_pool_policy == "combined"
+
+
+def test_k_fold_validate_single_genre_policy_uses_single_anchors_without_parity_mode(monkeypatch):
+    evaluator = ClusteringEvaluator(
+        n_folds=2,
+        group_by="language",
+        anchor_mode="strict",
+        anchor_pool_policy="single_genre",
+    )
+
+    multi_genre_treebanks = [
+        {
+            "treebank": "tb_en",
+            "split": "train",
+            "genres": ["news", "wiki"],
+            "language": "en",
+        },
+        {
+            "treebank": "tb_de",
+            "split": "train",
+            "genres": ["news", "wiki"],
+            "language": "de",
+        },
+    ]
+    single_genre_treebanks = [
+        {"treebank": "mono_en", "split": "train", "language": "en"},
+        {"treebank": "mono_de", "split": "train", "language": "de"},
+        {"treebank": "mono_fr", "split": "train", "language": "fr"},
+    ]
+    anchor_language_by_key = {
+        (item["treebank"], item["split"]): item["language"]
+        for item in single_genre_treebanks
+    }
+
+    captured_fold_inputs = []
+
+    def _fake_evaluate_fold(
+        test_treebanks,
+        train_treebanks,
+        sentence_metadata,
+        embeddings_by_tb,
+        clusterer,
+        parity_single_anchor_keys=None,
+    ):
+        captured_fold_inputs.append(
+            {
+                "test_languages": {tb["language"] for tb in test_treebanks},
+                "parity_keys": list(parity_single_anchor_keys or []),
+            }
+        )
+        return {
+            "accuracy": 1.0,
+            "num_test": len(test_treebanks),
+            "num_sentences": 1,
+            "true_genres": ["news"],
+            "pred_genres": ["news"],
+            "sent_ids": ["tb:test:s1"],
+            "treebank_split_keys": [("tb", "test")],
+        }
+
+    monkeypatch.setattr(evaluator, "_evaluate_fold", _fake_evaluate_fold)
+
+    result = evaluator.k_fold_validate(
+        multi_genre_treebanks=multi_genre_treebanks,
+        sentence_metadata={},
+        embeddings_by_tb={},
+        clusterer=object(),
+        single_genre_treebanks=single_genre_treebanks,
+    )
+
+    assert result["num_folds"] == 2
+    assert len(captured_fold_inputs) == 2
+    for fold_input in captured_fold_inputs:
+        test_languages = fold_input["test_languages"]
+        assert len(fold_input["parity_keys"]) >= 1
+        for anchor_key in fold_input["parity_keys"]:
+            assert anchor_language_by_key[anchor_key] not in test_languages
+
+
+def test_aggregate_fold_results_reports_anchor_diagnostics():
+    evaluator = ClusteringEvaluator(n_folds=2)
+    fold_results = [
+        {
+            "accuracy": 1.0,
+            "num_test": 1,
+            "num_sentences": 2,
+            "true_genres": ["news", "wiki"],
+            "pred_genres": ["news", "wiki"],
+            "sent_ids": ["tb:test:s1", "tb:test:s2"],
+            "anchor_policy": "combined",
+            "anchors_train_virtual": 3,
+            "anchors_single_genre": 2,
+            "anchors_total": 5,
+            "anchors_by_genre": {"news": 3, "wiki": 2},
+            "expected_test_genres": ["news", "wiki", "spoken"],
+            "missing_anchor_genres": ["spoken"],
+        }
+    ]
+
+    result = evaluator._aggregate_fold_results(fold_results)
+
+    assert result["anchor_policy"] == "train_virtual"
+    assert result["anchor_counts_by_genre"] == {"news": 3, "wiki": 2}
+    assert result["missing_anchor_genres"] == ["spoken"]
+    assert len(result["fold_anchor_diagnostics"]) == 1
+    assert result["fold_anchor_diagnostics"][0]["anchors_total"] == 5

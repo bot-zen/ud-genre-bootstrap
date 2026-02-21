@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import types
+import json
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -57,6 +58,7 @@ class StubDataLoader:
     """Data loader stub that can serve both metadata-only and full sentence flows."""
 
     last_ud_source: Optional[str] = None
+    last_metadata_path: Optional[Path] = None
 
     def __init__(
         self,
@@ -68,6 +70,7 @@ class StubDataLoader:
         self.ud_version = ud_version
         self.metadata_path = metadata_path
         StubDataLoader.last_ud_source = ud_source
+        StubDataLoader.last_metadata_path = metadata_path
 
     def get_treebank_codes(self) -> List[str]:
         return ["xx_demo", "yy_demo"]
@@ -219,11 +222,13 @@ class StubClusteringEvaluator:
         min_margin: float,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
+        anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
     ):
         self.n_folds = n_folds
         self.group_by = group_by
         self.anchor_mode = anchor_mode
+        self.anchor_pool_policy = anchor_pool_policy
 
     def k_fold_validate(
         self,
@@ -246,8 +251,42 @@ class StubClusteringEvaluator:
             "overlap_error_split": 0.30,
             "instance_labeled_treebanks_treebank": len({tb["treebank"] for tb in multi_genre_treebanks}),
             "instance_labeled_treebanks_split": len(multi_genre_treebanks),
+            "anchor_policy": self.anchor_pool_policy,
+            "anchor_counts_by_genre": {"news": 1},
+            "missing_anchor_genres": [],
             "num_folds": self.n_folds,
             "fold_accuracies": [0.5] * self.n_folds,
+        }
+
+    def fixed_partition_validate(
+        self,
+        test_treebanks: List[Dict],
+        train_treebanks: List[Tuple[str, str]],
+        sentence_metadata: Dict,
+        embeddings_by_tb: Dict,
+        clusterer,
+        single_genre_treebanks: Optional[List[Dict]] = None,
+    ) -> Dict:
+        return {
+            "mean_accuracy": 0.5,
+            "std_accuracy": 0.0,
+            "overall_accuracy": 0.5,
+            "micro_f1_instance": 0.5,
+            "macro_f1_instance": 0.5,
+            "purity": 0.5,
+            "agreement_treebank": 0.75,
+            "overlap_error_treebank": 0.25,
+            "agreement_split": 0.70,
+            "overlap_error_split": 0.30,
+            "instance_labeled_treebanks_treebank": len(
+                {tb["treebank"] for tb in test_treebanks}
+            ),
+            "instance_labeled_treebanks_split": len(test_treebanks),
+            "anchor_policy": self.anchor_pool_policy,
+            "anchor_counts_by_genre": {"news": 1},
+            "missing_anchor_genres": [],
+            "num_folds": 1,
+            "fold_accuracies": [0.5],
         }
 
 
@@ -285,6 +324,89 @@ def test_evaluate_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
     assert result.exit_code == 0, result.stdout
 
 
+def test_evaluate_command_supports_sentence_split_map(monkeypatch, cfg: Config, tmp_path: Path):
+    """`evaluate` should accept sentence split map filtering options."""
+    _patch_common_cli(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "ud_genre_bootstrap.evaluation.validator.ClusteringEvaluator",
+        StubClusteringEvaluator,
+    )
+    monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
+
+    split_map_path = tmp_path / "split_map.csv"
+    split_map_path.write_text(
+        "partition,global_index,treebank,split,sent_id\n"
+        "train,0,xx_demo,train,xx_demo-1\n"
+        "train,1,xx_demo,train,xx_demo-2\n"
+        "train,2,yy_demo,train,yy_demo-1\n"
+        "train,3,yy_demo,train,yy_demo-2\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "evaluate",
+            "--n-folds",
+            "2",
+            "--group-by",
+            "treebank",
+            "--sentence-split-map",
+            str(split_map_path),
+            "--split-partition",
+            "train",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Sentence split map:" in result.stdout
+
+
+def test_evaluate_command_supports_fixed_partition_mode(
+    monkeypatch, cfg: Config, tmp_path: Path
+):
+    """`evaluate --fixed-partition` should run a single holdout evaluation."""
+    _patch_common_cli(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "ud_genre_bootstrap.evaluation.validator.ClusteringEvaluator",
+        StubClusteringEvaluator,
+    )
+    monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
+
+    split_map_path = tmp_path / "fixed_split_map.csv"
+    split_map_path.write_text(
+        "partition,global_index,treebank,split,sent_id\n"
+        "train,0,xx_demo,train,xx_demo-1\n"
+        "train,1,xx_demo,train,xx_demo-2\n"
+        "train,2,yy_demo,train,yy_demo-1\n"
+        "train,3,yy_demo,train,yy_demo-2\n"
+        "test,4,xx_demo,train,xx_demo-1\n"
+        "test,5,xx_demo,train,xx_demo-2\n"
+        "test,6,yy_demo,train,yy_demo-1\n"
+        "test,7,yy_demo,train,yy_demo-2\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "evaluate",
+            "--fixed-partition",
+            "--sentence-split-map",
+            str(split_map_path),
+            "--anchor-partition",
+            "train",
+            "--test-partition",
+            "test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Fixed-partition mode:" in result.stdout
+    assert "Running fixed-partition holdout evaluation" in result.stdout
+
+
 def test_evaluate_multi_set_comparison_shows_extended_metrics(monkeypatch, cfg: Config):
     """`evaluate` comparison table should include extended clustering metrics."""
     _patch_common_cli(monkeypatch, cfg)
@@ -318,6 +440,67 @@ def test_evaluate_multi_set_comparison_shows_extended_metrics(monkeypatch, cfg: 
     assert "ΔBC" in result.stdout
 
 
+def test_build_sentence_split_map_command(tmp_path: Path):
+    """Split-map converter command should emit explicit sentence rows."""
+    treebanks_root = tmp_path / "ud"
+    treebank_dir = treebanks_root / "UD_Demo"
+    treebank_dir.mkdir(parents=True, exist_ok=True)
+    (treebank_dir / "xx_demo-ud-train.conllu").write_text(
+        "# sent_id = n001\n"
+        "# text = One.\n"
+        "1\tOne\tone\tNUM\t_\t_\t0\troot\t_\t_\n"
+        "\n"
+        "# sent_id = n002\n"
+        "# text = Two.\n"
+        "1\tTwo\ttwo\tNUM\t_\t_\t0\troot\t_\t_\n"
+        "\n",
+        encoding="utf-8",
+    )
+    (treebanks_root / "metadata.json").write_text(
+        json.dumps(
+            {
+                "xx_demo": {
+                    "lcode": "xx",
+                    "genre": ["news", "wiki"],
+                    "splits": {
+                        "train": {
+                            "files": ["UD_Demo/xx_demo-ud-train.conllu"],
+                        }
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    split_pickle_path = tmp_path / "split.pkl"
+    import pickle
+
+    with split_pickle_path.open("wb") as handle:
+        pickle.dump({"train": [0], "dev": [1], "test": []}, handle)
+
+    output_path = tmp_path / "split_map.csv"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "build-sentence-split-map",
+            "--ud-source",
+            f"local://{treebanks_root}",
+            "--split-pickle",
+            str(split_pickle_path),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert output_path.exists()
+    frame = pd.read_csv(output_path)
+    assert list(frame["sent_id"]) == ["n001", "n002"]
+    assert list(frame["partition"]) == ["train", "dev"]
+
+
 def test_coverage_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
     """`coverage` should run against the shared analyzer path for both sources."""
     _patch_common_cli(monkeypatch, cfg)
@@ -330,6 +513,7 @@ def test_coverage_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
 def test_test_genres_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
     """`test-genres` should use configured source when initializing data loader."""
     _patch_common_cli(monkeypatch, cfg)
+    cfg.metadata_path = "/tmp/test-metadata.json"
     monkeypatch.setattr("ud_genre_bootstrap.utils.data_loader.UDDataLoader", StubDataLoader)
     monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
     runner = CliRunner()
@@ -349,6 +533,7 @@ def test_test_genres_command_cover_hf_and_local_sources(monkeypatch, cfg: Config
     )
     assert result.exit_code == 0, result.stdout
     assert StubDataLoader.last_ud_source == cfg.ud_source
+    assert StubDataLoader.last_metadata_path == Path("/tmp/test-metadata.json")
 
 
 def _install_fake_xgenre_modules(monkeypatch, tmp_path: Path):

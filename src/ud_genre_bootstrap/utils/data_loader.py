@@ -29,14 +29,65 @@ class UDDataLoader:
         """Initialize UD data loader.
 
         Args:
-            ud_source: Either "hf://commul/universal_dependencies" or local path
+            ud_source: Either "hf://<dataset-repo>" or "local://<path-to-ud-root>"
             ud_version: UD version (used as HF revision)
             metadata_path: Optional path to metadata.json file
         """
         self.ud_source = ud_source
         self.ud_version = ud_version
         self.metadata_path = metadata_path
+        self.source_type, source_target = self._parse_ud_source(ud_source)
+        self.hf_repo_id = source_target if self.source_type == "hf" else None
+        self.local_root = (
+            Path(source_target).resolve()
+            if self.source_type == "local"
+            else None
+        )
         self.metadata = self._load_metadata()
+
+    @staticmethod
+    def _parse_ud_source(ud_source: str) -> Tuple[str, str]:
+        """Parse and validate UD source URI."""
+        if ud_source.startswith("hf://"):
+            repo_id = ud_source.replace("hf://", "", 1).strip()
+            if not repo_id:
+                raise ValueError(
+                    "Invalid ud_source: missing HuggingFace repo after 'hf://'"
+                )
+            return "hf", repo_id
+
+        if ud_source.startswith("local://"):
+            local_path = ud_source.replace("local://", "", 1).strip()
+            if not local_path:
+                raise ValueError(
+                    "Invalid ud_source: missing local path after 'local://'"
+                )
+            return "local", local_path
+
+        raise ValueError(
+            "Invalid ud_source: expected 'hf://<repo-id>' or 'local://<path>'"
+        )
+
+    def _is_hf_source(self) -> bool:
+        """Return whether source is HuggingFace, with fallback for test stubs."""
+        source_type = getattr(self, "source_type", None)
+        if source_type is not None:
+            return source_type == "hf"
+        return str(getattr(self, "ud_source", "")).startswith("hf://")
+
+    def _get_local_root(self) -> Path:
+        """Resolve local root path, with fallback for test stubs."""
+        local_root = getattr(self, "local_root", None)
+        if local_root is not None:
+            return Path(local_root)
+
+        ud_source = str(getattr(self, "ud_source", ""))
+        if ud_source.startswith("local://"):
+            return Path(ud_source.replace("local://", "", 1)).resolve()
+
+        raise ValueError(
+            "Local source requested but ud_source is not a valid 'local://' URI"
+        )
 
     def _load_metadata(self) -> Dict:
         """Load UD metadata from HuggingFace or local file.
@@ -50,20 +101,38 @@ class UDDataLoader:
             with open(self.metadata_path) as f:
                 return json.load(f)
 
-        # Try to find metadata in standard locations
-        possible_paths = [
-            # Relative to current directory
-            Path("../huggingface/universal_dependencies/metadata.json"),
-        ]
+        if self._is_hf_source():
+            try:
+                from huggingface_hub import hf_hub_download
 
-        for path in possible_paths:
-            if path.exists():
-                logger.info(f"Loading metadata from: {path}")
-                with open(path) as f:
+                metadata_file = hf_hub_download(
+                    repo_id=self.hf_repo_id,
+                    filename="metadata.json",
+                    repo_type="dataset",
+                    revision=self.ud_version,
+                )
+                logger.info(f"Loading metadata from HuggingFace: {metadata_file}")
+                with open(metadata_file) as f:
                     return json.load(f)
+            except Exception as exc:
+                logger.warning(
+                    "Could not load metadata.json from HF source %s@%s: %s",
+                    self.hf_repo_id,
+                    self.ud_version,
+                    exc,
+                )
+                return {}
 
-        # If no local metadata found, return empty dict
-        logger.warning("No metadata.json found, treebank enumeration will not work")
+        metadata_file = self._get_local_root() / "metadata.json"
+        if metadata_file.exists():
+            logger.info(f"Loading metadata from local source: {metadata_file}")
+            with open(metadata_file) as f:
+                return json.load(f)
+
+        logger.warning(
+            "No metadata.json found at local source root: %s",
+            metadata_file,
+        )
         return {}
 
     def get_treebank_codes(self) -> List[str]:
@@ -96,14 +165,12 @@ class UDDataLoader:
         self,
         treebank_code: str,
         split: str,
-        local_path: str = None,
     ) -> List[Path]:
         """Resolve local CoNLL-U files for a treebank split.
 
         Args:
             treebank_code: Treebank code
             split: Split name
-            local_path: Base path to UD repos (overrides self.ud_source)
 
         Returns:
             List of existing CoNLL-U file paths
@@ -125,24 +192,11 @@ class UDDataLoader:
         split_info = tb_meta['splits'][split]
         file_paths = split_info['files']
 
-        base_path_str = local_path if local_path else self.ud_source
-        if base_path_str.startswith("local://"):
-            base_path_str = base_path_str.replace("local://", "")
-        base_path = Path(base_path_str)
-        if not base_path.is_absolute():
-            base_path = base_path.resolve()
+        base_path = self._get_local_root()
 
         resolved_paths = []
         for rel_path in file_paths:
             file_path = base_path / rel_path
-
-            # Metadata paths may include version dirs (e.g., r2.17) not present locally.
-            if not file_path.exists():
-                parts = Path(rel_path).parts
-                if len(parts) >= 3:
-                    alt_path = base_path / parts[0] / parts[2]
-                    if alt_path.exists():
-                        file_path = alt_path
 
             if not file_path.exists():
                 logger.warning(f"File not found: {file_path}")
@@ -152,20 +206,19 @@ class UDDataLoader:
 
         return resolved_paths
 
-    def _load_local_treebank(self, treebank_code: str, split: str, local_path: str = None) -> Dataset:
+    def _load_local_treebank(self, treebank_code: str, split: str) -> Dataset:
         """Load treebank from local CoNLL-U files.
 
         Args:
             treebank_code: Treebank code
             split: Split name
-            local_path: Base path to UD repos (overrides self.ud_source)
 
         Returns:
             Dataset with parsed sentences
         """
         # Parse CoNLL-U files
         sentences = []
-        for file_path in self._resolve_local_split_files(treebank_code, split, local_path):
+        for file_path in self._resolve_local_split_files(treebank_code, split):
             logger.debug(f"Loading {file_path}")
             sentences.extend(self._parse_conllu_file(file_path))
 
@@ -344,21 +397,16 @@ class UDDataLoader:
         Returns:
             HuggingFace Dataset containing the treebank data
         """
-        if self.ud_source.startswith("hf://"):
-            repo_id = self.ud_source.replace("hf://", "")
+        if self._is_hf_source():
             return load_dataset(
-                repo_id,
+                self.hf_repo_id,
                 treebank_code,
                 split=split,
                 revision=self.ud_version,
             )
-        else:
-            # Load from local CoNLL-U files
-            # Remove local:// prefix if present
-            local_path = self.ud_source
-            if local_path.startswith("local://"):
-                local_path = local_path.replace("local://", "")
-            return self._load_local_treebank(treebank_code, split, local_path)
+
+        # Load from local CoNLL-U files
+        return self._load_local_treebank(treebank_code, split)
 
     def iter_treebank_sentences(
         self,
@@ -382,16 +430,12 @@ class UDDataLoader:
                 yield sentence
             return
 
-        if self.ud_source.startswith("hf://"):
+        if self._is_hf_source():
             dataset = self.load_treebank(treebank_code, split)
             yield from self._iter_hf_metadata_sentences(dataset)
             return
 
-        local_path = self.ud_source
-        if local_path.startswith("local://"):
-            local_path = local_path.replace("local://", "")
-
-        for file_path in self._resolve_local_split_files(treebank_code, split, local_path):
+        for file_path in self._resolve_local_split_files(treebank_code, split):
             logger.debug(f"Loading metadata from {file_path}")
             yield from self._iter_conllu_sentence_metadata(file_path)
 

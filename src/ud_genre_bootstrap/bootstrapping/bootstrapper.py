@@ -35,6 +35,7 @@ class GenreBootstrapper:
         self.data_loader = UDDataLoader(
             ud_source=config.ud_source,
             ud_version=config.ud_version,
+            metadata_path=Path(config.metadata_path) if config.metadata_path else None,
         )
 
         # Initialize genre mapper with configuration

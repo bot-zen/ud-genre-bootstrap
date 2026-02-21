@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 import yaml
 from datasets import Dataset
-from datasets import load_dataset as datasets_load_dataset
 from typer.testing import CliRunner
 
 import ud_genre_bootstrap.cli as cli_module
@@ -93,21 +92,20 @@ def real_fixture_setup(
         encoding="utf-8",
     )
 
+    hf_rows = [
+        {
+            "sent_id": "n001",
+            "text": "HF sentence for news.",
+            "comments": ["__SENT_ID__", "__TEXT__"],
+        },
+        {
+            "sent_id": "w001",
+            "text": "HF sentence for wiki.",
+            "comments": ["__SENT_ID__", "__TEXT__"],
+        },
+    ]
     parquet_path = tmp_path / "xx_demo-train.parquet"
-    Dataset.from_list(
-        [
-            {
-                "sent_id": "n001",
-                "text": "HF sentence for news.",
-                "comments": ["__SENT_ID__", "__TEXT__"],
-            },
-            {
-                "sent_id": "w001",
-                "text": "HF sentence for wiki.",
-                "comments": ["__SENT_ID__", "__TEXT__"],
-            },
-        ]
-    ).to_parquet(parquet_path)
+    Dataset.from_list(hf_rows).to_parquet(parquet_path)
 
     mapping_path = tmp_path / "genre_mappings.json"
     mapping_path.write_text('{"n": "news", "w": "wiki"}', encoding="utf-8")
@@ -135,11 +133,7 @@ def real_fixture_setup(
         def _fake_load_dataset(repo_id: str, treebank_code: str, split: str, revision: str):
             assert repo_id == "dummy/repo"
             assert treebank_code == "xx_demo"
-            return datasets_load_dataset(
-                "parquet",
-                data_files={split: str(parquet_path)},
-                split=split,
-            )
+            return Dataset.from_list(hf_rows)
 
         monkeypatch.setattr(data_loader_module, "load_dataset", _fake_load_dataset)
         ud_source = "hf://dummy/repo"
@@ -224,6 +218,7 @@ class _StubClusteringEvaluator:
         min_margin: float,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
+        anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
     ):
         self.n_folds = n_folds
@@ -323,7 +318,7 @@ def real_eval_golden_setup(
             },
         ]
 
-    parquet_paths = {}
+    hf_rows_by_split = {}
     for split_name in ("train", "dev"):
         conllu_path = treebank_dir / f"xx_demo-ud-{split_name}.conllu"
         lines = []
@@ -349,7 +344,14 @@ def real_eval_golden_setup(
                 for row in _split_rows(split_name)
             ]
         ).to_parquet(parquet_path)
-        parquet_paths[split_name] = parquet_path
+        hf_rows_by_split[split_name] = [
+            {
+                "sent_id": row["sent_id"],
+                "text": row["text"],
+                "comments": ["__SENT_ID__", "__TEXT__"],
+            }
+            for row in _split_rows(split_name)
+        ]
 
     mapping_path = tmp_path / "genre_mappings.json"
     mapping_path.write_text('{"n": "news", "w": "wiki"}', encoding="utf-8")
@@ -381,11 +383,7 @@ def real_eval_golden_setup(
         def _fake_load_dataset(repo_id: str, treebank_code: str, split: str, revision: str):
             assert repo_id == "dummy/repo"
             assert treebank_code == "xx_demo"
-            return datasets_load_dataset(
-                "parquet",
-                data_files={split: str(parquet_paths[split])},
-                split=split,
-            )
+            return Dataset.from_list(hf_rows_by_split[split])
 
         monkeypatch.setattr(data_loader_module, "load_dataset", _fake_load_dataset)
         ud_source = "hf://dummy/repo"
@@ -515,6 +513,10 @@ def test_evaluate_reports_full_deterministic_metric_bundle(real_eval_golden_setu
         "std_agreement_split",
         "mean_overlap_error_split",
         "std_overlap_error_split",
+        "anchor_policy",
+        "anchor_counts_by_genre",
+        "missing_anchor_genres",
+        "fold_anchor_diagnostics",
     }
     assert set(metrics.keys()) == expected_keys
 
@@ -537,6 +539,10 @@ def test_evaluate_reports_full_deterministic_metric_bundle(real_eval_golden_setu
 
     assert metrics["instance_labeled_treebanks_treebank"] == 1
     assert metrics["instance_labeled_treebanks_split"] == 2
+    assert metrics["anchor_policy"] == "train_virtual"
+    assert metrics["missing_anchor_genres"] == []
+    assert len(metrics["fold_anchor_diagnostics"]) == 2
+    assert set(metrics["anchor_counts_by_genre"].keys()) == {"news", "wiki"}
     assert metrics["genre_labels"] == ["news", "wiki"]
     assert metrics["confusion_matrix"] == [[4, 0], [0, 4]]
 
