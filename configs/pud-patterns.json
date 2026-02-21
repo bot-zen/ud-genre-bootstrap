@@ -16,7 +16,16 @@
   "it_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
   "ja_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
   "ko_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
-  "pl_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
+  "pl_pud": [
+      {
+          "pattern": "# orig_file_sentence = n",
+          "genre": "news"
+      },
+      {
+          "pattern": "# orig_file_sentence = w",
+          "genre": "nonfiction"
+      }
+  ],
   "pt_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
   "ru_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],
   "sv_pud": [ { "pattern": "# sent_id = ([nw])", "genre": "$1" } ],

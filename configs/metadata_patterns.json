@@ -27,9 +27,9 @@
       "pattern": "# sent_id = ([a-z])[0-9]+([a-z])-",
       "genre": "$1$2",
       "genre_mapping": {
-          "aw": "government",
+          "aw": "legal",
           "nw": "news",
-          "sw": "academic"
+          "sw": "nonfiction"
       }
     }
   ],
@@ -114,7 +114,7 @@
   "de_lit": [
     {
       "genre_mapping": {
-        "fragments": "poetry"
+        "fragments": "nonfiction"
       }
     }
   ],
