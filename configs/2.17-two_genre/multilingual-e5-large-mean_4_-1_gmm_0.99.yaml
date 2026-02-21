@@ -210,7 +210,7 @@ embeddings:
   batch_size: 4
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
-  cache_dir: "/tmp/ud-genre-bootstrap_cache/multilingual-e5-large-mean_4_-1_embeddings/"
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
 
 clustering:
   method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
@@ -292,7 +292,7 @@ xgenre_evaluation:
     Other: null  # No UD equivalent (excluded from evaluation)
 
 output:
-  genres_path: "output/2.17-two_genre/multilingual-e5-large-mean_4_-1_gmm_0.99/genres/"
+  genres_path: "output/{ud_version}-two_genre/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   embeddings_revision: "2.17"
   genres_hf_repo: "commul/ud-genres"

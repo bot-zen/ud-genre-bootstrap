@@ -6,7 +6,7 @@ embeddings:
   batch_size: 16
   layer: -1
   device: auto
-  cache_dir: /tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings
+  cache_dir: /tmp/ud-genre-bootstrap_cache-tokens/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings
 clustering:
   method: gmm
   level: treebank

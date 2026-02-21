@@ -18,8 +18,8 @@ ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or
 #      | sed -e 's/^/  - "/' -e 's/$/"/'; \
 #   done
 include_treebanks:
-  # academic
-  - "pt_petrogold"
+  # # academic
+  # - "pt_petrogold"
   # bible
   - "grc_ptnk"
   - "hbo_ptnk"
@@ -112,7 +112,7 @@ include_treebanks:
   - "fro_altm"
   - "pro_corag"
   # medical
-  - "ro_simonero"
+  # - "ro_simonero"
   # news
   - "akk_pisandub"
   - "ar_nyuad"
@@ -147,7 +147,7 @@ include_treebanks:
   - "it_old"
   - "ru_poetry"
   # reviews
-  - "tr_tourism"
+  # - "tr_tourism"
   # social
   - "qhe_hiencs"
   - "ga_twittirish"
@@ -193,19 +193,13 @@ include_treebanks:
   - "ru_gsd"
 
 
-# Optional: Exclude specific treebanks from all operations
-# exclude_treebanks:
-#   - "got_proiel"  # Gothic (very old language)
-#   - "cu_proiel"   # Old Church Slavonic
-#   - "la_proiel"   # Latin
-
 embeddings:
   model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
   pooling: "mean"  # mean, cls
   batch_size: 4
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
-  cache_dir: "/tmp/ud-genre-bootstrap_cache/multilingual-e5-large-mean_4_-1_embeddings/"
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
 
 clustering:
   method: "kmeans"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
@@ -287,7 +281,7 @@ xgenre_evaluation:
     Other: null  # No UD equivalent (excluded from evaluation)
 
 output:
-  genres_path: "output/2.17-single_genre/all/multilingual-e5-large-mean_4_-1_kmeans_0.99/genres/"
+  genres_path: "output/{ud_version}-single_genre/all/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   embeddings_revision: "2.17"
   genres_hf_repo: "commul/ud-genres"

@@ -39,22 +39,24 @@ include_treebanks:
 
 embeddings:
   model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
-  pooling: "mean"  # mean, cls
+  pooling: "cls"  # mean, cls
   batch_size: 8
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
-  cache_dir: "/tmp/ud-genre-bootstrap_cache/multilingual-e5-large-mean_8_-1_embeddings/"
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
 
 clustering:
-  method: "kmeans"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
   level: "treebank"  # Clustering granularity: "treebank" (only option currently implemented)
                      # Future: "language" (cluster all treebanks per language), "all" (cluster all treebanks together)
   seed: 42
   device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
                   # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
+  fit_sample_size: 20000  # "null" | Optional: fit GMM on a random subset (e.g., 50000) for large treebanks, then predict all sentences
 
 bootstrapping:
-  min_confidence: 0.99
+  min_confidence: 0.97
+  min_margin: 0.4  # Minimum gap between top-1 and top-2 cosine similarity for high-confidence labeling
   max_iterations: 10
   fail_on_incomplete: false
   unresolved_handling: "null"  # null, omit, string:UNKNOWN
@@ -65,6 +67,7 @@ genre_extraction:
   mapping_path: "configs/genre_mappings.json"
 
   # Optional: Define patterns for extracting genres from sentence metadata
+  # Can be a single file or a list of files (patterns are merged)
   # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
   patterns_path:
     - "configs/metadata_patterns.json"
@@ -83,6 +86,10 @@ genre_extraction:
   #   - "medical"
   #   - "spoken"
 
+# Evaluation settings.
+# Note: metadata_validation.coverage_threshold and
+# metadata_validation.min_genre_sentences are also used by the production
+# pipeline as quality gates for virtual-split creation.
 evaluation:
   enabled: true
 
@@ -92,7 +99,7 @@ evaluation:
     stratify_by: "genre"
     group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
-    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
+    min_genre_sentences: 50  # Minimum sentences per genre to create a virtual single-genre split
 
   cluster_metrics:
     - "silhouette"
@@ -105,10 +112,14 @@ evaluation:
     - "confidence_distribution"
 
 # X-GENRE classifier evaluation settings
+# Used by the 'evaluate-xgenre' command to compare bootstrap labels against X-GENRE predictions
 xgenre_evaluation:
   model: "classla/xlm-roberta-base-multilingual-text-genre-classifier"
   batch_size: 32
   device: "auto"
+
+  # Mapping from X-GENRE labels to UD canonical genres
+  # Customize this mapping to match your genre taxonomy
   genre_mapping:
     News: "news"
     Legal: "legal"
@@ -118,10 +129,10 @@ xgenre_evaluation:
     Opinion/Argumentation: "reviews"
     Instruction: "nonfiction"
     Promotion: "web"
-    Other: null
+    Other: null  # No UD equivalent (excluded from evaluation)
 
 output:
-  genres_path: "output/v2.17-pud/multilingual-e5-large-mean_8_-1_kmeans/genres/"
+  genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-multilingual-e5-large"
   embeddings_revision: "2.17"
   genres_hf_repo: "commul/ud-genres"

@@ -1,0 +1,305 @@
+# Default configuration for UD Genre Bootstrap
+
+ud_version: "2.17"
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
+
+# Optional: Include only specific treebanks (None = all treebanks)
+# CLI --treebank flag overrides this setting
+# for GENRE in academic bible blog email fiction government grammar-examples learner-essays legal medical news nonfiction poetry reviews social spoken web wiki; \
+# do \
+#    for FILE in $(grep -l -iE "^Genre: (${GENRE} [A-Za-z]+)|([A-Za-z]+ ${GENRE})$" ../../data/external/huggingface/universal_dependencies/tools/UD_repos/*/README.md); \
+#    do \
+#       echo $(dirname $FILE)/*test.conllu; \
+#    done \
+#    | sed -e "s/.*\///" \
+#    | sed -e "s/-ud-test.conllu//" \
+#    | grep -v '*' \
+#    | sed -e 's/^/  - "/' -e 's/$/"/'; \
+# done \
+# | sort | uniq
+
+include_treebanks:
+  - "aii_as"
+  - "ajp_madar"
+  - "akk_riao"
+  - "am_att"
+  - "apu_ufpa"
+  - "aqz_tudet"
+  - "ar_pud"
+  - "arr_tudet"
+  - "azz_itml"
+  - "bar_maibaam"
+  - "be_hse"
+  - "bho_bhtb"
+  - "bm_crb"
+  - "bor_bdt"
+  - "br_keb"
+  - "cop_bohairic"
+  - "cop_scriptorium"
+  - "cpg_amgic"
+  - "cs_cac"
+  - "cs_fictree"
+  - "cs_pdtc"
+  - "cs_pud"
+  - "cy_ccg"
+  - "da_ddt"
+  - "de_gsd"
+  - "de_hdt"
+  - "de_pud"
+  - "egy_ujaen"
+  - "el_gdt"
+  - "el_lesbian"
+  - "en_atis"
+  - "en_ewt"
+  - "en_gentle"
+  - "en_gum"
+  - "en_gumreddit"
+  - "en_partut"
+  - "en_pud"
+  - "es_gsd"
+  - "es_pud"
+  - "et_edt"
+  - "et_ewt"
+  - "fa_perdt"
+  - "fa_seraji"
+  - "fi_ftb"
+  - "fi_ood"
+  - "fo_farpahc"
+  - "fr_fqb"
+  - "fr_gsd"
+  - "frm_profiterole"
+  - "fro_profiterole"
+  - "fr_partut"
+  - "fr_pud"
+  - "fr_sequoia"
+  - "ga_cadhan"
+  - "ga_twittirish"
+  - "gd_arcosg"
+  - "gl_ctg"
+  - "gl_pud"
+  - "grc_proiel"
+  - "gsw_divital"
+  - "gsw_uzh"
+  - "gub_tudet"
+  - "gv_cadhan"
+  - "ha_westernautogramm"
+  - "he_iahltknesset"
+  - "hi_pud"
+  - "hr_set"
+  - "hsb_ufal"
+  - "hy_armtdp"
+  - "hy_bsut"
+  - "hyw_armtdp"
+  - "id_csui"
+  - "id_gsd"
+  - "id_pud"
+  - "is_gc"
+  - "is_icepahc"
+  - "is_modern"
+  - "is_pud"
+  - "it_isdt"
+  - "it_parlamint"
+  - "it_partut"
+  - "it_pud"
+  - "it_vit"
+  - "ja_bccwjluw"
+  - "ja_gsd"
+  - "ja_gsdluw"
+  - "ja_pud"
+  - "ja_pudluw"
+  - "jv_csui"
+  - "ka_glc"
+  - "ka_gnc"
+  - "kfm_aha"
+  - "kk_ktb"
+  - "kmr_kurmanji"
+  - "ko_gsd"
+  - "ko_kaist"
+  - "ko_pud"
+  - "krl_kkpp"
+  - "ky_ktmu"
+  - "la_circse"
+  - "la_llct"
+  - "la_perseus"
+  - "la_proiel"
+  - "la_udante"
+  - "lij_glt"
+  - "lt_alksnis"
+  - "lt_hse"
+  - "lv_lvtb"
+  - "lzh_kyoto"
+  - "mdf_jr"
+  - "mpu_tudet"
+  - "mr_ufal"
+  - "mt_mudt"
+  - "myu_tudet"
+  - "naq_kdt"
+  - "nds_lsdc"
+  - "nhi_itml"
+  - "nmf_suansu"
+  - "no_bokmaal"
+  - "no_nynorsk"
+  - "nyq_aha"
+  - "oc_ttb"
+  - "olo_kkpp"
+  - "or_odtb"
+  - "orv_rnc"
+  - "orv_ruthenian"
+  - "orv_torot"
+  - "ota_boun"
+  - "ota_dudu"
+  - "pl_lfg"
+  - "pl_mpdt"
+  - "pl_pdb"
+  - "pl_pud"
+  - "ps_sikaram"
+  - "pt_cintil"
+  - "pt_gsd"
+  - "pt_pud"
+  - "qaf_arabizi"
+  - "qpm_philotis"
+  - "quc_iu"
+  - "ro_nonstandard"
+  - "ro_rrt"
+  - "ru_pud"
+  - "ru_syntagrus"
+  - "ru_taiga"
+  - "sah_yktdt"
+  - "sga_dipsgg"
+  - "sga_dipwbg"
+  - "si_stb"
+  - "sjo_xdt"
+  - "sk_snk"
+  - "sl_ssj"
+  - "sme_giella"
+  - "sms_giellagas"
+  - "soj_aha"
+  - "sv_pud"
+  - "sv_talbanken"
+  - "th_pud"
+  - "th_tud"
+  - "tl_ugnayan"
+  - "tpn_tudet"
+  - "tr_atis"
+  - "tr_boun"
+  - "tr_imst"
+  - "tr_penn"
+  - "tr_pud"
+  - "tt_nmctt"
+  - "uk_iu"
+  - "uk_parlamint"
+  - "urb_tudet"
+  - "uz_ut"
+  - "wo_wtb"
+  - "xcl_caval"
+  - "xnr_kdtb"
+  - "yi_yitb"
+  - "yo_ytb"
+  - "yrl_complin"
+  - "zh_pud"
+
+# Optional: Exclude specific treebanks from all operations
+# exclude_treebanks:
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
+
+embeddings:
+  model: "intfloat/multilingual-e5-large"  # "xlm-roberta-base"  # "multilingual-e5-large-instruct"
+  pooling: "mean"  # mean, cls
+  batch_size: 8
+  layer: -1  # -1 for last layer
+  device: "auto"  # auto, cuda, cpu
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
+
+clustering:
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  level: "treebank"  # treebank, language, all
+  seed: 42
+  device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
+
+bootstrapping:
+  min_confidence: 0.95
+  max_iterations: 20
+  fail_on_incomplete: false
+  unresolved_handling: "null"  # null, omit, string:UNKNOWN
+
+genre_extraction:
+  # Optional: Map non-standard genre labels to canonical UD genres
+  # See configs/genre_mappings.example.json for format
+  mapping_path: "configs/genre_mappings.json"
+
+  # Optional: Define patterns for extracting genres from sentence metadata
+  # Can be a single file or a list of files (patterns are merged)
+  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
+  patterns_path:
+    - "configs/metadata_patterns.json"
+    - "configs/pud-patterns.json"
+
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
+
+evaluation:
+  enabled: true
+
+  metadata_validation:
+    method: "kfold"  # kfold, holdout
+    k: 5
+    stratify_by: "genre"
+    group_by: "language"  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage to include treebank (0.0-1.0)
+    min_genre_sentences: 100  # Minimum sentences per genre to create a virtual single-genre split
+
+  cluster_metrics:
+    - "silhouette"
+    - "calinski_harabasz"
+    - "davies_bouldin"
+
+  convergence_metrics:
+    - "resolution_rate"
+    - "disjunct_combinations"
+    - "confidence_distribution"
+
+# X-GENRE classifier evaluation settings
+# Used by the 'evaluate-xgenre' command to compare bootstrap labels against X-GENRE predictions
+xgenre_evaluation:
+  model: "classla/xlm-roberta-base-multilingual-text-genre-classifier"
+  batch_size: 32
+  device: "auto"  # "auto", "cuda", "cpu"
+
+  # Mapping from X-GENRE labels to UD canonical genres
+  # Customize this mapping to match your genre taxonomy
+  genre_mapping:
+    News: "news"
+    Legal: "legal"
+    Information/Explanation: "wiki"
+    Forum: "social"
+    Prose/Lyrical: "fiction"
+    Opinion/Argumentation: "reviews"
+    Instruction: "nonfiction"
+    Promotion: "web"
+    Other: null  # No UD equivalent (excluded from evaluation)
+
+output:
+  genres_path: "output/{ud_version}-two_genre/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.17"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.17"
+  push_to_hub: false  # Set to true when ready to publish
+  hf_token: "${HF_TOKEN}"  # From environment variable
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

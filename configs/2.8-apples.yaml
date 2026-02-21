@@ -1,0 +1,143 @@
+# Default configuration for UD Genre Bootstrap
+
+ud_version: "2.8"
+ud_source: "hf://commul/universal_dependencies"  # or "local:///path/to/ud"
+metadata_path: null  # Optional explicit metadata.json path; set this when source metadata lives outside default auto-detect locations
+
+# Optional: Include only specific treebanks (None = all treebanks)
+# CLI --treebank flag overrides this setting
+# include_treebanks:
+#   - "en_ewt"
+#   - "de_gsd"
+#   - "fr_gsd"
+
+# Optional: Exclude specific treebanks from all operations
+exclude_treebanks:
+  - "ar_nyuad"
+  - "ja_bccwj"
+  - "pt_cintil"
+#   - "got_proiel"  # Gothic (very old language)
+#   - "cu_proiel"   # Old Church Slavonic
+#   - "la_proiel"   # Latin
+
+embeddings:
+  model: "bert-base-multilingual-cased"
+  pooling: "mean"  # mean, cls
+  batch_size: 64
+  layer: -1  # -1 for last layer
+  device: "auto"  # auto, cuda, cpu
+  cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
+
+clustering:
+  method: "gmm"  # "gmm" (CPU-only) or "kmeans" (GPU-accelerated via cuML)
+  level: "treebank"  # Clustering granularity: "treebank" (only option currently implemented)
+                     # Future: "language" (cluster all treebanks per language), "all" (cluster all treebanks together)
+  seed: 42
+  device: "auto"  # "auto" (use GPU if available), "cuda" (force GPU), "cpu" (force CPU)
+                  # Note: GMM is CPU-only (cuML limitation), use K-Means for GPU acceleration
+  fit_sample_size: null  # Optional: fit GMM on a random subset (e.g., 50000) for large treebanks, then predict all sentences
+
+bootstrapping:
+  min_confidence: 0.8
+  min_margin: 0.05  # Minimum gap between top-1 and top-2 cosine similarity for high-confidence labeling
+  reference_weighting: "sentence_count"  # "sentence_count" (default) or "uniform"
+  max_iterations: 32
+  fail_on_incomplete: false
+  unresolved_handling: "null"  # null, omit, string:UNKNOWN
+
+genre_extraction:
+  # Optional: Map non-standard genre labels to canonical UD genres
+  # See configs/genre_mappings.example.json for format
+  mapping_path: "configs/genre_mappings.json"
+
+  # Optional: Define patterns for extracting genres from sentence metadata
+  # Can be a single file or a list of files (patterns are merged)
+  # See configs/metadata_patterns.example.json and docs/GENRE_PATTERNS.md
+  # patterns_path: null  # "configs/metadata_patterns.json"
+  # Or use multiple files:
+  patterns_path:
+    - "configs/metadata_patterns.json"
+    - "configs/pud-patterns.json"
+
+  # Optional: Override the default canonical genre set
+  # If not specified, uses the default UD genre taxonomy
+  canonical_genres: null
+  # Example: Use a custom genre set
+  # canonical_genres:
+  #   - "news"
+  #   - "wiki"
+  #   - "fiction"
+  #   - "blog"
+  #   - "legal"
+  #   - "medical"
+  #   - "spoken"
+
+# Evaluation settings.
+# Note: metadata_validation.coverage_threshold and
+# metadata_validation.min_genre_sentences are also used by the production
+# pipeline as quality gates for virtual-split creation.
+evaluation:
+  enabled: true
+
+  # Optional named evaluation sets for reproducible comparisons.
+  # Use with: --set literature_small --set literature_full
+  # treebank_sets:
+  #   literature_small:
+  #     - "de_pud"
+  #     - "cs_pdtc"
+  #   literature_full:
+  #     - "de_pud"
+  #     - "cs_pdtc"
+  #     - "en_pud"
+
+  metadata_validation:
+    method: "kfold"  # kfold, holdout
+    k: 5
+    stratify_by: "genre"
+    group_by: null  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
+    anchor_mode: "parity"  # "strict" = fold-train anchors only (generalization), "parity" = adds leakage-safe single-genre anchors (paper comparability)
+    coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
+    min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
+
+  cluster_metrics:
+    - "silhouette"
+    - "calinski_harabasz"
+    - "davies_bouldin"
+
+  convergence_metrics:
+    - "resolution_rate"
+    - "disjunct_combinations"
+    - "confidence_distribution"
+
+# X-GENRE classifier evaluation settings
+# Used by the 'evaluate-xgenre' command to compare bootstrap labels against X-GENRE predictions
+xgenre_evaluation:
+  model: "classla/xlm-roberta-base-multilingual-text-genre-classifier"
+  batch_size: 32
+  device: "auto"  # "auto", "cuda", "cpu"
+
+  # Mapping from X-GENRE labels to UD canonical genres
+  # Customize this mapping to match your genre taxonomy
+  genre_mapping:
+    News: "news"
+    Legal: "legal"
+    Information/Explanation: "wiki"
+    Forum: "social"
+    Prose/Lyrical: "fiction"
+    Opinion/Argumentation: "reviews"
+    Instruction: "nonfiction"
+    Promotion: "web"
+    Other: null  # No UD equivalent (excluded from evaluation)
+
+output:
+  genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
+  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_revision: "2.8"
+  genres_hf_repo: "commul/ud-genres"
+  genres_revision: "2.8"
+  push_to_hub: false  # Set to true when ready to publish
+  hf_token: "${HF_TOKEN}"  # From environment variable
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
