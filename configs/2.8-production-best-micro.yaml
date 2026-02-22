@@ -21,9 +21,9 @@ exclude_treebanks:
 #   - "la_proiel"   # Latin
 
 embeddings:
-  model: "bert-base-multilingual-cased"
+  model: "intfloat/multilingual-e5-large"
   pooling: "mean"  # mean, cls
-  batch_size: 64
+  batch_size: 32
   layer: -1  # -1 for last layer
   device: "auto"  # auto, cuda, cpu
   cache_dir: "/tmp/ud-genre-bootstrap_cache/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}-embeddings"
@@ -131,7 +131,7 @@ xgenre_evaluation:
 
 output:
   genres_path: "output/2.8-production/best-micro/genres/"
-  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
+  embeddings_hf_repo: "commul/ud-embeddings-multilingual-e5-large"
   embeddings_revision: "2.8"
   genres_hf_repo: "commul/ud-genres"
   genres_revision: "2.8"
