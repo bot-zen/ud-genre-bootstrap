@@ -62,6 +62,7 @@ evaluation:
     stratify_by: genre
     group_by: language
     anchor_mode: strict
+    anchor_pool_policy: combined
     coverage_threshold: 0.95
     min_genre_sentences: 100
   cluster_metrics:
