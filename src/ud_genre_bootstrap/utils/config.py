@@ -61,6 +61,7 @@ class GenreExtractionConfig:
 class MetadataValidationConfig:
     """Configuration for metadata validation."""
 
+    protocol: str = "generalization"  # "generalization" or "paper_parity"
     method: str = "kfold"
     k: int = 5
     stratify_by: str = "genre"
@@ -199,6 +200,31 @@ class Config:
         )
 
     @staticmethod
+    def _parse_evaluation_protocol(value: Any, field_name: str) -> str:
+        """Parse and validate evaluation protocol."""
+        if value is None:
+            return "generalization"
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{field_name} must be a string ('generalization' or 'paper_parity'), got {type(value).__name__}"
+            )
+
+        normalized = value.strip().lower()
+        alias_map = {
+            "paper": "paper_parity",
+            "parity": "paper_parity",
+            "generalisation": "generalization",
+        }
+        normalized = alias_map.get(normalized, normalized)
+        if normalized in {"generalization", "paper_parity"}:
+            return normalized
+
+        raise ValueError(
+            f"{field_name} must be 'generalization' or 'paper_parity', got '{value}'"
+        )
+
+    @staticmethod
     def _parse_anchor_pool_policy(value: Any, field_name: str) -> str:
         """Parse and validate evaluation anchor-pool policy."""
         if value is None:
@@ -266,6 +292,11 @@ class Config:
         # Parse evaluation config
         eval_dict = config_dict.get("evaluation", {})
         metadata_val_dict = dict(eval_dict.get("metadata_validation", {}))
+        if "protocol" in metadata_val_dict:
+            metadata_val_dict["protocol"] = cls._parse_evaluation_protocol(
+                metadata_val_dict["protocol"],
+                "evaluation.metadata_validation.protocol",
+            )
         if "anchor_mode" in metadata_val_dict:
             metadata_val_dict["anchor_mode"] = cls._parse_anchor_mode(
                 metadata_val_dict["anchor_mode"],

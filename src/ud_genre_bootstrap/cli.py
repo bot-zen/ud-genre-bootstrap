@@ -228,6 +228,27 @@ def check_evaluation_fold_feasibility(
     return True, ""
 
 
+def normalize_evaluation_protocol(
+    protocol: Optional[str],
+    default_protocol: str = "generalization",
+) -> str:
+    """Normalize evaluation protocol from CLI/config inputs."""
+    raw_protocol = default_protocol if protocol is None else protocol
+    normalized = (raw_protocol or "generalization").strip().lower()
+    alias_map = {
+        "paper": "paper_parity",
+        "parity": "paper_parity",
+        "generalisation": "generalization",
+    }
+    normalized = alias_map.get(normalized, normalized)
+    if normalized not in {"generalization", "paper_parity"}:
+        raise ValueError(
+            f"Invalid evaluation protocol '{raw_protocol}'. "
+            "Use 'generalization' or 'paper_parity'."
+        )
+    return normalized
+
+
 def normalize_anchor_mode(anchor_mode: Optional[str], default_mode: str = "strict") -> str:
     """Normalize evaluation anchor mode from CLI/config inputs."""
     mode = default_mode if anchor_mode is None else anchor_mode
@@ -262,6 +283,138 @@ def normalize_anchor_pool_policy(
             "Use 'auto', 'train_virtual', 'single_genre', or 'combined'."
         )
     return normalized
+
+
+def _format_protocol_treebanks(split_keys: List[Tuple[str, str]], limit: int = 5) -> str:
+    """Format split keys as a compact treebank list."""
+    treebanks = sorted({tb for tb, _split in split_keys})
+    if not treebanks:
+        return "none"
+    shown = treebanks[:limit]
+    if len(treebanks) > limit:
+        shown.append(f"... +{len(treebanks) - limit} more")
+    return ", ".join(shown)
+
+
+def _format_protocol_split_keys(split_keys: List[Tuple[str, str]], limit: int = 5) -> str:
+    """Format split keys compactly for human-readable diagnostics."""
+    unique_keys = sorted(set(split_keys))
+    if not unique_keys:
+        return "none"
+    shown = [f"{tb}:{split}" for tb, split in unique_keys[:limit]]
+    if len(unique_keys) > limit:
+        shown.append(f"... +{len(unique_keys) - limit} more")
+    return ", ".join(shown)
+
+
+def build_fixed_partition_protocol_report(
+    *,
+    protocol: str,
+    anchor_partitions: List[str],
+    test_partition: str,
+    requested_anchor_split_keys: List[Tuple[str, str]],
+    requested_test_split_keys: List[Tuple[str, str]],
+    source_missing_anchor_split_keys: Optional[List[Tuple[str, str]]] = None,
+    source_missing_test_split_keys: Optional[List[Tuple[str, str]]] = None,
+    load_error_split_keys: Optional[List[Tuple[str, str]]] = None,
+    no_metadata_test_split_keys: Optional[List[Tuple[str, str]]] = None,
+    dropped_anchor_split_keys: Optional[List[Tuple[str, str]]] = None,
+    dropped_test_split_keys: Optional[List[Tuple[str, str]]] = None,
+    dropped_single_anchor_split_keys: Optional[List[Tuple[str, str]]] = None,
+    missing_anchor_genres: Optional[List[str]] = None,
+    overlap_sentences: int = 0,
+) -> Dict[str, object]:
+    """Build a compact fixed-partition protocol report for CLI output/results."""
+    requested_anchor_split_keys = sorted(set(requested_anchor_split_keys))
+    requested_test_split_keys = sorted(set(requested_test_split_keys))
+    source_missing_anchor_split_keys = sorted(set(source_missing_anchor_split_keys or []))
+    source_missing_test_split_keys = sorted(set(source_missing_test_split_keys or []))
+    load_error_split_keys = sorted(set(load_error_split_keys or []))
+    no_metadata_test_split_keys = sorted(set(no_metadata_test_split_keys or []))
+    dropped_anchor_split_keys = sorted(set(dropped_anchor_split_keys or []))
+    dropped_test_split_keys = sorted(set(dropped_test_split_keys or []))
+    dropped_single_anchor_split_keys = sorted(set(dropped_single_anchor_split_keys or []))
+    missing_anchor_genres = sorted(set(missing_anchor_genres or []))
+
+    notes: List[str] = []
+    deviations: List[str] = []
+
+    if protocol == "paper_parity":
+        notes.append(
+            f"Paper-parity anchor policy: same-partition single-genre anchors from '{test_partition}'."
+        )
+        if overlap_sentences > 0:
+            notes.append(
+                f"Anchor/test overlap: {overlap_sentences} sentence(s) shared by design."
+            )
+    else:
+        notes.append(
+            f"Generalization fixed holdout: anchors={', '.join(anchor_partitions)} -> test={test_partition}."
+        )
+        if overlap_sentences > 0:
+            deviations.append(
+                f"Anchor/test overlap outside parity protocol: {overlap_sentences} sentence(s)."
+            )
+
+    if source_missing_anchor_split_keys:
+        deviations.append(
+            "Split-map anchor keys missing from UD source: "
+            f"{len(source_missing_anchor_split_keys)} split(s) "
+            f"(treebanks: {_format_protocol_treebanks(source_missing_anchor_split_keys)})"
+        )
+    if source_missing_test_split_keys:
+        deviations.append(
+            "Split-map test keys missing from UD source: "
+            f"{len(source_missing_test_split_keys)} split(s) "
+            f"(treebanks: {_format_protocol_treebanks(source_missing_test_split_keys)})"
+        )
+    if load_error_split_keys:
+        deviations.append(
+            "Load errors while reading split-map-selected data: "
+            f"{len(load_error_split_keys)} split(s) "
+            f"({_format_protocol_split_keys(load_error_split_keys)})"
+        )
+    if no_metadata_test_split_keys:
+        deviations.append(
+            "Split-map-selected test splits without usable genre metadata: "
+            f"{len(no_metadata_test_split_keys)} split(s) "
+            f"({_format_protocol_split_keys(no_metadata_test_split_keys)})"
+        )
+    if dropped_anchor_split_keys:
+        deviations.append(
+            "Anchor splits removed after embedding filtering: "
+            f"{len(dropped_anchor_split_keys)} split(s) "
+            f"({_format_protocol_split_keys(dropped_anchor_split_keys)})"
+        )
+    if dropped_test_split_keys:
+        deviations.append(
+            "Test splits removed after embedding filtering: "
+            f"{len(dropped_test_split_keys)} split(s) "
+            f"({_format_protocol_split_keys(dropped_test_split_keys)})"
+        )
+    if dropped_single_anchor_split_keys:
+        deviations.append(
+            "Single-genre anchor candidates removed after embedding filtering: "
+            f"{len(dropped_single_anchor_split_keys)} split(s) "
+            f"({_format_protocol_split_keys(dropped_single_anchor_split_keys)})"
+        )
+    if missing_anchor_genres:
+        deviations.append(
+            "Expected test genres without anchor support: "
+            f"{', '.join(missing_anchor_genres)}"
+        )
+
+    return {
+        "protocol_scope": {
+            "anchor_partitions": list(anchor_partitions),
+            "test_partition": test_partition,
+            "requested_anchor_split_keys": len(requested_anchor_split_keys),
+            "requested_test_split_keys": len(requested_test_split_keys),
+            "overlap_sentences": overlap_sentences,
+        },
+        "protocol_notes": notes,
+        "protocol_deviations": deviations,
+    }
 
 
 def safe_label_for_filename(label: str) -> str:
@@ -721,6 +874,11 @@ def evaluate(
         "--group-by",
         help="Variable to group by: 'treebank', 'language', or None (overrides config)",
     ),
+    protocol: Optional[str] = typer.Option(
+        None,
+        "--protocol",
+        help="Evaluation protocol: 'generalization' (default) or 'paper_parity' (original fixed-split GMM+L-style evaluation).",
+    ),
     anchor_mode: Optional[str] = typer.Option(
         None,
         "--anchor-mode",
@@ -815,6 +973,11 @@ def evaluate(
 
         # Get evaluation config values (CLI overrides config)
         eval_cfg = cfg.evaluation.metadata_validation
+        protocol_val = normalize_evaluation_protocol(
+            protocol,
+            getattr(eval_cfg, "protocol", "generalization"),
+        )
+        fixed_partition_mode = fixed_partition or protocol_val == "paper_parity"
         n_folds_val = n_folds if n_folds is not None else eval_cfg.k
         group_by_val = group_by if group_by is not None else eval_cfg.group_by
         anchor_mode_val = normalize_anchor_mode(anchor_mode, eval_cfg.anchor_mode)
@@ -823,16 +986,42 @@ def evaluate(
             getattr(eval_cfg, "anchor_pool_policy", "auto"),
             anchor_mode=anchor_mode_val,
         )
+
+        if protocol_val == "paper_parity":
+            if sentence_split_map is None:
+                raise ValueError(
+                    "Paper-parity evaluation requires --sentence-split-map."
+                )
+            fixed_partition_mode = True
+            group_by_val = None
+            anchor_mode_val = "parity"
+            anchor_pool_policy_val = "single_genre"
+            if group_by is not None:
+                console.print(
+                    f"[yellow]Ignoring --group-by={group_by} in paper-parity mode "
+                    "(fixed test-partition protocol)[/yellow]"
+                )
+            if anchor_pool_policy is not None:
+                raise ValueError(
+                    "Paper-parity protocol requires single-genre anchors only. "
+                    "Do not override --anchor-pool-policy."
+                )
+            if anchor_mode is not None:
+                raise ValueError(
+                    "Paper-parity protocol requires parity anchor mode. "
+                    "Do not override --anchor-mode."
+                )
+
         uses_single_genre_anchors = anchor_pool_policy_val in {"single_genre", "combined"}
         uses_train_virtual_anchors = anchor_pool_policy_val in {"train_virtual", "combined"}
-        if fixed_partition and sentence_split_map is None:
+        if fixed_partition_mode and sentence_split_map is None:
             raise ValueError("Fixed-partition mode requires --sentence-split-map.")
-        if fixed_partition and split_partition:
+        if fixed_partition_mode and split_partition:
             raise ValueError(
                 "Use --anchor-partition/--test-partition with --fixed-partition, "
                 "not --split-partition."
             )
-        if fixed_partition:
+        if fixed_partition_mode:
             if n_folds is not None and n_folds != 1:
                 console.print(
                     f"[yellow]Ignoring --n-folds={n_folds} in fixed-partition mode "
@@ -843,7 +1032,7 @@ def evaluate(
         split_map_filter = None
         split_map_skipped_splits = 0
         split_map_skipped_sentences = 0
-        if sentence_split_map is not None and not fixed_partition:
+        if sentence_split_map is not None and not fixed_partition_mode:
             from ud_genre_bootstrap.utils.sentence_split_map import (
                 filter_embeddings_by_sentence_split_map,
                 load_sentence_split_map,
@@ -886,7 +1075,7 @@ def evaluate(
             raise ValueError("Use either --treebank or explicit evaluation sets (--set / --treebank-set), not both.")
         if progressive and explicit_eval_sets:
             raise ValueError("Use either --progressive or explicit evaluation sets, not both together.")
-        if fixed_partition and (explicit_eval_sets or progressive):
+        if fixed_partition_mode and (explicit_eval_sets or progressive):
             raise ValueError(
                 "Fixed-partition mode does not support --set/--treebank-set/--progressive."
             )
@@ -918,7 +1107,8 @@ def evaluate(
         else:
             console.print("[blue]Evaluating all treebanks[/blue]")
 
-        if fixed_partition:
+        console.print(f"[blue]Protocol:[/blue] {protocol_val}")
+        if fixed_partition_mode:
             console.print(
                 "[blue]Evaluation mode:[/blue] fixed-partition holdout "
                 "(no cross-validation refolding)"
@@ -947,6 +1137,7 @@ def evaluate(
             anchor_mode=anchor_mode_val,
             anchor_pool_policy=anchor_pool_policy_val,
             reference_weighting=cfg.bootstrapping.reference_weighting,
+            protocol=protocol_val,
         )
 
         # Load treebank metadata and genre mapper
@@ -989,14 +1180,15 @@ def evaluate(
         else:
             evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
 
-        if fixed_partition:
+        if fixed_partition_mode:
             from ud_genre_bootstrap.utils.sentence_split_map import (
                 filter_embeddings_by_sentence_split_map,
                 load_sentence_split_map,
             )
 
+            default_anchor_partitions = [test_partition] if protocol_val == "paper_parity" else ["train", "dev"]
             anchor_partitions_val = [
-                p.strip() for p in (anchor_partition or ["train", "dev"]) if p and p.strip()
+                p.strip() for p in (anchor_partition or default_anchor_partitions) if p and p.strip()
             ]
             if not anchor_partitions_val:
                 raise ValueError(
@@ -1008,7 +1200,17 @@ def evaluate(
                     "Fixed-partition mode requires a non-empty --test-partition."
                 )
 
-            if test_partition_val in anchor_partitions_val:
+            if protocol_val == "paper_parity":
+                if anchor_partitions_val != [test_partition_val]:
+                    raise ValueError(
+                        "Paper-parity protocol requires --anchor-partition to match "
+                        f"--test-partition exactly ({test_partition_val})."
+                    )
+                console.print(
+                    f"[blue]Paper-parity anchor source:[/blue] single-genre splits "
+                    f"from partition '{test_partition_val}'"
+                )
+            elif test_partition_val in anchor_partitions_val:
                 console.print(
                     f"[yellow]Test partition '{test_partition_val}' also appears in "
                     "--anchor-partition; this can leak evaluation data.[/yellow]"
@@ -1034,10 +1236,16 @@ def evaluate(
                     continue
                 overlap_sentences += len(anchor_sent_ids.intersection(test_sent_ids))
             if overlap_sentences > 0:
-                console.print(
-                    f"[yellow]Fixed-partition selection has {overlap_sentences} sentence(s) "
-                    "present in both anchor and test partitions.[/yellow]"
-                )
+                if protocol_val == "paper_parity":
+                    console.print(
+                        f"[blue]Paper-parity partition overlap:[/blue] {overlap_sentences} sentence(s) "
+                        "shared between anchor and test views by design."
+                    )
+                else:
+                    console.print(
+                        f"[yellow]Fixed-partition selection has {overlap_sentences} sentence(s) "
+                        "present in both anchor and test partitions.[/yellow]"
+                    )
 
             console.print(
                 f"[blue]Fixed-partition mode:[/blue] anchors="
@@ -1075,6 +1283,10 @@ def evaluate(
                 "load_errors": 0,
                 "no_metadata_test": 0,
             }
+            seen_anchor_split_keys = set()
+            seen_test_split_keys = set()
+            load_error_split_keys = set()
+            no_metadata_test_split_keys = set()
 
             with console.status(
                 "[blue]Scanning sentence metadata for fixed partitions...[/blue]"
@@ -1099,6 +1311,12 @@ def evaluate(
                             f"[blue]Scanning {tb_code}:{split_name} "
                             f"({stats['checked']} split(s) checked)...[/blue]"
                         )
+
+                        split_key = (tb_code, split_name)
+                        if in_anchor_split:
+                            seen_anchor_split_keys.add(split_key)
+                        if in_test_split:
+                            seen_test_split_keys.add(split_key)
 
                         anchor_genre_counts = {}
                         test_genre_counts = {}
@@ -1157,13 +1375,15 @@ def evaluate(
                                     test_sentence_count += 1
                         except Exception as e:
                             logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
+                            load_error_split_keys.add(split_key)
                             if is_evaluation_target:
                                 stats["load_errors"] += 1
                             continue
 
                         if anchor_sentence_count > 0:
-                            train_treebank_keys.add((tb_code, split_name))
                             stats["anchor_splits"] += 1
+                            if uses_train_virtual_anchors:
+                                train_treebank_keys.add((tb_code, split_name))
 
                             anchor_unique_genres = list(anchor_genre_counts.keys())
                             if (
@@ -1200,6 +1420,7 @@ def evaluate(
                                 stats["single_genre_test"] += 1
                             else:
                                 stats["no_metadata_test"] += 1
+                                no_metadata_test_split_keys.add(split_key)
 
             if len(test_multi_genre_treebanks) == 0:
                 console.print(
@@ -1220,7 +1441,21 @@ def evaluate(
                 console.print("\n[blue]Evaluation skipped - no suitable test data[/blue]")
                 raise typer.Exit(0)
 
+            requested_anchor_split_keys = sorted(anchor_split_map.split_keys)
+            requested_test_split_keys = sorted(test_split_map.split_keys)
+            source_missing_anchor_split_keys = sorted(anchor_split_map.split_keys - seen_anchor_split_keys)
+            source_missing_test_split_keys = sorted(test_split_map.split_keys - seen_test_split_keys)
+
             train_treebank_keys = sorted(train_treebank_keys)
+            initial_train_treebank_keys = set(train_treebank_keys)
+            initial_test_split_keys = {
+                (tb_info["treebank"], tb_info["split"])
+                for tb_info in test_multi_genre_treebanks
+            }
+            initial_single_anchor_split_keys = {
+                (tb_info["treebank"], tb_info["split"])
+                for tb_info in parity_single_genre_treebanks
+            }
             if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
                 raise ValueError(
                     "Fixed-partition evaluation requires at least one anchor split "
@@ -1236,16 +1471,17 @@ def evaluate(
                     "requires at least one single-genre anchor split."
                 )
 
-            console.print(
-                f"[blue]Fixed holdout summary:[/blue] "
-                f"{len(train_treebank_keys)} anchor split(s), "
-                f"{len(test_multi_genre_treebanks)} multi-genre test split(s)"
-            )
+            summary_parts = []
+            if uses_train_virtual_anchors:
+                summary_parts.append(f"{len(train_treebank_keys)} virtual-anchor split(s)")
             if uses_single_genre_anchors:
-                console.print(
-                    f"[blue]Single-genre anchor candidates:[/blue] "
-                    f"{len(parity_single_genre_treebanks)} split(s)"
+                summary_parts.append(
+                    f"{len(parity_single_genre_treebanks)} single-genre anchor candidate split(s)"
                 )
+            summary_parts.append(f"{len(test_multi_genre_treebanks)} multi-genre test split(s)")
+            console.print(
+                f"[blue]Fixed holdout summary:[/blue] {', '.join(summary_parts)}"
+            )
 
             treebank_ids_to_embed = sorted(
                 {
@@ -1294,6 +1530,23 @@ def evaluate(
                 for tb_info in parity_single_genre_treebanks
                 if (tb_info["treebank"], tb_info["split"]) in available_embedding_splits
             ]
+            dropped_anchor_split_keys = sorted(
+                initial_train_treebank_keys - set(train_treebank_keys)
+            )
+            dropped_test_split_keys = sorted(
+                initial_test_split_keys
+                - {
+                    (tb_info["treebank"], tb_info["split"])
+                    for tb_info in test_multi_genre_treebanks
+                }
+            )
+            dropped_single_anchor_split_keys = sorted(
+                initial_single_anchor_split_keys
+                - {
+                    (tb_info["treebank"], tb_info["split"])
+                    for tb_info in parity_single_genre_treebanks
+                }
+            )
 
             if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
                 raise ValueError(
@@ -1344,6 +1597,25 @@ def evaluate(
                         f"[blue]Confusion matrix saved to:[/blue] "
                         f"{confusion_matrix_path}"
                     )
+
+            set_results.update(
+                build_fixed_partition_protocol_report(
+                    protocol=protocol_val,
+                    anchor_partitions=anchor_partitions_val,
+                    test_partition=test_partition_val,
+                    requested_anchor_split_keys=requested_anchor_split_keys,
+                    requested_test_split_keys=requested_test_split_keys,
+                    source_missing_anchor_split_keys=source_missing_anchor_split_keys,
+                    source_missing_test_split_keys=source_missing_test_split_keys,
+                    load_error_split_keys=sorted(load_error_split_keys),
+                    no_metadata_test_split_keys=sorted(no_metadata_test_split_keys),
+                    dropped_anchor_split_keys=dropped_anchor_split_keys,
+                    dropped_test_split_keys=dropped_test_split_keys,
+                    dropped_single_anchor_split_keys=dropped_single_anchor_split_keys,
+                    missing_anchor_genres=set_results.get("missing_anchor_genres", []),
+                    overlap_sentences=overlap_sentences,
+                )
+            )
 
             _display_evaluation_results(set_results)
             return
@@ -3453,8 +3725,14 @@ def _save_clustering_confusion_matrix(
 
 
 def _display_evaluation_results(results: dict):
-    """Display cross-validation results."""
-    console.print("\n[bold cyan]Cross-Validation Results[/bold cyan]")
+    """Display evaluation results."""
+    evaluation_mode = results.get("evaluation_mode", "cross_validation")
+    title = (
+        "Fixed-Partition Evaluation Results"
+        if evaluation_mode == "fixed_partition"
+        else "Cross-Validation Results"
+    )
+    console.print(f"\n[bold cyan]{title}[/bold cyan]")
     console.print("=" * 60)
 
     console.print(
@@ -3493,6 +3771,34 @@ def _display_evaluation_results(results: dict):
             f"Instance-labeled Treebank Splits (diagnostic): "
             f"{results['instance_labeled_treebanks_split']}"
         )
+    if "evaluation_mode" in results:
+        console.print(f"Evaluation Mode: {results['evaluation_mode']}")
+    if "evaluation_protocol" in results:
+        console.print(f"Evaluation Protocol: {results['evaluation_protocol']}")
+    if "protocol_scope" in results:
+        protocol_scope = results["protocol_scope"] or {}
+        anchor_parts = ", ".join(protocol_scope.get("anchor_partitions", [])) or "none"
+        console.print(
+            "Protocol Scope: "
+            f"anchors={anchor_parts} "
+            f"({protocol_scope.get('requested_anchor_split_keys', 0)} split key(s)); "
+            f"test={protocol_scope.get('test_partition', 'none')} "
+            f"({protocol_scope.get('requested_test_split_keys', 0)} split key(s))"
+        )
+    if "protocol_notes" in results:
+        protocol_notes = results["protocol_notes"] or []
+        if protocol_notes:
+            console.print("Protocol Notes:")
+            for note in protocol_notes:
+                console.print(f"  - {note}")
+    if "protocol_deviations" in results:
+        protocol_deviations = results["protocol_deviations"] or []
+        if protocol_deviations:
+            console.print("Protocol Deviations:")
+            for deviation in protocol_deviations:
+                console.print(f"  - {deviation}")
+        else:
+            console.print("Protocol Deviations: none")
     if "anchor_policy" in results:
         console.print(f"Anchor Policy: {results['anchor_policy']}")
     if "anchor_counts_by_genre" in results:

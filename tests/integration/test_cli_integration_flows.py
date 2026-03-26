@@ -224,11 +224,13 @@ class StubClusteringEvaluator:
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
+        protocol: str = "generalization",
     ):
         self.n_folds = n_folds
         self.group_by = group_by
         self.anchor_mode = anchor_mode
         self.anchor_pool_policy = anchor_pool_policy
+        self.protocol = protocol
 
     def k_fold_validate(
         self,
@@ -251,6 +253,8 @@ class StubClusteringEvaluator:
             "overlap_error_split": 0.30,
             "instance_labeled_treebanks_treebank": len({tb["treebank"] for tb in multi_genre_treebanks}),
             "instance_labeled_treebanks_split": len(multi_genre_treebanks),
+            "evaluation_mode": "cross_validation",
+            "evaluation_protocol": self.protocol,
             "anchor_policy": self.anchor_pool_policy,
             "anchor_counts_by_genre": {"news": 1},
             "missing_anchor_genres": [],
@@ -282,6 +286,8 @@ class StubClusteringEvaluator:
                 {tb["treebank"] for tb in test_treebanks}
             ),
             "instance_labeled_treebanks_split": len(test_treebanks),
+            "evaluation_mode": "fixed_partition",
+            "evaluation_protocol": self.protocol,
             "anchor_policy": self.anchor_pool_policy,
             "anchor_counts_by_genre": {"news": 1},
             "missing_anchor_genres": [],
@@ -360,6 +366,91 @@ def test_evaluate_command_supports_sentence_split_map(monkeypatch, cfg: Config, 
     )
     assert result.exit_code == 0, result.stdout
     assert "Sentence split map:" in result.stdout
+
+
+def test_evaluate_command_supports_paper_parity_mode(monkeypatch, cfg: Config, tmp_path: Path):
+    """`evaluate --protocol paper_parity` should auto-run strict same-partition evaluation."""
+    _patch_common_cli(monkeypatch, cfg)
+    monkeypatch.setattr(
+        "ud_genre_bootstrap.evaluation.validator.ClusteringEvaluator",
+        StubClusteringEvaluator,
+    )
+    monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
+
+    monkeypatch.setattr(
+        StubDataLoader,
+        "get_all_treebank_metadata",
+        lambda self: [
+            {"id": "xx_demo", "genres": ["news", "wiki"], "language": "xx"},
+            {"id": "yy_demo", "genres": ["news", "wiki"], "language": "yy"},
+            {"id": "mono_demo", "genres": ["news"], "language": "zz"},
+        ],
+    )
+
+    original_iter = StubDataLoader.iter_treebank_sentences
+
+    def _iter_treebank_sentences(self, treebank_code: str, split: str = "train", metadata_only: bool = False):
+        if treebank_code == "mono_demo":
+            rows = [
+                {
+                    "sent_id": "mono_demo-1",
+                    "text": "Mono one",
+                    "genre": "news",
+                    "comments": [],
+                },
+                {
+                    "sent_id": "mono_demo-2",
+                    "text": "Mono two",
+                    "genre": "news",
+                    "comments": [],
+                },
+            ]
+            for row in rows:
+                if metadata_only:
+                    yield {
+                        "sent_id": row["sent_id"],
+                        "text": row["text"],
+                        "genre": row["genre"],
+                        "comments": row["comments"],
+                    }
+                else:
+                    yield row
+            return
+
+        yield from original_iter(self, treebank_code, split, metadata_only)
+
+    monkeypatch.setattr(StubDataLoader, "iter_treebank_sentences", _iter_treebank_sentences)
+
+    split_map_path = tmp_path / "paper_split_map.csv"
+    split_map_path.write_text(
+        "partition,global_index,treebank,split,sent_id\n"
+        "test,0,xx_demo,train,xx_demo-1\n"
+        "test,1,xx_demo,train,xx_demo-2\n"
+        "test,2,yy_demo,train,yy_demo-1\n"
+        "test,3,yy_demo,train,yy_demo-2\n"
+        "test,4,mono_demo,train,mono_demo-1\n"
+        "test,5,mono_demo,train,mono_demo-2\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "evaluate",
+            "--protocol",
+            "paper_parity",
+            "--sentence-split-map",
+            str(split_map_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Protocol: paper_parity" in result.stdout
+    assert "Paper-parity anchor source:" in result.stdout
+    assert "Evaluation Mode: fixed_partition" in result.stdout
+    assert "Evaluation Protocol: paper_parity" in result.stdout
+    assert "Protocol Deviations: none" in result.stdout
 
 
 def test_evaluate_command_supports_fixed_partition_mode(

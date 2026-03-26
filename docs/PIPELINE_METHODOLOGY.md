@@ -546,14 +546,17 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - **`min_confidence` / `min_margin`**: Evaluation uses the same uncertainty thresholds as production. Cluster assignments are always labeled, but tracked as `bootstrap-labeled` vs `bootstrap-inferred` for analysis.
 - **`reference_weighting`**: Shared reference aggregation strategy (`sentence_count` or `uniform`) used by both production labeling and evaluation.
 - **`max_iterations`**: Upper bound for schedule iterations in the shared bootstrap runner.
+- **`protocol`**:
+  - `generalization`: default mode; evaluates leakage-safe transfer to unseen treebanks/languages
+  - `paper_parity`: fixed test-partition protocol with same-partition single-genre anchors, intended to mirror the original paper's GMM+L setup as closely as possible
 - **`anchor_mode`**:
   - `strict`: only fold-train anchors (best for unknown-data generalization estimates)
-  - `parity`: adds leakage-safe single-genre anchors for literature-style comparability
+  - `parity`: adds broader single-genre anchors for comparability-style runs, but still respects leakage filters unless `protocol=paper_parity`
 - **`anchor_pool_policy`**:
   - `train_virtual`: use fold-train virtual-split anchors only
-  - `single_genre`: use leakage-safe single-genre anchors only
+  - `single_genre`: use single-genre anchors only
   - `combined`: use both pools
-  - `auto`: resolves to `train_virtual` in `strict`, `combined` in `parity`
+  - `auto`: resolves to `train_virtual` in `strict`, `combined` in `parity`; `paper_parity` forces `single_genre`
 
 **Cross-Validation:**
 - K-fold cross-validation (configurable K)
@@ -568,9 +571,11 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - Supports progressive cumulative set evaluation (`--progressive`) to assess scaling up to full virtual-split coverage
 - Supports sentence-level split-map filtering (`--sentence-split-map` + `--split-partition`) for exact protocol replay (e.g., paper index splits mapped to `(treebank, split, sent_id)`)
 - Supports fixed-partition holdout mode (`--fixed-partition` with `--anchor-partition`/`--test-partition`) to evaluate a predefined train/dev→test protocol without k-fold refolding
+- Supports strict paper-parity mode (`protocol=paper_parity` or `--protocol paper_parity`) which forces fixed-partition evaluation, `group_by=None`, and same-partition single-genre anchors from the selected `--test-partition`
 
 For index-based paper splits, use:
 - `ud-genre-bootstrap build-sentence-split-map --ud-source hf://commul/universal_dependencies --ud-version 2.8 --split-pickle ... --output ...`
+- `ud-genre-bootstrap evaluate --config configs/2.8-apples.yaml --sentence-split-map configs/apples/paper-split-map-v2.8.parquet --test-partition test`
 
 **Metrics:**
 - Mean fold and overall micro-F1-equivalent accuracy (reported in CLI as `Mean Fold Acc (Micro-F1)` and `Overall Acc (Micro-F1)`)

@@ -387,6 +387,7 @@ class ClusteringEvaluator:
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
+        protocol: str = "generalization",
     ):
         """Initialize clustering evaluator.
 
@@ -402,6 +403,7 @@ class ClusteringEvaluator:
                 'single_genre', or 'combined')
             reference_weighting: Reference centroid aggregation strategy
                 ('sentence_count' or 'uniform')
+            protocol: Evaluation protocol ('generalization' or 'paper_parity')
         """
         self.n_folds = n_folds
         self.group_by = group_by
@@ -409,6 +411,11 @@ class ClusteringEvaluator:
         self.min_confidence = min_confidence
         self.min_margin = min_margin
         self.scheduler = BootstrapScheduler(max_iterations=max_iterations)
+        self.protocol = (protocol or "generalization").strip().lower()
+        if self.protocol not in {"generalization", "paper_parity"}:
+            raise ValueError(
+                f"Invalid protocol '{protocol}'. Use 'generalization' or 'paper_parity'."
+            )
         self.anchor_mode = (anchor_mode or "strict").strip().lower()
         if self.anchor_mode not in {"strict", "parity"}:
             raise ValueError(f"Invalid anchor_mode '{anchor_mode}'. Use 'strict' or 'parity'.")
@@ -552,7 +559,9 @@ class ClusteringEvaluator:
             fold_results.append(fold_result)
 
         # Aggregate results across folds
-        return self._aggregate_fold_results(fold_results)
+        results = self._aggregate_fold_results(fold_results)
+        results["evaluation_mode"] = "cross_validation"
+        return results
 
     def fixed_partition_validate(
         self,
@@ -580,6 +589,7 @@ class ClusteringEvaluator:
         logger.info("Starting fixed-partition clustering evaluation")
         logger.info("  Training anchor splits: %d", len(train_treebanks))
         logger.info("  Held-out test splits: %d", len(test_treebanks))
+        logger.info("  Protocol: %s", self.protocol)
         logger.info("  Anchor mode: %s", self.anchor_mode)
         logger.info("  Anchor pool policy: %s", self.anchor_pool_policy)
         logger.info("  Reference weighting: %s", self.reference_weighting)
@@ -615,20 +625,31 @@ class ClusteringEvaluator:
             clusterer=clusterer,
             parity_single_anchor_keys=parity_single_anchor_keys,
         )
-        return self._aggregate_fold_results([fold_result])
+        results = self._aggregate_fold_results([fold_result])
+        results["evaluation_mode"] = "fixed_partition"
+        return results
 
     def _select_parity_single_anchor_keys(
         self,
         single_genre_treebanks: List[Dict],
         test_treebanks: List[Dict],
     ) -> List[Tuple[str, str]]:
-        """Select leakage-safe single-genre anchor splits for parity mode."""
+        """Select single-genre anchor splits for the active evaluation protocol."""
+        selected: List[Tuple[str, str]] = []
+        seen = set()
+
+        if self.protocol == "paper_parity":
+            for anchor in single_genre_treebanks:
+                anchor_key = (anchor["treebank"], anchor["split"])
+                if anchor_key in seen:
+                    continue
+                seen.add(anchor_key)
+                selected.append(anchor_key)
+            return selected
+
         test_treebank_codes = {tb["treebank"] for tb in test_treebanks}
         test_split_keys = {(tb["treebank"], tb["split"]) for tb in test_treebanks}
         test_languages = {tb["language"] for tb in test_treebanks if tb.get("language")}
-
-        selected: List[Tuple[str, str]] = []
-        seen = set()
 
         for anchor in single_genre_treebanks:
             anchor_key = (anchor["treebank"], anchor["split"])
@@ -1052,6 +1073,7 @@ class ClusteringEvaluator:
                 "anchor_counts_by_genre": dict(sorted(aggregate_anchor_counts.items())),
                 "missing_anchor_genres": sorted(missing_anchor_genres),
                 "fold_anchor_diagnostics": fold_anchor_diagnostics,
+                "evaluation_protocol": self.protocol,
                 **fold_metric_summary,
             }
 
@@ -1127,6 +1149,7 @@ class ClusteringEvaluator:
             "anchor_counts_by_genre": dict(sorted(aggregate_anchor_counts.items())),
             "missing_anchor_genres": sorted(missing_anchor_genres),
             "fold_anchor_diagnostics": fold_anchor_diagnostics,
+            "evaluation_protocol": self.protocol,
             **fold_metric_summary,
         }
 

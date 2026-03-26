@@ -490,6 +490,31 @@ def test_select_parity_single_anchor_keys_respects_leakage_constraints():
     assert selected.count(("mono_fr", "train")) == 1
 
 
+def test_select_parity_single_anchor_keys_paper_parity_keeps_same_partition_anchors():
+    evaluator = ClusteringEvaluator(
+        n_folds=1,
+        group_by="language",
+        anchor_mode="parity",
+        protocol="paper_parity",
+    )
+
+    single_genre_treebanks = [
+        {"treebank": "mono_en", "split": "test", "language": "en"},
+        {"treebank": "mono_de", "split": "test", "language": "de"},
+        {"treebank": "mono_en", "split": "test", "language": "en"},
+    ]
+    test_treebanks = [
+        {"treebank": "mix_en", "split": "test", "language": "en", "genres": ["news", "wiki"]},
+    ]
+
+    selected = evaluator._select_parity_single_anchor_keys(
+        single_genre_treebanks=single_genre_treebanks,
+        test_treebanks=test_treebanks,
+    )
+
+    assert selected == [("mono_en", "test"), ("mono_de", "test")]
+
+
 def test_k_fold_validate_filters_parity_anchors_by_test_language(monkeypatch):
     evaluator = ClusteringEvaluator(n_folds=2, group_by="language", anchor_mode="parity")
 

@@ -91,11 +91,13 @@ evaluation:
   #     - "en_pud"
 
   metadata_validation:
-    method: "kfold"  # kfold, holdout
+    protocol: "generalization"  # fixed holdout with train/dev anchors; not paper parity
+    method: "kfold"  # ignored when this config is used with --fixed-partition
     k: 5
     stratify_by: "genre"
     group_by: null  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
-    anchor_mode: "strict"  # "strict" = fold-train anchors only (generalization), "parity" = adds leakage-safe single-genre anchors (paper comparability)
+    anchor_mode: "strict"  # strict fold-anchor behavior, re-used here for fixed holdout
+    anchor_pool_policy: "train_virtual"  # explicit for comparability: train/dev virtual anchors only
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
     min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
 

@@ -21,6 +21,12 @@ HF_HUB_OFFLINE=0 uv run ud-genre-bootstrap evaluate \
   --group-by none \
   | tee output/logs/apples-2.8-fixed-strict-uniform.log
 
+HF_HUB_OFFLINE=0 uv run ud-genre-bootstrap evaluate \
+  --config configs/sweeps/2.8-apples-fixed-parity-uniform.yaml \
+  --sentence-split-map configs/apples/paper-split-map-v2.8.parquet \
+  --test-partition test \
+  | tee output/logs/apples-2.8-paper-parity-uniform.log
+
 #Quick metric extraction after runs:
 #
 #for f in output/logs/apples-2.8-fixed-strict-*.log; do

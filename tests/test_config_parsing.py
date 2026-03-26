@@ -18,6 +18,20 @@ def test_parse_fit_sample_size_rejects_invalid_string():
         Config.from_dict({"clustering": {"fit_sample_size": "not-a-number"}})
 
 
+def test_parse_metadata_protocol_paper_parity():
+    cfg = Config.from_dict(
+        {"evaluation": {"metadata_validation": {"protocol": "paper_parity"}}}
+    )
+    assert cfg.evaluation.metadata_validation.protocol == "paper_parity"
+
+
+def test_parse_metadata_protocol_rejects_invalid_value():
+    with pytest.raises(ValueError, match="evaluation.metadata_validation.protocol"):
+        Config.from_dict(
+            {"evaluation": {"metadata_validation": {"protocol": "invalid"}}}
+        )
+
+
 def test_parse_metadata_anchor_mode_parity():
     cfg = Config.from_dict(
         {"evaluation": {"metadata_validation": {"anchor_mode": "parity"}}}

@@ -74,15 +74,11 @@ if [[ -f "${SPLIT_MAP_PATH}" ]]; then
     --group-by none
 
   run_logged \
-    "apples-2.8-fixed-parity-uniform" \
+    "apples-2.8-paper-parity-uniform" \
     uv run ud-genre-bootstrap evaluate \
     --config configs/sweeps/2.8-apples-fixed-parity-uniform.yaml \
-    --fixed-partition \
     --sentence-split-map "${SPLIT_MAP_PATH}" \
-    --anchor-partition train \
-    --anchor-partition dev \
-    --test-partition test \
-    --group-by none
+    --test-partition test
 
   run_logged \
     "apples-2.8-fixed-strict-uniform-e5_large" \

@@ -3,10 +3,12 @@
 import pytest
 from ud_genre_bootstrap.cli import (
     apply_treebank_exclusions,
+    build_fixed_partition_protocol_report,
     build_progressive_treebank_sets,
     check_evaluation_fold_feasibility,
     normalize_anchor_mode,
     normalize_anchor_pool_policy,
+    normalize_evaluation_protocol,
     parse_inline_treebank_sets,
 )
 from ud_genre_bootstrap.utils.config import Config
@@ -382,6 +384,66 @@ class TestAnchorModeHelpers:
     def test_normalize_anchor_pool_policy_rejects_invalid_values(self):
         with pytest.raises(ValueError, match="Invalid anchor pool policy"):
             normalize_anchor_pool_policy("unknown", "auto", anchor_mode="strict")
+
+
+    def test_normalize_evaluation_protocol_prefers_cli_value(self):
+        assert normalize_evaluation_protocol("paper_parity", "generalization") == "paper_parity"
+
+    def test_normalize_evaluation_protocol_uses_config_default(self):
+        assert normalize_evaluation_protocol(None, "paper_parity") == "paper_parity"
+
+    def test_normalize_evaluation_protocol_accepts_aliases(self):
+        assert normalize_evaluation_protocol("paper", "generalization") == "paper_parity"
+
+    def test_normalize_evaluation_protocol_rejects_invalid_values(self):
+        with pytest.raises(ValueError, match="Invalid evaluation protocol"):
+            normalize_evaluation_protocol("unknown", "generalization")
+
+
+def test_build_fixed_partition_protocol_report_clean_generalization_case():
+    report = build_fixed_partition_protocol_report(
+        protocol="generalization",
+        anchor_partitions=["train", "dev"],
+        test_partition="test",
+        requested_anchor_split_keys=[("de_pud", "test")],
+        requested_test_split_keys=[("cs_pdtc", "test")],
+    )
+
+    assert report["protocol_scope"]["requested_anchor_split_keys"] == 1
+    assert report["protocol_scope"]["requested_test_split_keys"] == 1
+    assert report["protocol_notes"] == [
+        "Generalization fixed holdout: anchors=train, dev -> test=test."
+    ]
+    assert report["protocol_deviations"] == []
+
+
+def test_build_fixed_partition_protocol_report_flags_parity_deviations():
+    report = build_fixed_partition_protocol_report(
+        protocol="paper_parity",
+        anchor_partitions=["test"],
+        test_partition="test",
+        requested_anchor_split_keys=[("de_pud", "test"), ("ar_nyuad", "test")],
+        requested_test_split_keys=[("de_pud", "test"), ("ja_bccwj", "test")],
+        source_missing_anchor_split_keys=[("ar_nyuad", "test")],
+        source_missing_test_split_keys=[("ja_bccwj", "test")],
+        load_error_split_keys=[("cs_cac", "test")],
+        no_metadata_test_split_keys=[("pl_pud", "test")],
+        dropped_single_anchor_split_keys=[("de_pud", "test")],
+        missing_anchor_genres=["email", "government"],
+        overlap_sentences=12,
+    )
+
+    assert report["protocol_notes"] == [
+        "Paper-parity anchor policy: same-partition single-genre anchors from 'test'.",
+        "Anchor/test overlap: 12 sentence(s) shared by design.",
+    ]
+    deviations = "\n".join(report["protocol_deviations"])
+    assert "Split-map anchor keys missing from UD source: 1 split(s)" in deviations
+    assert "Split-map test keys missing from UD source: 1 split(s)" in deviations
+    assert "Load errors while reading split-map-selected data: 1 split(s)" in deviations
+    assert "Split-map-selected test splits without usable genre metadata: 1 split(s)" in deviations
+    assert "Single-genre anchor candidates removed after embedding filtering: 1 split(s)" in deviations
+    assert "Expected test genres without anchor support: email, government" in deviations
 
 
 class TestLabelCommandFlow:

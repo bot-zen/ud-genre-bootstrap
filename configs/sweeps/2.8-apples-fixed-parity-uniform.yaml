@@ -91,11 +91,13 @@ evaluation:
   #     - "en_pud"
 
   metadata_validation:
-    method: "kfold"  # kfold, holdout
+    protocol: "paper_parity"  # same-partition single-genre anchors from test; mirrors original GMM+L-style evaluation
+    method: "kfold"  # ignored in paper_parity mode
     k: 5
     stratify_by: "genre"
-    group_by: null  # Group by: "treebank" (treebank-level CV), "language" (language-level CV), or null
-    anchor_mode: "parity"  # "strict" = fold-train anchors only (generalization), "parity" = adds leakage-safe single-genre anchors (paper comparability)
+    group_by: null  # ignored in paper_parity mode
+    anchor_mode: "parity"  # retained for readability; paper_parity enforces parity semantics
+    anchor_pool_policy: "single_genre"  # explicit for clarity; paper_parity enforces this
     coverage_threshold: 0.95  # Minimum sentence-level metadata coverage for virtual-split creation (production + evaluation)
     min_genre_sentences: 100  # Minimum sentences per genre for virtual-split creation (production + evaluation)
 

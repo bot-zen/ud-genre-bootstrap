@@ -122,12 +122,18 @@ ud-genre-bootstrap evaluate \
   --split-partition dev \
   --n-folds 5
 
-# Run strict fixed-partition holdout (anchors=train+dev, test=test)
+# Run strict fixed-partition holdout for generalization (anchors=train+dev, test=test)
 ud-genre-bootstrap evaluate \
   --fixed-partition \
   --sentence-split-map configs/paper-split-map.parquet \
   --anchor-partition train \
   --anchor-partition dev \
+  --test-partition test
+
+# Run paper-parity evaluation (same-partition single-genre anchors from test)
+ud-genre-bootstrap evaluate \
+  --config configs/2.8-apples.yaml \
+  --sentence-split-map configs/paper-split-map.parquet \
   --test-partition test
 
 # Efficient workflow: cluster command saves state, label command loads it
@@ -277,11 +283,13 @@ genre_extraction:
 evaluation:
   enabled: true
   metadata_validation:
+    protocol: "generalization"  # or "paper_parity" for the original fixed-split GMM+L-style evaluation
     method: "kfold"
     k: 5
     stratify_by: "genre"
     group_by: "language"
-    anchor_mode: "strict"  # "strict" (generalization) or "parity" (broader single-genre anchors)
+    anchor_mode: "strict"  # "strict" = fold-train anchors only; "parity" = broader single-genre anchors for comparability-style runs
+    anchor_pool_policy: "auto"  # strict->train_virtual, parity->combined; paper_parity forces single_genre
     min_genre_sentences: 100  # Minimum sentences per genre for evaluation
 
 output:
