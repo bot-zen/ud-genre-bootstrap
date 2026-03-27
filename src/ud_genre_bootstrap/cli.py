@@ -1,5 +1,6 @@
 """Command-line interface for ud-genre-bootstrap."""
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -32,6 +33,85 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, rich_tracebacks=True)],
 )
 logger = logging.getLogger(__name__)
+
+
+PAPER_TREEBANK_MAPPING_PATH = (
+    Path(__file__).resolve().parents[2] / "configs" / "ud-genre-tb-genres.json"
+)
+
+
+def normalize_paper_treebank_key(key: str) -> str:
+    """Normalize paper treebank keys for fuzzy matching across metadata variants."""
+    alias_map = {
+        "portugese": "portuguese",
+    }
+
+    parts = [part.strip() for part in (key or "").split("/", 1)]
+    if len(parts) != 2:
+        parts = [key or "", ""]
+
+    normalized_parts = []
+    for part in parts:
+        lowered = part.strip().lower()
+        lowered = alias_map.get(lowered, lowered)
+        normalized_parts.append(re.sub(r"[^a-z0-9]+", "", lowered))
+
+    return "/".join(normalized_parts)
+
+
+def build_paper_treebank_key(treebank_code: str, metadata: Optional[Dict]) -> Optional[str]:
+    """Build a paper-style `Language/Treebank` key from current treebank metadata."""
+    metadata = metadata or {}
+
+    language = metadata.get("language")
+    treebank_name = metadata.get("treebank_name")
+
+    dirname = str(metadata.get("dirname") or "").strip()
+    if dirname.startswith("UD_"):
+        dirname_body = dirname[3:]
+        if "-" in dirname_body:
+            dirname_language, dirname_treebank = dirname_body.split("-", 1)
+            if not language:
+                language = dirname_language.replace("_", " ")
+            if not treebank_name:
+                treebank_name = dirname_treebank
+
+    if not treebank_name and "_" in treebank_code:
+        treebank_name = treebank_code.split("_", 1)[1]
+
+    if not language or not treebank_name:
+        return None
+
+    return f"{language}/{treebank_name}"
+
+
+def resolve_paper_evaluation_treebank_ids(
+    data_loader,
+    mapping_path: Optional[Path] = None,
+) -> set[str]:
+    """Resolve current treebank IDs that belong to the original paper eval scope."""
+    mapping_path = mapping_path or PAPER_TREEBANK_MAPPING_PATH
+    if not mapping_path.exists():
+        raise ValueError(
+            f"Paper treebank mapping not found: {mapping_path}"
+        )
+
+    with open(mapping_path, encoding="utf-8") as handle:
+        paper_mapping = json.load(handle)
+
+    paper_keys = {
+        normalize_paper_treebank_key(key)
+        for key in paper_mapping
+    }
+    metadata = getattr(data_loader, "metadata", {}) or {}
+
+    matched_ids = set()
+    for treebank_code in data_loader.get_treebank_codes():
+        paper_key = build_paper_treebank_key(treebank_code, metadata.get(treebank_code))
+        if paper_key and normalize_paper_treebank_key(paper_key) in paper_keys:
+            matched_ids.add(treebank_code)
+
+    return matched_ids
 
 
 def apply_treebank_exclusions(cfg: Config, data_loader, treebank_filter: Optional[List[str]] = None) -> Optional[List[str]]:
@@ -1179,6 +1259,37 @@ def evaluate(
             evaluation_treebank_ids = {tb_id for tb_id in treebank_filter}
         else:
             evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
+
+        if protocol_val == "paper_parity":
+            paper_scope_treebank_ids = resolve_paper_evaluation_treebank_ids(
+                bootstrapper.data_loader
+            )
+            if not paper_scope_treebank_ids:
+                raise ValueError(
+                    "Paper-parity protocol could not resolve any treebanks from "
+                    f"{PAPER_TREEBANK_MAPPING_PATH}."
+                )
+            excluded_nonpaper_treebanks = sorted(
+                evaluation_treebank_ids - paper_scope_treebank_ids
+            )
+            evaluation_treebank_ids &= paper_scope_treebank_ids
+            if excluded_nonpaper_treebanks:
+                console.print(
+                    "[blue]Paper sentence-evaluation scope:[/blue] excluding "
+                    f"{len(excluded_nonpaper_treebanks)} non-paper treebank(s): "
+                    f"{', '.join(excluded_nonpaper_treebanks[:8])}"
+                    f"{'...' if len(excluded_nonpaper_treebanks) > 8 else ''}"
+                )
+            console.print(
+                "[blue]Paper sentence-evaluation scope:[/blue] "
+                f"{len(evaluation_treebank_ids)} mapped treebank(s) from "
+                f"{PAPER_TREEBANK_MAPPING_PATH.name}"
+            )
+            if not evaluation_treebank_ids:
+                raise ValueError(
+                    "Paper-parity protocol has no evaluation targets after scope "
+                    "restriction."
+                )
 
         if fixed_partition_mode:
             from ud_genre_bootstrap.utils.sentence_split_map import (

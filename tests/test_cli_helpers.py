@@ -1,15 +1,20 @@
 """Tests for CLI helper functions."""
 
+import json
+
 import pytest
 from ud_genre_bootstrap.cli import (
     apply_treebank_exclusions,
     build_fixed_partition_protocol_report,
+    build_paper_treebank_key,
     build_progressive_treebank_sets,
+    normalize_paper_treebank_key,
     check_evaluation_fold_feasibility,
     normalize_anchor_mode,
     normalize_anchor_pool_policy,
     normalize_evaluation_protocol,
     parse_inline_treebank_sets,
+    resolve_paper_evaluation_treebank_ids,
 )
 from ud_genre_bootstrap.utils.config import Config
 
@@ -17,12 +22,52 @@ from ud_genre_bootstrap.utils.config import Config
 class MockDataLoader:
     """Mock data loader for testing."""
 
-    def __init__(self, treebank_codes):
+    def __init__(self, treebank_codes, metadata=None):
         self._treebank_codes = treebank_codes
+        self.metadata = metadata or {}
 
     def get_treebank_codes(self):
         """Return mock treebank codes."""
         return self._treebank_codes
+
+
+class TestPaperEvaluationScope:
+    """Test helpers for paper-parity evaluation scope."""
+
+    def test_normalize_paper_treebank_key_handles_language_aliases(self):
+        """Paper key normalization should collapse known spelling variants."""
+        assert normalize_paper_treebank_key("Portugese/PUD") == normalize_paper_treebank_key(
+            "Portuguese/PUD"
+        )
+
+    def test_build_paper_treebank_key_uses_dirname(self):
+        """Paper-style keys should be reconstructed from UD metadata."""
+        assert build_paper_treebank_key(
+            "en_ewt", {"language": "English", "dirname": "UD_English-EWT"}
+        ) == "English/EWT"
+
+    def test_resolve_paper_evaluation_treebank_ids_matches_vendored_scope(self, tmp_path):
+        """Current treebank IDs should resolve against vendored paper mapping keys."""
+        mapping_path = tmp_path / "paper-scope.json"
+        mapping_path.write_text(
+            json.dumps({
+                "English/EWT": {"blog": "blog"},
+                "Portugese/PUD": {"n": "news", "w": "wiki"},
+            }),
+            encoding="utf-8",
+        )
+        data_loader = MockDataLoader(
+            ["en_ewt", "en_gum", "pt_pud"],
+            metadata={
+                "en_ewt": {"language": "English", "dirname": "UD_English-EWT"},
+                "en_gum": {"language": "English", "dirname": "UD_English-GUM"},
+                "pt_pud": {"language": "Portuguese", "dirname": "UD_Portuguese-PUD"},
+            },
+        )
+
+        result = resolve_paper_evaluation_treebank_ids(data_loader, mapping_path)
+
+        assert result == {"en_ewt", "pt_pud"}
 
 
 class TestApplyTreebankExclusions:
