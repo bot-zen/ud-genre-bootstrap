@@ -647,6 +647,7 @@ def test_k_fold_validate_filters_parity_anchors_by_test_language(monkeypatch):
         embeddings_by_tb,
         clusterer,
         parity_single_anchor_keys=None,
+        scoring_treebanks=None,
     ):
         captured_fold_inputs.append(
             {
@@ -702,6 +703,7 @@ def test_fixed_partition_validate_runs_single_holdout(monkeypatch):
         embeddings_by_tb,
         clusterer,
         parity_single_anchor_keys=None,
+        scoring_treebanks=None,
     ):
         return {
             "accuracy": 0.5,
@@ -757,6 +759,7 @@ def test_fixed_partition_validate_parity_filters_anchors(monkeypatch):
         embeddings_by_tb,
         clusterer,
         parity_single_anchor_keys=None,
+        scoring_treebanks=None,
     ):
         captured["parity_keys"] = list(parity_single_anchor_keys or [])
         return {
@@ -820,6 +823,7 @@ def test_fixed_partition_validate_paper_parity_passes_treebank_anchor_descriptor
         embeddings_by_tb,
         clusterer,
         parity_single_anchor_keys=None,
+        scoring_treebanks=None,
     ):
         captured["anchors"] = list(parity_single_anchor_keys or [])
         return {
@@ -845,6 +849,104 @@ def test_fixed_partition_validate_paper_parity_passes_treebank_anchor_descriptor
 
     assert result["num_folds"] == 1
     assert captured["anchors"] == single_genre_treebanks
+
+
+def test_evaluate_fold_scores_only_requested_scoring_treebanks(monkeypatch):
+    evaluator = ClusteringEvaluator(
+        n_folds=1,
+        group_by=None,
+        anchor_mode="parity",
+        anchor_pool_policy="single_genre",
+        protocol="paper_parity",
+    )
+
+    class SimpleClusterer:
+        def cluster_treebank(self, embeddings, sent_ids, n_genres, compute_metrics=True):
+            del embeddings, n_genres, compute_metrics
+            return {
+                "cluster_ids": np.zeros(len(sent_ids), dtype=int),
+                "cluster_probs": np.ones((len(sent_ids), 1), dtype=float),
+                "clusters": {
+                    0: {
+                        "sent_ids": list(sent_ids),
+                        "size": len(sent_ids),
+                        "confidence": 1.0,
+                    }
+                },
+                "metrics": {},
+            }
+
+    test_treebanks = [
+        {
+            "treebank": "score_tb",
+            "split_keys": [("score_tb", "test")],
+            "genres": ["news", "wiki"],
+            "language": "en",
+        },
+        {
+            "treebank": "extra_tb",
+            "split_keys": [("extra_tb", "test")],
+            "genres": ["blog", "reviews"],
+            "language": "fr",
+        },
+    ]
+    scoring_treebanks = [test_treebanks[0]]
+    embeddings_by_tb = {
+        ("score_tb", "test"): {
+            "embedding": np.array([[1.0, 0.0], [1.0, 0.0]]),
+            "sent_id": ["s1", "s2"],
+        },
+        ("extra_tb", "test"): {
+            "embedding": np.array([[0.0, 1.0], [0.0, 1.0]]),
+            "sent_id": ["e1", "e2"],
+        },
+    }
+    sentence_metadata = {
+        ("score_tb", "test", "s1"): "news",
+        ("score_tb", "test", "s2"): "news",
+        ("extra_tb", "test", "e1"): "blog",
+        ("extra_tb", "test", "e2"): "blog",
+    }
+
+    def _run_bootstrap_schedule(
+        schedule,
+        genre_combination_clusters,
+        final_labels,
+        preserve_methods,
+    ):
+        del schedule, final_labels, preserve_methods
+        labels = {}
+        for _genre_combination, treebank_clusters in genre_combination_clusters.items():
+            for tb_key, clusters in treebank_clusters.items():
+                tb_code = tb_key[0]
+                label = ("news", 0.99, "bootstrap-labeled") if tb_code == "score_tb" else ("blog", 0.99, "bootstrap-labeled")
+                for cluster in clusters:
+                    for sent_ref in cluster.get("sent_ids", []):
+                        labels[sent_ref] = label
+        return labels, [
+            {
+                "labels_assigned": 2,
+                "labels_high_confidence": 2,
+                "labels_low_confidence": 0,
+            }
+        ]
+
+    monkeypatch.setattr(evaluator.clustering_ops, "run_bootstrap_schedule", _run_bootstrap_schedule)
+
+    result = evaluator._evaluate_fold(
+        test_treebanks=test_treebanks,
+        train_treebanks=[],
+        sentence_metadata=sentence_metadata,
+        embeddings_by_tb=embeddings_by_tb,
+        clusterer=SimpleClusterer(),
+        scoring_treebanks=scoring_treebanks,
+    )
+
+    assert result["num_test"] == 1
+    assert result["num_sentences"] == 2
+    assert result["accuracy"] == pytest.approx(1.0)
+    assert result["sent_ids"] == ["score_tb:test:s1", "score_tb:test:s2"]
+    assert result["pred_genres"] == ["news", "news"]
 
 
 def test_anchor_pool_policy_auto_resolves_from_anchor_mode():

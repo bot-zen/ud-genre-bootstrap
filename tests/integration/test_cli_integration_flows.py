@@ -272,11 +272,13 @@ class StubClusteringEvaluator:
         embeddings_by_tb: Dict,
         clusterer,
         single_genre_treebanks: Optional[List[Dict]] = None,
+        scoring_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
         StubClusteringEvaluator.last_fixed_partition_call = {
             "test_treebanks": test_treebanks,
             "train_treebanks": train_treebanks,
             "single_genre_treebanks": single_genre_treebanks or [],
+            "scoring_treebanks": scoring_treebanks or [],
         }
         if self.protocol == "paper_parity":
             assert train_treebanks == []
@@ -285,6 +287,9 @@ class StubClusteringEvaluator:
             assert all(len(tb.get("genres", [])) >= 2 for tb in test_treebanks)
             assert all("split_keys" in tb for tb in (single_genre_treebanks or []))
             assert all(len(tb.get("genres", [])) == 1 for tb in (single_genre_treebanks or []))
+            assert all("split_keys" in tb for tb in (scoring_treebanks or []))
+            assert all(len(tb.get("genres", [])) >= 2 for tb in (scoring_treebanks or []))
+        scored_treebanks = scoring_treebanks or test_treebanks
         return {
             "mean_accuracy": 0.5,
             "std_accuracy": 0.0,
@@ -297,9 +302,9 @@ class StubClusteringEvaluator:
             "agreement_split": 0.70,
             "overlap_error_split": 0.30,
             "instance_labeled_treebanks_treebank": len(
-                {tb["treebank"] for tb in test_treebanks}
+                {tb["treebank"] for tb in scored_treebanks}
             ),
-            "instance_labeled_treebanks_split": len(test_treebanks),
+            "instance_labeled_treebanks_split": len(scored_treebanks),
             "evaluation_mode": "fixed_partition",
             "evaluation_protocol": self.protocol,
             "anchor_policy": self.anchor_pool_policy,
@@ -484,10 +489,15 @@ def test_evaluate_command_supports_paper_parity_mode(monkeypatch, cfg: Config, t
     assert call["train_treebanks"] == []
     assert {tb["treebank"] for tb in call["test_treebanks"]} == {"xx_demo", "yy_demo"}
     assert any(
-        tb["treebank"] == "xx_demo" and tb["genres"] == ["email", "news", "wiki"]
+        tb["treebank"] == "xx_demo" and tb["genres"] == ["news", "wiki"]
         for tb in call["test_treebanks"]
     )
+    assert any(
+        tb["treebank"] == "xx_demo" and tb["genres"] == ["email", "news", "wiki"]
+        for tb in call["scoring_treebanks"]
+    )
     assert {tb["treebank"] for tb in call["single_genre_treebanks"]} == {"mono_demo"}
+    assert {tb["treebank"] for tb in call["scoring_treebanks"]} == {"xx_demo", "yy_demo"}
 
 
 def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg: Config, tmp_path: Path):
@@ -584,7 +594,8 @@ def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg
 
     call = StubClusteringEvaluator.last_fixed_partition_call
     assert call is not None
-    assert {tb["treebank"] for tb in call["test_treebanks"]} == {"xx_demo"}
+    assert {tb["treebank"] for tb in call["test_treebanks"]} == {"xx_demo", "yy_demo"}
+    assert {tb["treebank"] for tb in call["scoring_treebanks"]} == {"xx_demo"}
     assert {tb["treebank"] for tb in call["single_genre_treebanks"]} == {"mono_demo"}
 
 

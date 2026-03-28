@@ -228,7 +228,7 @@ class CrossValidator:
             logger.warning("No predictions for this fold")
             return {
                 "accuracy": 0.0,
-                "num_test": len(test_treebanks),
+                "num_test": num_scored_treebanks,
                 "num_predicted": 0,
             }
 
@@ -237,7 +237,7 @@ class CrossValidator:
 
         return {
             "accuracy": float(accuracy),
-            "num_test": len(test_treebanks),
+            "num_test": num_scored_treebanks,
             "num_predicted": len(pred_filtered),
             "true_genres": true_filtered,
             "pred_genres": pred_filtered,
@@ -635,6 +635,7 @@ class ClusteringEvaluator:
         embeddings_by_tb: Dict,
         clusterer,
         single_genre_treebanks: Optional[List[Dict]] = None,
+        scoring_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
         """Evaluate one predefined train/test partition without cross-validation.
 
@@ -647,6 +648,9 @@ class ClusteringEvaluator:
             clusterer: Clustering algorithm instance.
             single_genre_treebanks: Optional additional single-genre candidates for
                 parity mode.
+            scoring_treebanks: Optional scored subset of ``test_treebanks``. When
+                provided, all test treebanks are clustered/labeled but only this
+                subset contributes to sentence-level metrics.
 
         Returns:
             Aggregated metrics over a single fixed holdout run.
@@ -658,10 +662,20 @@ class ClusteringEvaluator:
         )
         if self.protocol == "paper_parity":
             logger.info(
-                "  Held-out test treebanks: %d across %d split(s)",
+                "  Held-out clustering treebanks: %d across %d split(s)",
                 len(test_treebanks),
                 held_out_split_count,
             )
+            if scoring_treebanks is not None:
+                scored_split_count = sum(
+                    len(self._resolve_descriptor_split_keys(tb_info))
+                    for tb_info in scoring_treebanks
+                )
+                logger.info(
+                    "  Scored paper-scope treebanks: %d across %d split(s)",
+                    len(scoring_treebanks),
+                    scored_split_count,
+                )
         else:
             logger.info("  Held-out test splits: %d", len(test_treebanks))
         logger.info("  Protocol: %s", self.protocol)
@@ -720,6 +734,7 @@ class ClusteringEvaluator:
             embeddings_by_tb=embeddings_by_tb,
             clusterer=clusterer,
             parity_single_anchor_keys=parity_single_anchor_keys,
+            scoring_treebanks=scoring_treebanks,
         )
         results = self._aggregate_fold_results([fold_result])
         results["evaluation_mode"] = "fixed_partition"
@@ -921,6 +936,7 @@ class ClusteringEvaluator:
         embeddings_by_tb: Dict,
         clusterer,
         parity_single_anchor_keys: Optional[List] = None,
+        scoring_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
         """Evaluate clustering on test treebanks for one fold.
 
@@ -932,6 +948,7 @@ class ClusteringEvaluator:
             clusterer: Clustering algorithm
             parity_single_anchor_keys: Optional additional single-genre anchor
                 descriptors (paper parity) or split keys (generalization)
+            scoring_treebanks: Optional scored subset of ``test_treebanks``.
 
         Returns:
             Fold results with sentence-level predictions
@@ -1101,7 +1118,7 @@ class ClusteringEvaluator:
             logger.warning("No clustered test treebanks for this fold")
             return {
                 "accuracy": 0.0,
-                "num_test": len(test_treebanks),
+                "num_test": num_scored_treebanks,
                 "num_sentences": 0,
                 "anchor_policy": self.anchor_pool_policy,
                 "anchors_train_virtual": train_anchor_count,
@@ -1130,6 +1147,16 @@ class ClusteringEvaluator:
                 summary["labels_low_confidence"],
             )
 
+        scoring_split_keys = None
+        num_scored_treebanks = len(test_treebanks)
+        if scoring_treebanks is not None:
+            scoring_split_keys = {
+                split_key
+                for tb_info in scoring_treebanks
+                for split_key in self._resolve_descriptor_split_keys(tb_info)
+            }
+            num_scored_treebanks = len(scoring_treebanks)
+
         # Get sentence-level predictions for held-out treebanks only.
         for batch in test_sentence_batches:
             tb_code = batch["tb_code"]
@@ -1146,6 +1173,9 @@ class ClusteringEvaluator:
                     tb_code=tb_code,
                     split_name=split_name,
                 )
+                if scoring_split_keys is not None and (ref_tb_code, ref_split_name) not in scoring_split_keys:
+                    continue
+
                 meta_key = (ref_tb_code, ref_split_name, sent_ref)
                 true_genre = sentence_metadata.get(meta_key, None)
 
@@ -1160,7 +1190,7 @@ class ClusteringEvaluator:
             logger.warning("No predictions for this fold")
             return {
                 "accuracy": 0.0,
-                "num_test": len(test_treebanks),
+                "num_test": num_scored_treebanks,
                 "num_sentences": 0,
                 "anchor_policy": self.anchor_pool_policy,
                 "anchors_train_virtual": train_anchor_count,
@@ -1178,7 +1208,7 @@ class ClusteringEvaluator:
 
         return {
             "accuracy": float(accuracy),
-            "num_test": len(test_treebanks),
+            "num_test": num_scored_treebanks,
             "num_sentences": len(all_pred),
             "true_genres": all_true,
             "pred_genres": all_pred,

@@ -1326,6 +1326,7 @@ def evaluate(
             evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
 
         paper_treebank_genre_map = None
+        paper_scoring_treebanks = None
         if protocol_val == "paper_parity":
             paper_treebank_genre_map = resolve_paper_evaluation_treebank_genres(
                 bootstrapper.data_loader
@@ -1529,12 +1530,11 @@ def evaluate(
                                     )
                                 )
                                 in_test_sentence = (
-                                    is_evaluation_target
-                                    and
                                     in_test_split
                                     and test_split_map.includes_sentence(
                                         tb_code, split_name, sent_id
                                     )
+                                    and (protocol_val == "paper_parity" or is_evaluation_target)
                                 )
                                 if not in_anchor_sentence and not in_test_sentence:
                                     continue
@@ -1622,29 +1622,38 @@ def evaluate(
                                 no_metadata_test_split_keys.add(split_key)
 
             if protocol_val == "paper_parity":
-                paper_test_treebanks = []
+                paper_full_test_treebanks = []
+                paper_scoring_treebanks = []
                 for tb_code, split_keys in sorted(paper_test_split_keys_by_treebank.items()):
-                    if tb_code not in evaluation_treebank_ids:
-                        continue
-                    expected_genres = sorted((paper_treebank_genre_map or {}).get(tb_code, []))
-                    if len(expected_genres) < 2:
-                        continue
+                    treebank_genres = sorted(
+                        bootstrapper.data_loader.get_treebank_genres(tb_code) or []
+                    )
                     genre_counts = dict(
                         sorted(paper_test_metadata_counts_by_treebank.get(tb_code, {}).items())
                     )
                     if not genre_counts:
                         continue
-                    paper_test_treebanks.append(
-                        {
-                            "treebank": tb_code,
-                            "split_keys": sorted(split_keys),
-                            "genres": expected_genres,
-                            "observed_genres": sorted(genre_counts),
-                            "language": paper_treebank_languages.get(tb_code, tb_code.split("_", 1)[0]),
-                            "sentence_count": paper_test_sentence_counts_by_treebank.get(tb_code, 0),
-                            "genre_counts": genre_counts,
-                        }
-                    )
+
+                    descriptor = {
+                        "treebank": tb_code,
+                        "split_keys": sorted(split_keys),
+                        "genres": treebank_genres,
+                        "observed_genres": sorted(genre_counts),
+                        "language": paper_treebank_languages.get(tb_code, tb_code.split("_", 1)[0]),
+                        "sentence_count": paper_test_sentence_counts_by_treebank.get(tb_code, 0),
+                        "genre_counts": genre_counts,
+                    }
+
+                    if len(treebank_genres) >= 2:
+                        paper_full_test_treebanks.append(descriptor)
+
+                    if tb_code in evaluation_treebank_ids:
+                        expected_genres = sorted((paper_treebank_genre_map or {}).get(tb_code, []))
+                        if len(expected_genres) < 2:
+                            continue
+                        scoring_descriptor = dict(descriptor)
+                        scoring_descriptor["genres"] = expected_genres
+                        paper_scoring_treebanks.append(scoring_descriptor)
 
                 paper_single_genre_anchor_treebanks = []
                 for tb_code, split_keys in sorted(paper_anchor_split_keys_by_treebank.items()):
@@ -1663,7 +1672,7 @@ def evaluate(
                         }
                     )
 
-                test_multi_genre_treebanks = paper_test_treebanks
+                test_multi_genre_treebanks = paper_full_test_treebanks
                 parity_single_genre_treebanks = paper_single_genre_anchor_treebanks
 
             if len(test_multi_genre_treebanks) == 0:
@@ -1694,6 +1703,9 @@ def evaluate(
             initial_train_treebank_keys = set(train_treebank_keys)
             initial_test_split_keys = collect_treebank_descriptor_split_keys(
                 test_multi_genre_treebanks
+            )
+            initial_scoring_split_keys = collect_treebank_descriptor_split_keys(
+                paper_scoring_treebanks or []
             )
             initial_single_anchor_split_keys = collect_treebank_descriptor_split_keys(
                 parity_single_genre_treebanks
@@ -1733,8 +1745,12 @@ def evaluate(
                     )
             if protocol_val == "paper_parity":
                 summary_parts.append(
-                    f"{len(test_multi_genre_treebanks)} paper-scope test treebank(s) "
+                    f"{len(test_multi_genre_treebanks)} full-test clustering treebank(s) "
                     f"across {len(initial_test_split_keys)} split(s)"
+                )
+                summary_parts.append(
+                    f"{len(paper_scoring_treebanks or [])} paper-scope scored treebank(s) "
+                    f"across {len(initial_scoring_split_keys)} split(s)"
                 )
             else:
                 summary_parts.append(f"{len(test_multi_genre_treebanks)} multi-genre test split(s)")
@@ -1783,6 +1799,10 @@ def evaluate(
                 test_multi_genre_treebanks,
                 available_embedding_splits,
             )
+            paper_scoring_treebanks = filter_treebank_descriptors_by_available_splits(
+                paper_scoring_treebanks or [],
+                available_embedding_splits,
+            )
             parity_single_genre_treebanks = filter_treebank_descriptors_by_available_splits(
                 parity_single_genre_treebanks,
                 available_embedding_splits,
@@ -1793,6 +1813,10 @@ def evaluate(
             dropped_test_split_keys = sorted(
                 initial_test_split_keys
                 - collect_treebank_descriptor_split_keys(test_multi_genre_treebanks)
+            )
+            dropped_scoring_split_keys = sorted(
+                initial_scoring_split_keys
+                - collect_treebank_descriptor_split_keys(paper_scoring_treebanks or [])
             )
             dropped_single_anchor_split_keys = sorted(
                 initial_single_anchor_split_keys
@@ -1819,10 +1843,14 @@ def evaluate(
             if len(test_multi_genre_treebanks) == 0:
                 if protocol_val == "paper_parity":
                     raise ValueError(
-                        "No paper-scope test treebanks remained after split-map embedding filtering."
+                        "No test-partition clustering treebanks remained after split-map embedding filtering."
                     )
                 raise ValueError(
                     "No test splits remained after split-map embedding filtering."
+                )
+            if protocol_val == "paper_parity" and len(paper_scoring_treebanks or []) == 0:
+                raise ValueError(
+                    "No paper-scope scored treebanks remained after split-map embedding filtering."
                 )
 
             console.print("\n[yellow]Running fixed-partition holdout evaluation...[/yellow]")
@@ -1835,6 +1863,11 @@ def evaluate(
                 single_genre_treebanks=(
                     parity_single_genre_treebanks
                     if uses_single_genre_anchors
+                    else None
+                ),
+                scoring_treebanks=(
+                    paper_scoring_treebanks
+                    if protocol_val == "paper_parity"
                     else None
                 ),
             )
@@ -1876,6 +1909,18 @@ def evaluate(
                     overlap_sentences=overlap_sentences,
                 )
             )
+            if protocol_val == "paper_parity":
+                protocol_notes = list(set_results.get("protocol_notes", []))
+                protocol_notes.append(
+                    "Clustering scope: all multi-genre treebanks in the reconstructed test partition; "
+                    "scoring scope: paper-mapped treebanks only."
+                )
+                if dropped_scoring_split_keys:
+                    protocol_notes.append(
+                        f"Paper scoring splits removed after embedding filtering: {len(dropped_scoring_split_keys)} split(s) "
+                        f"({_format_protocol_split_keys(dropped_scoring_split_keys)})"
+                    )
+                set_results["protocol_notes"] = protocol_notes
 
             _display_evaluation_results(set_results)
             return
