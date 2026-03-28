@@ -14,6 +14,7 @@ from ud_genre_bootstrap.cli import (
     normalize_anchor_pool_policy,
     normalize_evaluation_protocol,
     parse_inline_treebank_sets,
+    resolve_paper_evaluation_treebank_genres,
     resolve_paper_evaluation_treebank_ids,
 )
 from ud_genre_bootstrap.utils.config import Config
@@ -45,6 +46,32 @@ class TestPaperEvaluationScope:
         assert build_paper_treebank_key(
             "en_ewt", {"language": "English", "dirname": "UD_English-EWT"}
         ) == "English/EWT"
+
+    def test_resolve_paper_evaluation_treebank_genres_matches_vendored_scope(self, tmp_path):
+        """Current treebank IDs should resolve against vendored paper mapping keys."""
+        mapping_path = tmp_path / "paper-scope.json"
+        mapping_path.write_text(
+            json.dumps({
+                "English/EWT": {"blog": "blog", "email": "email"},
+                "Portugese/PUD": {"n": "news", "w": "wiki"},
+            }),
+            encoding="utf-8",
+        )
+        data_loader = MockDataLoader(
+            ["en_ewt", "en_gum", "pt_pud"],
+            metadata={
+                "en_ewt": {"language": "English", "dirname": "UD_English-EWT"},
+                "en_gum": {"language": "English", "dirname": "UD_English-GUM"},
+                "pt_pud": {"language": "Portuguese", "dirname": "UD_Portuguese-PUD"},
+            },
+        )
+
+        result = resolve_paper_evaluation_treebank_genres(data_loader, mapping_path)
+
+        assert result == {
+            "en_ewt": ["blog", "email"],
+            "pt_pud": ["news", "wiki"],
+        }
 
     def test_resolve_paper_evaluation_treebank_ids_matches_vendored_scope(self, tmp_path):
         """Current treebank IDs should resolve against vendored paper mapping keys."""

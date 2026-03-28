@@ -171,8 +171,8 @@ def test_clustering_evaluator_uses_shared_bootstrap_schedule_runner(monkeypatch)
         captured["genre_combinations"] = set(genre_combination_clusters.keys())
         captured["preserve_methods"] = preserve_methods
         return {
-            "test1": ("news", 0.99, "bootstrap-labeled"),
-            "test2": ("forum", 0.99, "bootstrap-labeled"),
+            ("test_tb", "test", "test1"): ("news", 0.99, "bootstrap-labeled"),
+            ("test_tb", "test", "test2"): ("forum", 0.99, "bootstrap-labeled"),
         }, [
             {
                 "labels_assigned": 2,
@@ -207,6 +207,102 @@ def test_clustering_evaluator_uses_shared_bootstrap_schedule_runner(monkeypatch)
     assert len(captured["schedule"]) >= 1
     assert result["accuracy"] == 1.0
     assert result["num_sentences"] == 2
+
+
+def test_clustering_evaluator_qualifies_duplicate_sentence_ids_across_treebanks(monkeypatch):
+    evaluator = ClusteringEvaluator(n_folds=2, group_by=None, random_state=42)
+
+    class CollisionClusterer:
+        def cluster_treebank(self, embeddings, sent_ids, n_genres, compute_metrics=True):
+            del embeddings, n_genres, compute_metrics
+            return {
+                "cluster_ids": np.zeros(len(sent_ids), dtype=int),
+                "cluster_probs": np.ones((len(sent_ids), 1), dtype=float),
+                "clusters": {
+                    0: {
+                        "sent_ids": list(sent_ids),
+                        "size": len(sent_ids),
+                        "confidence": 1.0,
+                    }
+                },
+                "metrics": {},
+            }
+
+    embeddings_by_tb = {
+        ("tb_a", "test"): {
+            "embedding": np.array([[1.0, 0.0], [1.0, 0.0]]),
+            "sent_id": ["dup", "a2"],
+        },
+        ("tb_b", "test"): {
+            "embedding": np.array([[0.0, 1.0], [0.0, 1.0]]),
+            "sent_id": ["dup", "b2"],
+        },
+    }
+    sentence_metadata = {
+        ("tb_a", "test", "dup"): "news",
+        ("tb_a", "test", "a2"): "news",
+        ("tb_b", "test", "dup"): "wiki",
+        ("tb_b", "test", "b2"): "wiki",
+    }
+    test_treebanks = [
+        {
+            "treebank": "tb_a",
+            "split": "test",
+            "genres": ["news", "wiki"],
+            "language": "a",
+        },
+        {
+            "treebank": "tb_b",
+            "split": "test",
+            "genres": ["news", "wiki"],
+            "language": "b",
+        },
+    ]
+
+    def _run_bootstrap_schedule(
+        schedule,
+        genre_combination_clusters,
+        final_labels,
+        preserve_methods,
+    ):
+        del schedule, final_labels, preserve_methods
+        qualified_labels = {}
+        for _genre_combination, treebank_clusters in genre_combination_clusters.items():
+            for tb_key, clusters in treebank_clusters.items():
+                tb_code = tb_key[0]
+                if tb_code not in {"tb_a", "tb_b"}:
+                    continue
+                label = ("news", 0.99, "bootstrap-labeled") if tb_code == "tb_a" else ("wiki", 0.99, "bootstrap-labeled")
+                for cluster in clusters:
+                    for sent_ref in cluster.get("sent_ids", []):
+                        qualified_labels[sent_ref] = label
+        return qualified_labels, [
+            {
+                "labels_assigned": 2,
+                "labels_high_confidence": 2,
+                "labels_low_confidence": 0,
+            }
+        ]
+
+    monkeypatch.setattr(evaluator.clustering_ops, "run_bootstrap_schedule", _run_bootstrap_schedule)
+
+    result = evaluator._evaluate_fold(
+        test_treebanks=test_treebanks,
+        train_treebanks=[],
+        sentence_metadata=sentence_metadata,
+        embeddings_by_tb=embeddings_by_tb,
+        clusterer=CollisionClusterer(),
+    )
+
+    assert result["accuracy"] == pytest.approx(1.0)
+    assert result["num_sentences"] == 4
+    assert result["pred_genres"] == ["news", "news", "wiki", "wiki"]
+    assert result["sent_ids"] == [
+        "tb_a:test:dup",
+        "tb_a:test:a2",
+        "tb_b:test:dup",
+        "tb_b:test:b2",
+    ]
 
 
 def test_clustering_evaluator_uses_union_of_split_genres_for_cluster_count(monkeypatch):
@@ -687,6 +783,68 @@ def test_fixed_partition_validate_parity_filters_anchors(monkeypatch):
     assert result["num_folds"] == 1
     assert ("mono_de", "train") in captured["parity_keys"]
     assert ("mono_en", "train") not in captured["parity_keys"]
+
+
+def test_fixed_partition_validate_paper_parity_passes_treebank_anchor_descriptors(monkeypatch):
+    evaluator = ClusteringEvaluator(
+        n_folds=1,
+        group_by=None,
+        anchor_mode="parity",
+        anchor_pool_policy="single_genre",
+        protocol="paper_parity",
+    )
+
+    test_treebanks = [
+        {
+            "treebank": "mix_tb",
+            "split_keys": [("mix_tb", "test"), ("mix_tb", "dev")],
+            "genres": ["news", "wiki"],
+            "language": "en",
+        }
+    ]
+    single_genre_treebanks = [
+        {
+            "treebank": "mono_tb",
+            "split_keys": [("mono_tb", "test"), ("mono_tb", "dev")],
+            "genres": ["news"],
+            "language": "de",
+        }
+    ]
+
+    captured = {}
+
+    def _fake_evaluate_fold(
+        test_treebanks,
+        train_treebanks,
+        sentence_metadata,
+        embeddings_by_tb,
+        clusterer,
+        parity_single_anchor_keys=None,
+    ):
+        captured["anchors"] = list(parity_single_anchor_keys or [])
+        return {
+            "accuracy": 1.0,
+            "num_test": len(test_treebanks),
+            "num_sentences": 1,
+            "true_genres": ["news"],
+            "pred_genres": ["news"],
+            "sent_ids": ["mix_tb:test:s1"],
+            "treebank_split_keys": [("mix_tb", "test")],
+        }
+
+    monkeypatch.setattr(evaluator, "_evaluate_fold", _fake_evaluate_fold)
+
+    result = evaluator.fixed_partition_validate(
+        test_treebanks=test_treebanks,
+        train_treebanks=[],
+        sentence_metadata={},
+        embeddings_by_tb={},
+        clusterer=object(),
+        single_genre_treebanks=single_genre_treebanks,
+    )
+
+    assert result["num_folds"] == 1
+    assert captured["anchors"] == single_genre_treebanks
 
 
 def test_anchor_pool_policy_auto_resolves_from_anchor_mode():

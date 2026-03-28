@@ -85,33 +85,98 @@ def build_paper_treebank_key(treebank_code: str, metadata: Optional[Dict]) -> Op
     return f"{language}/{treebank_name}"
 
 
+def load_paper_treebank_mapping(
+    mapping_path: Optional[Path] = None,
+) -> Dict[str, Dict[str, str]]:
+    """Load the vendored paper treebank mapping file."""
+    mapping_path = mapping_path or PAPER_TREEBANK_MAPPING_PATH
+    if not mapping_path.exists():
+        raise ValueError(f"Paper treebank mapping not found: {mapping_path}")
+
+    with open(mapping_path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def resolve_paper_evaluation_treebank_genres(
+    data_loader,
+    mapping_path: Optional[Path] = None,
+) -> Dict[str, List[str]]:
+    """Resolve current treebank IDs to paper-mapped global genre inventories."""
+    paper_mapping = load_paper_treebank_mapping(mapping_path)
+    normalized_to_entry = {
+        normalize_paper_treebank_key(key): sorted(set(value.values()))
+        for key, value in paper_mapping.items()
+    }
+    metadata = getattr(data_loader, "metadata", {}) or {}
+
+    matched_genres: Dict[str, List[str]] = {}
+    for treebank_code in data_loader.get_treebank_codes():
+        paper_key = build_paper_treebank_key(treebank_code, metadata.get(treebank_code))
+        if not paper_key:
+            continue
+        normalized_key = normalize_paper_treebank_key(paper_key)
+        if normalized_key in normalized_to_entry:
+            matched_genres[treebank_code] = normalized_to_entry[normalized_key]
+
+    return matched_genres
+
+
 def resolve_paper_evaluation_treebank_ids(
     data_loader,
     mapping_path: Optional[Path] = None,
 ) -> set[str]:
     """Resolve current treebank IDs that belong to the original paper eval scope."""
-    mapping_path = mapping_path or PAPER_TREEBANK_MAPPING_PATH
-    if not mapping_path.exists():
-        raise ValueError(
-            f"Paper treebank mapping not found: {mapping_path}"
+    return set(
+        resolve_paper_evaluation_treebank_genres(
+            data_loader,
+            mapping_path=mapping_path,
         )
+    )
 
-    with open(mapping_path, encoding="utf-8") as handle:
-        paper_mapping = json.load(handle)
 
-    paper_keys = {
-        normalize_paper_treebank_key(key)
-        for key in paper_mapping
-    }
-    metadata = getattr(data_loader, "metadata", {}) or {}
+def get_treebank_descriptor_split_keys(treebank_info: Dict) -> List[Tuple[str, str]]:
+    """Resolve split keys from split-level or treebank-level evaluation descriptors."""
+    if "split_keys" in treebank_info:
+        return [tuple(split_key) for split_key in treebank_info.get("split_keys", [])]
 
-    matched_ids = set()
-    for treebank_code in data_loader.get_treebank_codes():
-        paper_key = build_paper_treebank_key(treebank_code, metadata.get(treebank_code))
-        if paper_key and normalize_paper_treebank_key(paper_key) in paper_keys:
-            matched_ids.add(treebank_code)
+    split_name = treebank_info.get("split")
+    if split_name is None:
+        return []
 
-    return matched_ids
+    return [(treebank_info["treebank"], split_name)]
+
+
+def collect_treebank_descriptor_split_keys(treebanks: List[Dict]) -> set[Tuple[str, str]]:
+    """Collect split keys referenced by split- or treebank-level descriptors."""
+    split_keys: set[Tuple[str, str]] = set()
+    for treebank_info in treebanks:
+        split_keys.update(get_treebank_descriptor_split_keys(treebank_info))
+    return split_keys
+
+
+def filter_treebank_descriptors_by_available_splits(
+    treebanks: List[Dict],
+    available_splits: set[Tuple[str, str]],
+) -> List[Dict]:
+    """Drop unavailable split keys while preserving descriptor shape."""
+    filtered_treebanks: List[Dict] = []
+    for treebank_info in treebanks:
+        kept_split_keys = sorted(
+            split_key
+            for split_key in get_treebank_descriptor_split_keys(treebank_info)
+            if split_key in available_splits
+        )
+        if not kept_split_keys:
+            continue
+
+        updated_info = dict(treebank_info)
+        if "split_keys" in updated_info:
+            updated_info["split_keys"] = kept_split_keys
+        else:
+            updated_info["split"] = kept_split_keys[0][1]
+        filtered_treebanks.append(updated_info)
+
+    return filtered_treebanks
 
 
 def apply_treebank_exclusions(cfg: Config, data_loader, treebank_filter: Optional[List[str]] = None) -> Optional[List[str]]:
@@ -1260,10 +1325,12 @@ def evaluate(
         else:
             evaluation_treebank_ids = {tb["id"] for tb in all_treebank_data}
 
+        paper_treebank_genre_map = None
         if protocol_val == "paper_parity":
-            paper_scope_treebank_ids = resolve_paper_evaluation_treebank_ids(
+            paper_treebank_genre_map = resolve_paper_evaluation_treebank_genres(
                 bootstrapper.data_loader
             )
+            paper_scope_treebank_ids = set(paper_treebank_genre_map)
             if not paper_scope_treebank_ids:
                 raise ValueError(
                     "Paper-parity protocol could not resolve any treebanks from "
@@ -1318,7 +1385,7 @@ def evaluate(
                         f"--test-partition exactly ({test_partition_val})."
                     )
                 console.print(
-                    f"[blue]Paper-parity anchor source:[/blue] single-genre splits "
+                    f"[blue]Paper-parity anchor source:[/blue] whole-treebank single-genre anchors "
                     f"from partition '{test_partition_val}'"
                 )
             elif test_partition_val in anchor_partitions_val:
@@ -1398,6 +1465,12 @@ def evaluate(
             seen_test_split_keys = set()
             load_error_split_keys = set()
             no_metadata_test_split_keys = set()
+            paper_test_split_keys_by_treebank: Dict[str, set[Tuple[str, str]]] = {}
+            paper_anchor_split_keys_by_treebank: Dict[str, set[Tuple[str, str]]] = {}
+            paper_test_metadata_counts_by_treebank: Dict[str, Dict[str, int]] = {}
+            paper_test_sentence_counts_by_treebank: Dict[str, int] = {}
+            paper_anchor_sentence_counts_by_treebank: Dict[str, int] = {}
+            paper_treebank_languages: Dict[str, str] = {}
 
             with console.status(
                 "[blue]Scanning sentence metadata for fixed partitions...[/blue]"
@@ -1426,8 +1499,12 @@ def evaluate(
                         split_key = (tb_code, split_name)
                         if in_anchor_split:
                             seen_anchor_split_keys.add(split_key)
+                            paper_anchor_split_keys_by_treebank.setdefault(tb_code, set()).add(split_key)
                         if in_test_split:
                             seen_test_split_keys.add(split_key)
+                            paper_test_split_keys_by_treebank.setdefault(tb_code, set()).add(split_key)
+                        if in_anchor_split or in_test_split:
+                            paper_treebank_languages[tb_code] = language
 
                         anchor_genre_counts = {}
                         test_genre_counts = {}
@@ -1484,6 +1561,13 @@ def evaluate(
                                         test_genre_counts.get(primary_genre, 0) + 1
                                     )
                                     test_sentence_count += 1
+                                    tb_counts = paper_test_metadata_counts_by_treebank.setdefault(
+                                        tb_code, {}
+                                    )
+                                    tb_counts[primary_genre] = tb_counts.get(primary_genre, 0) + 1
+                                    paper_test_sentence_counts_by_treebank[tb_code] = (
+                                        paper_test_sentence_counts_by_treebank.get(tb_code, 0) + 1
+                                    )
                         except Exception as e:
                             logger.warning(f"Could not load {tb_code}:{split_name}: {e}")
                             load_error_split_keys.add(split_key)
@@ -1492,6 +1576,10 @@ def evaluate(
                             continue
 
                         if anchor_sentence_count > 0:
+                            paper_anchor_sentence_counts_by_treebank[tb_code] = (
+                                paper_anchor_sentence_counts_by_treebank.get(tb_code, 0)
+                                + anchor_sentence_count
+                            )
                             stats["anchor_splits"] += 1
                             if uses_train_virtual_anchors:
                                 train_treebank_keys.add((tb_code, split_name))
@@ -1533,6 +1621,51 @@ def evaluate(
                                 stats["no_metadata_test"] += 1
                                 no_metadata_test_split_keys.add(split_key)
 
+            if protocol_val == "paper_parity":
+                paper_test_treebanks = []
+                for tb_code, split_keys in sorted(paper_test_split_keys_by_treebank.items()):
+                    if tb_code not in evaluation_treebank_ids:
+                        continue
+                    expected_genres = sorted((paper_treebank_genre_map or {}).get(tb_code, []))
+                    if len(expected_genres) < 2:
+                        continue
+                    genre_counts = dict(
+                        sorted(paper_test_metadata_counts_by_treebank.get(tb_code, {}).items())
+                    )
+                    if not genre_counts:
+                        continue
+                    paper_test_treebanks.append(
+                        {
+                            "treebank": tb_code,
+                            "split_keys": sorted(split_keys),
+                            "genres": expected_genres,
+                            "observed_genres": sorted(genre_counts),
+                            "language": paper_treebank_languages.get(tb_code, tb_code.split("_", 1)[0]),
+                            "sentence_count": paper_test_sentence_counts_by_treebank.get(tb_code, 0),
+                            "genre_counts": genre_counts,
+                        }
+                    )
+
+                paper_single_genre_anchor_treebanks = []
+                for tb_code, split_keys in sorted(paper_anchor_split_keys_by_treebank.items()):
+                    treebank_genres = list(bootstrapper.data_loader.get_treebank_genres(tb_code) or [])
+                    if len(treebank_genres) != 1:
+                        continue
+                    anchor_genre = treebank_genres[0]
+                    paper_single_genre_anchor_treebanks.append(
+                        {
+                            "treebank": tb_code,
+                            "split_keys": sorted(split_keys),
+                            "genres": [anchor_genre],
+                            "language": paper_treebank_languages.get(tb_code, tb_code.split("_", 1)[0]),
+                            "sentence_count": paper_anchor_sentence_counts_by_treebank.get(tb_code, 0),
+                            "genre_counts": {anchor_genre: paper_anchor_sentence_counts_by_treebank.get(tb_code, 0)},
+                        }
+                    )
+
+                test_multi_genre_treebanks = paper_test_treebanks
+                parity_single_genre_treebanks = paper_single_genre_anchor_treebanks
+
             if len(test_multi_genre_treebanks) == 0:
                 console.print(
                     "\n[bold yellow]⚠ No multi-genre test splits found for fixed-partition evaluation[/bold yellow]"
@@ -1559,14 +1692,12 @@ def evaluate(
 
             train_treebank_keys = sorted(train_treebank_keys)
             initial_train_treebank_keys = set(train_treebank_keys)
-            initial_test_split_keys = {
-                (tb_info["treebank"], tb_info["split"])
-                for tb_info in test_multi_genre_treebanks
-            }
-            initial_single_anchor_split_keys = {
-                (tb_info["treebank"], tb_info["split"])
-                for tb_info in parity_single_genre_treebanks
-            }
+            initial_test_split_keys = collect_treebank_descriptor_split_keys(
+                test_multi_genre_treebanks
+            )
+            initial_single_anchor_split_keys = collect_treebank_descriptor_split_keys(
+                parity_single_genre_treebanks
+            )
             if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
                 raise ValueError(
                     "Fixed-partition evaluation requires at least one anchor split "
@@ -1577,6 +1708,11 @@ def evaluate(
                 and not uses_train_virtual_anchors
                 and len(parity_single_genre_treebanks) == 0
             ):
+                if protocol_val == "paper_parity":
+                    raise ValueError(
+                        "Paper-parity evaluation requires at least one whole-treebank "
+                        "single-genre anchor."
+                    )
                 raise ValueError(
                     "Fixed-partition evaluation with anchor_pool_policy=single_genre "
                     "requires at least one single-genre anchor split."
@@ -1586,10 +1722,22 @@ def evaluate(
             if uses_train_virtual_anchors:
                 summary_parts.append(f"{len(train_treebank_keys)} virtual-anchor split(s)")
             if uses_single_genre_anchors:
+                if protocol_val == "paper_parity":
+                    summary_parts.append(
+                        f"{len(parity_single_genre_treebanks)} single-genre anchor treebank(s) "
+                        f"across {len(initial_single_anchor_split_keys)} split(s)"
+                    )
+                else:
+                    summary_parts.append(
+                        f"{len(parity_single_genre_treebanks)} single-genre anchor candidate split(s)"
+                    )
+            if protocol_val == "paper_parity":
                 summary_parts.append(
-                    f"{len(parity_single_genre_treebanks)} single-genre anchor candidate split(s)"
+                    f"{len(test_multi_genre_treebanks)} paper-scope test treebank(s) "
+                    f"across {len(initial_test_split_keys)} split(s)"
                 )
-            summary_parts.append(f"{len(test_multi_genre_treebanks)} multi-genre test split(s)")
+            else:
+                summary_parts.append(f"{len(test_multi_genre_treebanks)} multi-genre test split(s)")
             console.print(
                 f"[blue]Fixed holdout summary:[/blue] {', '.join(summary_parts)}"
             )
@@ -1631,32 +1779,24 @@ def evaluate(
                 for split_key in train_treebank_keys
                 if split_key in available_embedding_splits
             ]
-            test_multi_genre_treebanks = [
-                tb_info
-                for tb_info in test_multi_genre_treebanks
-                if (tb_info["treebank"], tb_info["split"]) in available_embedding_splits
-            ]
-            parity_single_genre_treebanks = [
-                tb_info
-                for tb_info in parity_single_genre_treebanks
-                if (tb_info["treebank"], tb_info["split"]) in available_embedding_splits
-            ]
+            test_multi_genre_treebanks = filter_treebank_descriptors_by_available_splits(
+                test_multi_genre_treebanks,
+                available_embedding_splits,
+            )
+            parity_single_genre_treebanks = filter_treebank_descriptors_by_available_splits(
+                parity_single_genre_treebanks,
+                available_embedding_splits,
+            )
             dropped_anchor_split_keys = sorted(
                 initial_train_treebank_keys - set(train_treebank_keys)
             )
             dropped_test_split_keys = sorted(
                 initial_test_split_keys
-                - {
-                    (tb_info["treebank"], tb_info["split"])
-                    for tb_info in test_multi_genre_treebanks
-                }
+                - collect_treebank_descriptor_split_keys(test_multi_genre_treebanks)
             )
             dropped_single_anchor_split_keys = sorted(
                 initial_single_anchor_split_keys
-                - {
-                    (tb_info["treebank"], tb_info["split"])
-                    for tb_info in parity_single_genre_treebanks
-                }
+                - collect_treebank_descriptor_split_keys(parity_single_genre_treebanks)
             )
 
             if uses_train_virtual_anchors and len(train_treebank_keys) == 0:
@@ -1668,10 +1808,19 @@ def evaluate(
                 and not uses_train_virtual_anchors
                 and len(parity_single_genre_treebanks) == 0
             ):
+                if protocol_val == "paper_parity":
+                    raise ValueError(
+                        "No whole-treebank single-genre anchors remained after "
+                        "split-map embedding filtering."
+                    )
                 raise ValueError(
                     "No single-genre anchor splits remained after split-map embedding filtering."
                 )
             if len(test_multi_genre_treebanks) == 0:
+                if protocol_val == "paper_parity":
+                    raise ValueError(
+                        "No paper-scope test treebanks remained after split-map embedding filtering."
+                    )
                 raise ValueError(
                     "No test splits remained after split-map embedding filtering."
                 )

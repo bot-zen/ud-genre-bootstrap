@@ -455,6 +455,56 @@ class ClusteringEvaluator:
             )
         return normalized
 
+    @staticmethod
+    def _qualify_sentence_ref(tb_code: str, split_name: str, sent_id) -> Tuple[str, str, str]:
+        """Build an evaluation-local sentence ref that is unique across splits/treebanks."""
+        if (
+            isinstance(sent_id, tuple)
+            and len(sent_id) == 3
+            and sent_id[0] == tb_code
+            and sent_id[1] == split_name
+        ):
+            return (str(sent_id[0]), str(sent_id[1]), str(sent_id[2]))
+        return (str(tb_code), str(split_name), str(sent_id))
+
+    @classmethod
+    def _qualify_evaluation_inputs(
+        cls,
+        sentence_metadata: Dict,
+        embeddings_by_tb: Dict,
+    ) -> Tuple[Dict, Dict]:
+        """Rewrite evaluation inputs to use split-qualified sentence refs internally."""
+        qualified_sentence_metadata = {}
+        for (tb_code, split_name, sent_id), genre in sentence_metadata.items():
+            sent_ref = cls._qualify_sentence_ref(tb_code, split_name, sent_id)
+            qualified_sentence_metadata[(tb_code, split_name, sent_ref)] = genre
+
+        qualified_embeddings_by_tb = {}
+        for (tb_code, split_name), emb_data in embeddings_by_tb.items():
+            qualified_sent_ids = [
+                cls._qualify_sentence_ref(tb_code, split_name, sent_id)
+                for sent_id in emb_data.get("sent_id", [])
+            ]
+            qualified_emb_data = dict(emb_data)
+            qualified_emb_data["sent_id"] = qualified_sent_ids
+            qualified_embeddings_by_tb[(tb_code, split_name)] = qualified_emb_data
+
+        return qualified_sentence_metadata, qualified_embeddings_by_tb
+
+    @staticmethod
+    def _extract_sentence_ref_parts(
+        sent_ref,
+        *,
+        tb_code: Optional[str] = None,
+        split_name: Optional[str] = None,
+    ) -> Tuple[str, str, str]:
+        """Extract ``(treebank, split, original_sent_id)`` from an internal sent ref."""
+        if isinstance(sent_ref, tuple) and len(sent_ref) == 3:
+            return (str(sent_ref[0]), str(sent_ref[1]), str(sent_ref[2]))
+        if tb_code is None or split_name is None:
+            raise ValueError("tb_code and split_name are required for bare sent_id values")
+        return (str(tb_code), str(split_name), str(sent_ref))
+
     def k_fold_validate(
         self,
         multi_genre_treebanks: List[Dict],
@@ -536,15 +586,29 @@ class ClusteringEvaluator:
             uses_single_genre_anchors = self.anchor_pool_policy in {"single_genre", "combined"}
             parity_single_anchor_keys = None
             if uses_single_genre_anchors and single_genre_treebanks:
-                parity_single_anchor_keys = self._select_parity_single_anchor_keys(
-                    single_genre_treebanks=single_genre_treebanks,
-                    test_treebanks=test_treebanks,
-                )
-                logger.info(
-                    "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
-                    len(parity_single_anchor_keys),
-                    len({tb for tb, _ in parity_single_anchor_keys}),
-                )
+                if self.protocol == "paper_parity":
+                    parity_single_anchor_keys = self._select_paper_single_anchor_treebanks(
+                        single_genre_treebanks=single_genre_treebanks,
+                        test_treebanks=test_treebanks,
+                    )
+                    logger.info(
+                        "  Parity single-genre anchors: %d treebank(s) across %d split(s)",
+                        len(parity_single_anchor_keys),
+                        sum(
+                            len(self._resolve_descriptor_split_keys(tb_info))
+                            for tb_info in parity_single_anchor_keys
+                        ),
+                    )
+                else:
+                    parity_single_anchor_keys = self._select_parity_single_anchor_keys(
+                        single_genre_treebanks=single_genre_treebanks,
+                        test_treebanks=test_treebanks,
+                    )
+                    logger.info(
+                        "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
+                        len(parity_single_anchor_keys),
+                        len({tb for tb, _ in parity_single_anchor_keys}),
+                    )
 
             # For each test treebank, cluster and evaluate
             fold_result = self._evaluate_fold(
@@ -575,20 +639,31 @@ class ClusteringEvaluator:
         """Evaluate one predefined train/test partition without cross-validation.
 
         Args:
-            test_treebanks: Held-out multi-genre split descriptors.
+            test_treebanks: Held-out test descriptors (split-level in generalization,
+                treebank-level with ``split_keys`` in paper parity).
             train_treebanks: Anchor split keys used to build reference embeddings.
             sentence_metadata: Dict mapping (treebank, split, sent_id) -> genre.
             embeddings_by_tb: Precomputed embeddings keyed by (treebank, split).
             clusterer: Clustering algorithm instance.
             single_genre_treebanks: Optional additional single-genre candidates for
-                parity mode (filtered for leakage safety).
+                parity mode.
 
         Returns:
             Aggregated metrics over a single fixed holdout run.
         """
         logger.info("Starting fixed-partition clustering evaluation")
         logger.info("  Training anchor splits: %d", len(train_treebanks))
-        logger.info("  Held-out test splits: %d", len(test_treebanks))
+        held_out_split_count = sum(
+            len(self._resolve_descriptor_split_keys(tb_info)) for tb_info in test_treebanks
+        )
+        if self.protocol == "paper_parity":
+            logger.info(
+                "  Held-out test treebanks: %d across %d split(s)",
+                len(test_treebanks),
+                held_out_split_count,
+            )
+        else:
+            logger.info("  Held-out test splits: %d", len(test_treebanks))
         logger.info("  Protocol: %s", self.protocol)
         logger.info("  Anchor mode: %s", self.anchor_mode)
         logger.info("  Anchor pool policy: %s", self.anchor_pool_policy)
@@ -602,20 +677,41 @@ class ClusteringEvaluator:
                 "Fixed-partition evaluation requires at least one training anchor split"
             )
         if len(test_treebanks) == 0:
-            raise ValueError("Fixed-partition evaluation requires at least one held-out test split")
+            if self.protocol == "paper_parity":
+                raise ValueError(
+                    "Fixed-partition evaluation requires at least one held-out test treebank"
+                )
+            raise ValueError(
+                "Fixed-partition evaluation requires at least one held-out test split"
+            )
 
         uses_single_genre_anchors = self.anchor_pool_policy in {"single_genre", "combined"}
         parity_single_anchor_keys = None
         if uses_single_genre_anchors and single_genre_treebanks:
-            parity_single_anchor_keys = self._select_parity_single_anchor_keys(
-                single_genre_treebanks=single_genre_treebanks,
-                test_treebanks=test_treebanks,
-            )
-            logger.info(
-                "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
-                len(parity_single_anchor_keys),
-                len({tb for tb, _ in parity_single_anchor_keys}),
-            )
+            if self.protocol == "paper_parity":
+                parity_single_anchor_keys = self._select_paper_single_anchor_treebanks(
+                    single_genre_treebanks=single_genre_treebanks,
+                    test_treebanks=test_treebanks,
+                )
+                parity_anchor_split_count = sum(
+                    len(self._resolve_descriptor_split_keys(tb_info))
+                    for tb_info in parity_single_anchor_keys
+                )
+                logger.info(
+                    "  Parity single-genre anchors: %d treebank(s) across %d split(s)",
+                    len(parity_single_anchor_keys),
+                    parity_anchor_split_count,
+                )
+            else:
+                parity_single_anchor_keys = self._select_parity_single_anchor_keys(
+                    single_genre_treebanks=single_genre_treebanks,
+                    test_treebanks=test_treebanks,
+                )
+                logger.info(
+                    "  Parity single-genre anchors: %d split(s) from %d treebank(s)",
+                    len(parity_single_anchor_keys),
+                    len({tb for tb, _ in parity_single_anchor_keys}),
+                )
 
         fold_result = self._evaluate_fold(
             test_treebanks=test_treebanks,
@@ -629,6 +725,18 @@ class ClusteringEvaluator:
         results["evaluation_mode"] = "fixed_partition"
         return results
 
+    @staticmethod
+    def _resolve_descriptor_split_keys(treebank_info: Dict) -> List[Tuple[str, str]]:
+        """Resolve split keys from split- or treebank-level descriptors."""
+        if "split_keys" in treebank_info:
+            return [tuple(split_key) for split_key in treebank_info.get("split_keys", [])]
+
+        split_name = treebank_info.get("split")
+        if split_name is None:
+            return []
+
+        return [(treebank_info["treebank"], split_name)]
+
     def _select_parity_single_anchor_keys(
         self,
         single_genre_treebanks: List[Dict],
@@ -640,32 +748,63 @@ class ClusteringEvaluator:
 
         if self.protocol == "paper_parity":
             for anchor in single_genre_treebanks:
-                anchor_key = (anchor["treebank"], anchor["split"])
-                if anchor_key in seen:
-                    continue
-                seen.add(anchor_key)
-                selected.append(anchor_key)
+                for anchor_key in self._resolve_descriptor_split_keys(anchor):
+                    if anchor_key in seen:
+                        continue
+                    seen.add(anchor_key)
+                    selected.append(anchor_key)
             return selected
 
         test_treebank_codes = {tb["treebank"] for tb in test_treebanks}
-        test_split_keys = {(tb["treebank"], tb["split"]) for tb in test_treebanks}
+        test_split_keys = {
+            split_key
+            for tb in test_treebanks
+            for split_key in self._resolve_descriptor_split_keys(tb)
+        }
         test_languages = {tb["language"] for tb in test_treebanks if tb.get("language")}
 
         for anchor in single_genre_treebanks:
-            anchor_key = (anchor["treebank"], anchor["split"])
-            if anchor_key in seen:
+            anchor_split_keys = self._resolve_descriptor_split_keys(anchor)
+            if not anchor_split_keys:
                 continue
 
             # Never use test treebank data as anchors.
-            if anchor_key in test_split_keys or anchor["treebank"] in test_treebank_codes:
+            if (
+                anchor["treebank"] in test_treebank_codes
+                or any(anchor_key in test_split_keys for anchor_key in anchor_split_keys)
+            ):
                 continue
 
             # Respect language holdout when language grouping is active.
             if self.group_by == "language" and anchor.get("language") in test_languages:
                 continue
 
-            seen.add(anchor_key)
-            selected.append(anchor_key)
+            for anchor_key in anchor_split_keys:
+                if anchor_key in seen:
+                    continue
+                seen.add(anchor_key)
+                selected.append(anchor_key)
+
+        return selected
+
+    def _select_paper_single_anchor_treebanks(
+        self,
+        single_genre_treebanks: List[Dict],
+        test_treebanks: List[Dict],
+    ) -> List[Dict]:
+        """Select whole-treebank single-genre anchors for paper parity."""
+        del test_treebanks  # Same-partition anchors are allowed by protocol design.
+
+        selected: List[Dict] = []
+        seen_treebanks = set()
+        for anchor in single_genre_treebanks:
+            tb_code = anchor.get("treebank")
+            if not tb_code or tb_code in seen_treebanks:
+                continue
+            if not self._resolve_descriptor_split_keys(anchor):
+                continue
+            seen_treebanks.add(tb_code)
+            selected.append(anchor)
 
         return selected
 
@@ -727,6 +866,53 @@ class ClusteringEvaluator:
 
         return dict(anchor_counts_by_genre)
 
+    def _add_treebank_single_genre_anchors(
+        self,
+        treebanks: List[Dict],
+        source_tag: str,
+        embeddings_by_tb: Dict,
+        genre_combination_clusters: Dict,
+    ) -> Dict[str, int]:
+        """Create anchor centroids from whole-treebank single-genre descriptors."""
+        if not treebanks:
+            return {}
+
+        anchor_counts_by_genre = defaultdict(int)
+        for treebank_info in treebanks:
+            split_keys = self._resolve_descriptor_split_keys(treebank_info)
+            if not split_keys:
+                continue
+
+            genres = list(treebank_info.get("genres", []))
+            if len(genres) != 1:
+                continue
+            genre = genres[0]
+            tb_code = treebank_info["treebank"]
+
+            try:
+                combined_embeddings, all_sent_ids, _sent_id_to_split = (
+                    self.clustering_ops.combine_treebank_splits(split_keys, embeddings_by_tb)
+                )
+            except ValueError:
+                continue
+
+            if len(combined_embeddings) == 0:
+                continue
+
+            centroid = np.mean(combined_embeddings, axis=0)
+            anchor_key = (tb_code, source_tag, genre)
+            genre_combination_clusters[(genre,)][anchor_key] = [
+                {
+                    "cluster_id": 0,
+                    "embedding": centroid,
+                    "sent_ids": all_sent_ids,
+                    "confidence": 1.0,
+                }
+            ]
+            anchor_counts_by_genre[genre] += 1
+
+        return dict(anchor_counts_by_genre)
+
     def _evaluate_fold(
         self,
         test_treebanks: List[Dict],
@@ -734,7 +920,7 @@ class ClusteringEvaluator:
         sentence_metadata: Dict,
         embeddings_by_tb: Dict,
         clusterer,
-        parity_single_anchor_keys: Optional[List[Tuple[str, str]]] = None,
+        parity_single_anchor_keys: Optional[List] = None,
     ) -> Dict:
         """Evaluate clustering on test treebanks for one fold.
 
@@ -745,11 +931,18 @@ class ClusteringEvaluator:
             embeddings_by_tb: Precomputed embeddings
             clusterer: Clustering algorithm
             parity_single_anchor_keys: Optional additional single-genre anchor
-                split keys used in parity mode
+                descriptors (paper parity) or split keys (generalization)
 
         Returns:
             Fold results with sentence-level predictions
         """
+        # Evaluation can see duplicate bare sent_id values across treebanks/splits.
+        # Qualify them once here so clustering, anchor construction, and final
+        # label storage all operate on collision-free sentence references.
+        sentence_metadata, embeddings_by_tb = self._qualify_evaluation_inputs(
+            sentence_metadata,
+            embeddings_by_tb,
+        )
 
         # Build bootstrap cluster pool from configured anchor sources.
         genre_combination_clusters = defaultdict(dict)
@@ -772,13 +965,21 @@ class ClusteringEvaluator:
 
         single_anchor_count = 0
         if uses_single_genre_anchors and parity_single_anchor_keys:
-            single_anchor_counts = self._add_virtual_split_anchors(
-                treebank_keys=parity_single_anchor_keys,
-                source_tag="__single_anchor__",
-                sentence_metadata=sentence_metadata,
-                embeddings_by_tb=embeddings_by_tb,
-                genre_combination_clusters=genre_combination_clusters,
-            )
+            if self.protocol == "paper_parity":
+                single_anchor_counts = self._add_treebank_single_genre_anchors(
+                    treebanks=parity_single_anchor_keys,
+                    source_tag="__single_anchor__",
+                    embeddings_by_tb=embeddings_by_tb,
+                    genre_combination_clusters=genre_combination_clusters,
+                )
+            else:
+                single_anchor_counts = self._add_virtual_split_anchors(
+                    treebank_keys=parity_single_anchor_keys,
+                    source_tag="__single_anchor__",
+                    sentence_metadata=sentence_metadata,
+                    embeddings_by_tb=embeddings_by_tb,
+                    genre_combination_clusters=genre_combination_clusters,
+                )
             for genre, count in single_anchor_counts.items():
                 anchor_counts_by_genre[genre] += count
             single_anchor_count = sum(single_anchor_counts.values())
@@ -812,8 +1013,11 @@ class ClusteringEvaluator:
         if missing_anchor_genres:
             logger.info("  Missing anchor genres in this fold: %s", missing_anchor_genres)
 
-        # Use shared operation: Group test treebanks by treebank code
-        test_treebank_keys = [(tb['treebank'], tb['split']) for tb in test_treebanks]
+        # Use shared operation: group all referenced test split keys by treebank code.
+        test_treebank_keys = []
+        for test_tb in test_treebanks:
+            test_treebank_keys.extend(self._resolve_descriptor_split_keys(test_tb))
+        test_treebank_keys = list(dict.fromkeys(test_treebank_keys))
         test_treebank_groups = self.clustering_ops.group_splits_by_treebank(
             test_treebank_keys, embeddings_by_tb
         )
@@ -929,23 +1133,28 @@ class ClusteringEvaluator:
         # Get sentence-level predictions for held-out treebanks only.
         for batch in test_sentence_batches:
             tb_code = batch["tb_code"]
-            sent_ids = batch["sent_ids"]
+            sent_refs = batch["sent_ids"]
             sent_id_to_split = batch["sent_id_to_split"]
 
-            for sent_id in sent_ids:
-                pred_label = final_labels.get(sent_id)
+            for sent_ref in sent_refs:
+                pred_label = final_labels.get(sent_ref)
                 pred_genre = pred_label[0] if pred_label is not None else None
 
-                split_name = sent_id_to_split[sent_id]
-                meta_key = (tb_code, split_name, sent_id)
+                split_name = sent_id_to_split[sent_ref]
+                ref_tb_code, ref_split_name, raw_sent_id = self._extract_sentence_ref_parts(
+                    sent_ref,
+                    tb_code=tb_code,
+                    split_name=split_name,
+                )
+                meta_key = (ref_tb_code, ref_split_name, sent_ref)
                 true_genre = sentence_metadata.get(meta_key, None)
 
                 if pred_genre and true_genre:
                     all_true.append(true_genre)
                     all_pred.append(pred_genre)
-                    all_sent_refs.append(f"{tb_code}:{split_name}:{sent_id}")
-                    all_treebank_keys.append(tb_code)
-                    all_treebank_splits.append((tb_code, split_name))
+                    all_sent_refs.append(f"{ref_tb_code}:{ref_split_name}:{raw_sent_id}")
+                    all_treebank_keys.append(ref_tb_code)
+                    all_treebank_splits.append((ref_tb_code, ref_split_name))
 
         if len(all_pred) == 0:
             logger.warning("No predictions for this fold")

@@ -214,6 +214,8 @@ class StubBootstrapper:
 class StubClusteringEvaluator:
     """Small evaluator stub for evaluate command integration."""
 
+    last_fixed_partition_call: Optional[Dict] = None
+
     def __init__(
         self,
         n_folds: int,
@@ -271,6 +273,18 @@ class StubClusteringEvaluator:
         clusterer,
         single_genre_treebanks: Optional[List[Dict]] = None,
     ) -> Dict:
+        StubClusteringEvaluator.last_fixed_partition_call = {
+            "test_treebanks": test_treebanks,
+            "train_treebanks": train_treebanks,
+            "single_genre_treebanks": single_genre_treebanks or [],
+        }
+        if self.protocol == "paper_parity":
+            assert train_treebanks == []
+            assert all("split_keys" in tb for tb in test_treebanks)
+            assert all("split" not in tb for tb in test_treebanks)
+            assert all(len(tb.get("genres", [])) >= 2 for tb in test_treebanks)
+            assert all("split_keys" in tb for tb in (single_genre_treebanks or []))
+            assert all(len(tb.get("genres", [])) == 1 for tb in (single_genre_treebanks or []))
         return {
             "mean_accuracy": 0.5,
             "std_accuracy": 0.0,
@@ -378,8 +392,11 @@ def test_evaluate_command_supports_paper_parity_mode(monkeypatch, cfg: Config, t
     monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
     monkeypatch.setattr(
         cli_module,
-        "resolve_paper_evaluation_treebank_ids",
-        lambda _data_loader: {"xx_demo", "yy_demo"},
+        "resolve_paper_evaluation_treebank_genres",
+        lambda _data_loader: {
+            "xx_demo": ["email", "news", "wiki"],
+            "yy_demo": ["news", "wiki"],
+        },
     )
 
     monkeypatch.setattr(
@@ -390,6 +407,11 @@ def test_evaluate_command_supports_paper_parity_mode(monkeypatch, cfg: Config, t
             {"id": "yy_demo", "genres": ["news", "wiki"], "language": "yy"},
             {"id": "mono_demo", "genres": ["news"], "language": "zz"},
         ],
+    )
+    monkeypatch.setattr(
+        StubDataLoader,
+        "get_treebank_genres",
+        lambda self, treebank_code: ["news"] if treebank_code == "mono_demo" else ["news", "wiki"],
     )
 
     original_iter = StubDataLoader.iter_treebank_sentences
@@ -457,6 +479,16 @@ def test_evaluate_command_supports_paper_parity_mode(monkeypatch, cfg: Config, t
     assert "Evaluation Protocol: paper_parity" in result.stdout
     assert "Protocol Deviations: none" in result.stdout
 
+    call = StubClusteringEvaluator.last_fixed_partition_call
+    assert call is not None
+    assert call["train_treebanks"] == []
+    assert {tb["treebank"] for tb in call["test_treebanks"]} == {"xx_demo", "yy_demo"}
+    assert any(
+        tb["treebank"] == "xx_demo" and tb["genres"] == ["email", "news", "wiki"]
+        for tb in call["test_treebanks"]
+    )
+    assert {tb["treebank"] for tb in call["single_genre_treebanks"]} == {"mono_demo"}
+
 
 def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg: Config, tmp_path: Path):
     """Paper-parity mode should exclude non-paper evaluation targets while keeping flow valid."""
@@ -468,8 +500,8 @@ def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg
     monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
     monkeypatch.setattr(
         cli_module,
-        "resolve_paper_evaluation_treebank_ids",
-        lambda _data_loader: {"xx_demo"},
+        "resolve_paper_evaluation_treebank_genres",
+        lambda _data_loader: {"xx_demo": ["news", "wiki"]},
     )
     monkeypatch.setattr(
         StubDataLoader,
@@ -479,6 +511,11 @@ def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg
             {"id": "yy_demo", "genres": ["news", "wiki"], "language": "yy"},
             {"id": "mono_demo", "genres": ["news"], "language": "zz"},
         ],
+    )
+    monkeypatch.setattr(
+        StubDataLoader,
+        "get_treebank_genres",
+        lambda self, treebank_code: ["news"] if treebank_code == "mono_demo" else ["news", "wiki"],
     )
 
     original_iter = StubDataLoader.iter_treebank_sentences
@@ -544,6 +581,11 @@ def test_evaluate_command_restricts_paper_parity_to_paper_scope(monkeypatch, cfg
     assert "Paper sentence-evaluation scope:" in result.stdout
     assert "excluding 1 non-paper treebank(s): yy_demo" in result.stdout
     assert "Instance-labeled Treebanks (treebank-level): 1" in result.stdout
+
+    call = StubClusteringEvaluator.last_fixed_partition_call
+    assert call is not None
+    assert {tb["treebank"] for tb in call["test_treebanks"]} == {"xx_demo"}
+    assert {tb["treebank"] for tb in call["single_genre_treebanks"]} == {"mono_demo"}
 
 
 def test_evaluate_command_supports_fixed_partition_mode(
