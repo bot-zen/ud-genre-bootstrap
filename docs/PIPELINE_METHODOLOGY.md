@@ -513,6 +513,8 @@ The pipeline computes several quality indicators:
 
 ## 3. Evaluation Framework
 
+For the current locked evaluation baseline, the parity interpretation, and the planned full-data / Hugging Face release process, see `docs/EVALUATION_BASELINE_AND_RELEASE_PLAN.md`.
+
 ### 3.1 Clustering Evaluation
 
 The evaluation framework tests the actual clustering and labeling performance on multi-genre treebanks with known sentence-level genre metadata.
