@@ -15,6 +15,7 @@ from rich.table import Table
 from ud_genre_bootstrap.bootstrapping import GenreBootstrapper
 from ud_genre_bootstrap.evaluation import CrossValidator
 from ud_genre_bootstrap.utils.config import Config
+from ud_genre_bootstrap.utils.sentence_refs import qualify_sentence_ref
 
 # Create Typer app
 app = typer.Typer(
@@ -567,6 +568,23 @@ def safe_label_for_filename(label: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", label).strip("_")
 
 
+def build_exported_genre_lookup(df) -> Tuple[Dict, bool]:
+    """Build a sentence-level genre lookup from ``all_genres.parquet``."""
+    key_columns = {"treebank", "split", "sent_id"}
+    if key_columns.issubset(df.columns):
+        lookup = {
+            qualify_sentence_ref(row.treebank, row.split, row.sent_id): row.genre
+            for row in df[["treebank", "split", "sent_id", "genre"]].itertuples(index=False)
+        }
+        return lookup, True
+
+    lookup = {
+        str(row.sent_id): row.genre
+        for row in df[["sent_id", "genre"]].itertuples(index=False)
+    }
+    return lookup, False
+
+
 def load_config_from_path(config_path: Optional[Path]) -> Config:
     """Load configuration from file or use defaults.
 
@@ -580,7 +598,9 @@ def load_config_from_path(config_path: Optional[Path]) -> Config:
 
     if config_path:
         console.print(f"[blue]Loading config from:[/blue] {config_path}")
-        return load_config(config_path)
+        cfg = load_config(config_path)
+        setattr(cfg, "_config_path", str(config_path))
+        return cfg
     else:
         console.print("[blue]Using default configuration[/blue]")
         return Config()
@@ -673,6 +693,10 @@ def run(
                     embeddings_by_tb[(tb_code, split)] = bootstrapper.embedding_generator.embedding_cache[cache_key]
 
         _save_cluster_results(bootstrapper, embeddings_by_tb, cfg.output.genres_path)
+
+        if cfg.output.push_to_hub:
+            console.print("\n[yellow]Uploading release artifacts to Hugging Face Hub...[/yellow]")
+            bootstrapper.push_to_hub(cfg.output.genres_hf_repo, cfg.output.genres_revision)
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -985,6 +1009,10 @@ def label(
         console.print(f"\n[bold green]✓ Labeling complete![/bold green]")
         console.print(f"[green]✓ Labeled {results['labeled_sentences']} sentences[/green]")
         console.print(f"[blue]Genre assignments saved to:[/blue] {cfg.output.genres_path}/all_genres.parquet")
+
+        if cfg.output.push_to_hub:
+            console.print("\n[yellow]Uploading release artifacts to Hugging Face Hub...[/yellow]")
+            bootstrapper.push_to_hub(cfg.output.genres_hf_repo, cfg.output.genres_revision)
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -2873,12 +2901,19 @@ def evaluate_xgenre(
             )
             raise typer.Exit(1)
 
+        export_has_sentence_key = {"treebank", "split", "sent_id"}.issubset(df_bootstrap_only.columns)
+
         # Apply treebank filter if specified
         if treebank_filter:
-            # Extract treebank codes from sent_id (format: tb_code:split:sent_id or similar)
-            # We need to match against treebank codes in the sent_id
-            df_bootstrap_only['treebank'] = df_bootstrap_only['sent_id'].str.extract(r'^([a-z]{2,3}_[a-z]+)', expand=False)
-            df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['treebank'].isin(treebank_filter)]
+            if export_has_sentence_key:
+                df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['treebank'].isin(treebank_filter)]
+            else:
+                # Legacy schema fallback: infer treebank from sent_id string.
+                df_bootstrap_only['treebank'] = df_bootstrap_only['sent_id'].str.extract(
+                    r'^([a-z]{2,3}_[a-z]+)',
+                    expand=False,
+                )
+                df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['treebank'].isin(treebank_filter)]
 
             if len(df_bootstrap_only) == 0:
                 console.print(f"[bold red]✗ Error:[/bold red] No bootstrap-derived sentences found for specified treebanks")
@@ -2903,20 +2938,33 @@ def evaluate_xgenre(
             metadata_path=Path(cfg.metadata_path) if cfg.metadata_path else None,
         )
 
-        # Build sent_id -> text mapping
+        # Build sentence-ref -> text mapping
         sent_id_to_text = {}
-        sent_id_to_treebank = {}
 
         for tb_code, split, dataset in data_loader.iter_all_treebanks(treebank_filter=treebank_filter):
             for sentence in dataset:
                 sent_id = sentence.get('sent_id')
                 text = sentence.get('text', '')
                 if sent_id and text:
-                    sent_id_to_text[sent_id] = text
-                    sent_id_to_treebank[sent_id] = (tb_code, split)
+                    if export_has_sentence_key:
+                        sent_ref = qualify_sentence_ref(tb_code, split, sent_id)
+                        sent_id_to_text[sent_ref] = text
+                    else:
+                        sent_id_to_text[sent_id] = text
 
         # Filter df to only sentences we have text for
-        df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['sent_id'].isin(sent_id_to_text)]
+        if export_has_sentence_key:
+            df_bootstrap_only['_sent_ref'] = [
+                qualify_sentence_ref(tb, split, sent_id)
+                for tb, split, sent_id in zip(
+                    df_bootstrap_only['treebank'],
+                    df_bootstrap_only['split'],
+                    df_bootstrap_only['sent_id'],
+                )
+            ]
+            df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['_sent_ref'].isin(sent_id_to_text)]
+        else:
+            df_bootstrap_only = df_bootstrap_only[df_bootstrap_only['sent_id'].isin(sent_id_to_text)]
         console.print(f"[green]✓ Loaded texts for {len(df_bootstrap_only)} sentences[/green]")
 
         if len(df_bootstrap_only) == 0:
@@ -2953,7 +3001,10 @@ def evaluate_xgenre(
         xgenre_predictions = []
         batch_size = cfg.xgenre_evaluation.batch_size
 
-        texts = [sent_id_to_text[sid] for sid in df_bootstrap_only['sent_id']]
+        if export_has_sentence_key:
+            texts = [sent_id_to_text[sent_ref] for sent_ref in df_bootstrap_only['_sent_ref']]
+        else:
+            texts = [sent_id_to_text[sid] for sid in df_bootstrap_only['sent_id']]
 
         with Progress(
             SpinnerColumn(),
@@ -3059,6 +3110,8 @@ def evaluate_xgenre(
 
         # Save detailed predictions
         predictions_file = output_dir / "xgenre_predictions.parquet"
+        if '_sent_ref' in df_eval.columns:
+            df_eval = df_eval.drop(columns=['_sent_ref'])
         df_eval.to_parquet(predictions_file, index=False)
         console.print(f"[green]✓ Saved predictions:[/green] {predictions_file}")
 
@@ -3462,13 +3515,13 @@ def visualize_clusters(
                 genre_labels_file = path
                 break
 
-        sent_id_to_genre = {}
+        genre_lookup = {}
+        genres_use_sentence_key = False
         if genre_labels_file:
             console.print(f"[blue]Loading sentence-level genre assignments from:[/blue] {genre_labels_file}")
             df_genres = pd.read_parquet(genre_labels_file)
-            # Create mapping from sent_id to genre
-            sent_id_to_genre = dict(zip(df_genres['sent_id'], df_genres['genre']))
-            console.print(f"[green]✓ Loaded {len(sent_id_to_genre)} sentence-level genre assignments[/green]")
+            genre_lookup, genres_use_sentence_key = build_exported_genre_lookup(df_genres)
+            console.print(f"[green]✓ Loaded {len(genre_lookup)} sentence-level genre assignments[/green]")
         else:
             console.print(f"[yellow]⚠ Warning: all_genres.parquet not found[/yellow]")
             console.print("[yellow]Will use treebank-level metadata genres (may show multiple genres per sentence)[/yellow]")
@@ -3575,9 +3628,15 @@ def visualize_clusters(
                     sent_id = row['sent_id']
 
                     # Get genre for this specific sentence
-                    if sent_id_to_genre:
+                    if genre_lookup:
                         # Use sentence-level genre assignment from bootstrap labeling
-                        genre_str = sent_id_to_genre.get(sent_id, "unlabeled")
+                        if genres_use_sentence_key:
+                            genre_str = genre_lookup.get(
+                                qualify_sentence_ref(tb, split, sent_id),
+                                "unlabeled",
+                            )
+                        else:
+                            genre_str = genre_lookup.get(sent_id, "unlabeled")
                     else:
                         # Fallback: use treebank-level metadata (may be multiple genres)
                         genres = treebank_genres.get((tb, split), [])
@@ -3597,7 +3656,7 @@ def visualize_clusters(
         console.print(f"[blue]Loaded {len(embeddings_array)} embeddings[/blue]")
 
         # Report on genre information type
-        if sent_id_to_genre:
+        if genre_lookup:
             n_genres = len(set(genre_list))
             console.print(f"[green]✓ Using sentence-level genre assignments ({n_genres} unique genres)[/green]")
         else:
@@ -3892,7 +3951,7 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
 
     console.print(f"\n[yellow]Saving cluster results to {output_dir}...[/yellow]")
 
-    sent_split_lookup: Dict[Tuple[str, str], str] = {}
+    sent_split_lookup: Dict[Tuple[str, object], str] = {}
     for (tb_code, split_name), emb_data in embeddings_by_tb.items():
         for sent_id in emb_data.get("sent_id", []):
             sent_split_lookup[(tb_code, sent_id)] = split_name
@@ -3911,10 +3970,19 @@ def _save_cluster_results(bootstrapper, embeddings_by_tb: dict, output_path: str
         for cluster_id, cluster_info in cluster_result['clusters'].items():
             for sent_id in cluster_info['sent_ids']:
                 resolved_split = sent_split_lookup.get((tb_code, sent_id), split)
+                if isinstance(sent_id, tuple) and len(sent_id) == 3:
+                    ref_tb_code, ref_split, raw_sent_id = sent_id
+                    export_treebank = str(ref_tb_code)
+                    export_split = str(ref_split)
+                    export_sent_id = str(raw_sent_id)
+                else:
+                    export_treebank = tb_code
+                    export_split = resolved_split
+                    export_sent_id = sent_id
                 cluster_assignments.append({
-                    'treebank': tb_code,
-                    'split': _format_split_label(resolved_split),
-                    'sent_id': sent_id,
+                    'treebank': export_treebank,
+                    'split': _format_split_label(export_split),
+                    'sent_id': export_sent_id,
                     'cluster_id': cluster_id,
                     'confidence': cluster_info.get('confidence', None),
                 })

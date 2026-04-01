@@ -134,6 +134,10 @@ output:
   embeddings_revision: "2.17"
   genres_hf_repo: "commul/ud-genres"
   genres_revision: "2.17"
+  config_name: null  # Optional frozen config label copied into release artifacts / all_genres.parquet
+  run_id: null  # Optional stable release run identifier copied into release artifacts / all_genres.parquet
+  ud_source_revision: null  # Optional explicit UD snapshot/revision label for exported provenance
+  baseline_summary_path: null  # Optional path to a locked evaluation baseline JSON copied to evaluation/baseline_summary.json
   push_to_hub: false  # Set to true when ready to publish
   hf_token: "${HF_TOKEN}"  # From environment variable
 

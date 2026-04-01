@@ -15,6 +15,16 @@ from ud_genre_bootstrap.embeddings.generator import EmbeddingGenerator
 from ud_genre_bootstrap.utils.config import Config
 from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+from ud_genre_bootstrap.utils.release_artifacts import (
+    build_release_row_metadata,
+    resolve_config_name,
+    write_release_artifacts,
+)
+from ud_genre_bootstrap.utils.sentence_refs import (
+    extract_sentence_ref_parts,
+    qualify_embeddings_for_split,
+    qualify_sentence_ref,
+)
 
 logger = logging.getLogger(__name__)
 COMBINED_SPLIT_KEY = "__combined__"
@@ -103,7 +113,7 @@ class GenreBootstrapper:
         # Storage for results
         self.treebank_clusters: Dict = {}  # {treebank_code: cluster_info}
         self.genre_combination_clusters: Dict = defaultdict(dict)
-        self.final_labels: Dict = {}  # {sent_id: (genre, confidence, method)}
+        self.final_labels: Dict = {}  # {(treebank, split, sent_id): (genre, confidence, method)}
         self._last_embeddings_by_tb: Dict = {}
 
     def fit(self, treebank_filter: Optional[List[str]] = None) -> Dict:
@@ -192,9 +202,11 @@ class GenreBootstrapper:
         with open(cluster_state_path, 'rb') as f:
             cluster_state = pickle.load(f)
 
-        # Restore treebank clusters
-        self.treebank_clusters = cluster_state['treebank_clusters']
-        embeddings_by_tb = cluster_state['embeddings_by_tb']
+        embeddings_by_tb = self._normalize_embeddings_by_tb(cluster_state['embeddings_by_tb'])
+        self.treebank_clusters = self._normalize_treebank_clusters(
+            cluster_state['treebank_clusters'],
+            embeddings_by_tb,
+        )
         self._last_embeddings_by_tb = embeddings_by_tb
 
         logger.info(
@@ -207,6 +219,53 @@ class GenreBootstrapper:
     def last_embeddings_by_tb(self) -> Dict:
         """Expose most recently generated or loaded embeddings."""
         return self._last_embeddings_by_tb
+
+    def _normalize_embeddings_by_tb(self, embeddings_by_tb: Dict) -> Dict:
+        """Ensure all embedding batches use split-qualified sentence refs."""
+        normalized = {}
+        for (tb_code, split_name), emb_data in embeddings_by_tb.items():
+            normalized[(tb_code, split_name)] = qualify_embeddings_for_split(
+                tb_code,
+                split_name,
+                emb_data,
+            )
+        return normalized
+
+    def _normalize_treebank_clusters(self, treebank_clusters: Dict, embeddings_by_tb: Dict) -> Dict:
+        """Rewrite cluster sent_ids to match normalized embedding sentence refs."""
+        sent_ref_lookup = {}
+        for (tb_code, _split_name), emb_data in embeddings_by_tb.items():
+            for sent_ref in emb_data.get('sent_id', []):
+                ref_tb_code, _ref_split, raw_sent_id = extract_sentence_ref_parts(sent_ref)
+                sent_ref_lookup[(ref_tb_code, raw_sent_id)] = sent_ref
+
+        normalized_clusters = {}
+        for tb_key, tb_info in treebank_clusters.items():
+            normalized_info = dict(tb_info)
+            cluster_result = dict(tb_info.get('cluster_result', {}))
+            normalized_cluster_map = {}
+            for cluster_id, cluster_info in cluster_result.get('clusters', {}).items():
+                normalized_cluster_info = dict(cluster_info)
+                normalized_sent_ids = []
+                for sent_id in cluster_info.get('sent_ids', []):
+                    if isinstance(sent_id, tuple) and len(sent_id) == 3:
+                        normalized_sent_ids.append(sent_id)
+                        continue
+
+                    lookup_key = (tb_key[0], str(sent_id))
+                    normalized_sent_ids.append(
+                        sent_ref_lookup.get(
+                            lookup_key,
+                            qualify_sentence_ref(tb_key[0], str(tb_key[1]), sent_id),
+                        )
+                    )
+                normalized_cluster_info['sent_ids'] = normalized_sent_ids
+                normalized_cluster_map[cluster_id] = normalized_cluster_info
+            cluster_result['clusters'] = normalized_cluster_map
+            normalized_info['cluster_result'] = cluster_result
+            normalized_clusters[tb_key] = normalized_info
+
+        return normalized_clusters
 
     def _generate_embeddings(self, treebank_filter: Optional[List[str]] = None, overwrite: bool = False) -> Dict:
         """Generate embeddings for all treebanks.
@@ -237,7 +296,11 @@ class GenreBootstrapper:
                 )
                 if cached is not None:
                     logger.info(f"[{idx}/{total_count}] Loaded cached embeddings for {tb_code}:{split} ({len(cached['sent_id'])} sentences)")
-                    embeddings_by_tb[(tb_code, split)] = cached
+                    embeddings_by_tb[(tb_code, split)] = qualify_embeddings_for_split(
+                        tb_code,
+                        split,
+                        cached,
+                    )
                     continue
 
             # Generate embeddings
@@ -248,7 +311,11 @@ class GenreBootstrapper:
                 dataset=dataset,
                 output_path=Path(cache_dir) if cache_dir else None,
             )
-            embeddings_by_tb[(tb_code, split)] = result
+            embeddings_by_tb[(tb_code, split)] = qualify_embeddings_for_split(
+                tb_code,
+                split,
+                result,
+            )
 
         self._last_embeddings_by_tb = embeddings_by_tb
         return embeddings_by_tb
@@ -262,6 +329,8 @@ class GenreBootstrapper:
         Args:
             embeddings_by_tb: Pre-computed embeddings keyed by (treebank_code, split)
         """
+        embeddings_by_tb = self._normalize_embeddings_by_tb(embeddings_by_tb)
+
         # Group by clustering level
         if self.config.clustering.level == "treebank":
             # Use shared operation: Group embeddings by treebank (combining all splits)
@@ -310,9 +379,10 @@ class GenreBootstrapper:
                             continue
 
                         if sent_id and extracted:
+                            sent_ref = qualify_sentence_ref(tb_code, split, sent_id)
                             if len(extracted) == 1:
                                 genre = extracted[0]
-                                sentence_metadata[(tb_code, split, sent_id)] = genre
+                                sentence_metadata[(tb_code, split, sent_ref)] = genre
                                 genres_from_sentences.add(genre)
                             else:
                                 # Ambiguous sentence-level metadata: avoid arbitrary label choice.
@@ -530,6 +600,7 @@ class GenreBootstrapper:
         Args:
             embeddings_by_tb: Pre-computed embeddings
         """
+        embeddings_by_tb = self._normalize_embeddings_by_tb(embeddings_by_tb)
         total_treebanks = len(self.treebank_clusters)
         logger.info(f"Computing cluster embeddings for {total_treebanks} cluster entries")
 
@@ -947,6 +1018,34 @@ class GenreBootstrapper:
 
         logger.info("=" * 80 + "\n")
 
+    def _summarize_exported_labels_file(self, output_file: Path) -> Dict:
+        """Summarize an exported ``all_genres.parquet`` file."""
+        import pandas as pd
+
+        if not output_file.exists():
+            return {
+                'total_sentences': 0,
+                'labeled_sentences': 0,
+                'method_counts': {},
+                'genre_counts': {},
+            }
+
+        df = pd.read_parquet(output_file)
+        method_counts = {
+            str(method): int(count)
+            for method, count in df.get('method', pd.Series(dtype=object)).value_counts().items()
+        }
+        genre_counts = {
+            str(genre): int(count)
+            for genre, count in df.get('genre', pd.Series(dtype=object)).dropna().value_counts().items()
+        }
+        return {
+            'total_sentences': int(len(df)),
+            'labeled_sentences': int(df.get('genre', pd.Series(dtype=object)).notna().sum()),
+            'method_counts': method_counts,
+            'genre_counts': genre_counts,
+        }
+
     def _export_results(self) -> Dict:
         """Export final genre labels to parquet files.
 
@@ -960,46 +1059,54 @@ class GenreBootstrapper:
 
         logger.info(f"Exporting results to: {output_path}")
 
-        # Group labels by treebank and split
-        labels_by_tb = defaultdict(lambda: defaultdict(list))
-
-        for sent_id, (genre, confidence, method) in self.final_labels.items():
-            # Parse sent_id to extract treebank info
-            # Format might be: "treebank-split-sentid" or similar
-            # For now, we'll need to track this during clustering
-            # Let's create a mapping
-            pass
-
-        # Export to parquet for each treebank/split
         stats = {
             'total_sentences': len(self.final_labels),
-            'labeled_sentences': sum(1 for _, (g, c, m) in self.final_labels.items() if g is not None),
+            'labeled_sentences': sum(1 for _, (genre, _confidence, _method) in self.final_labels.items() if genre is not None),
             'method_counts': {},
             'genre_counts': {},
         }
 
-        # Count methods and genres
-        for genre, confidence, method in self.final_labels.values():
+        for genre, _confidence, method in self.final_labels.values():
             stats['method_counts'][method] = stats['method_counts'].get(method, 0) + 1
             if genre:
                 stats['genre_counts'][genre] = stats['genre_counts'].get(genre, 0) + 1
 
-        # TODO: Group by treebank and export individual parquet files
-        # For now, export a single file with all labels
+        row_metadata = build_release_row_metadata(self.config)
         df_data = []
-        for sent_id, (genre, confidence, method) in self.final_labels.items():
-            df_data.append({
-                'sent_id': sent_id,
+        for sent_ref, (genre, confidence, method) in self.final_labels.items():
+            tb_code, split_name, raw_sent_id = extract_sentence_ref_parts(sent_ref)
+            row = {
+                'treebank': tb_code,
+                'split': split_name,
+                'sent_id': raw_sent_id,
                 'genre': genre,
                 'confidence': float(confidence) if confidence is not None else None,
                 'method': method,
-            })
+            }
+            row.update(row_metadata)
+            df_data.append(row)
 
+        output_file = output_path / 'all_genres.parquet'
         if df_data:
-            df = pd.DataFrame(df_data)
-            output_file = output_path / "all_genres.parquet"
+            df = pd.DataFrame(df_data).sort_values(
+                by=['treebank', 'split', 'sent_id'],
+                kind='stable',
+            )
             df.to_parquet(output_file, index=False)
             logger.info(f"Exported {len(df)} labels to {output_file}")
+        elif output_file.exists():
+            output_file.unlink()
+
+        stats['release_artifacts'] = write_release_artifacts(
+            self.config,
+            output_path,
+            stats,
+            all_genres_path=output_file if output_file.exists() else None,
+        )
+        logger.info(
+            "Wrote release artifacts for config %s",
+            resolve_config_name(self.config),
+        )
 
         return stats
 
@@ -1014,13 +1121,11 @@ class GenreBootstrapper:
 
         api = HfApi()
 
-        # Get token from config
         token = self.config.output.hf_token
         if not token:
             logger.warning("No HF token provided, skipping push to hub")
             return
 
-        # Create repo if it doesn't exist
         try:
             create_repo(
                 repo_id,
@@ -1034,15 +1139,27 @@ class GenreBootstrapper:
             logger.error(f"Failed to create repo: {e}")
             raise
 
-        # Upload parquet files
         output_path = Path(self.config.output.genres_path)
+        output_path.mkdir(parents=True, exist_ok=True)
 
-        for parquet_file in output_path.glob("**/*.parquet"):
-            # Upload to HF Hub
-            relative_path = parquet_file.relative_to(output_path)
+        stats = self._summarize_exported_labels_file(output_path / 'all_genres.parquet')
+        write_release_artifacts(
+            self.config,
+            output_path,
+            stats,
+            all_genres_path=output_path / 'all_genres.parquet',
+        )
+
+        upload_files = [
+            path for path in output_path.rglob('*')
+            if path.is_file() and path.suffix != '.pkl' and not path.name.startswith('.')
+        ]
+
+        for artifact_path in sorted(upload_files):
+            relative_path = artifact_path.relative_to(output_path)
             try:
                 api.upload_file(
-                    path_or_fileobj=str(parquet_file),
+                    path_or_fileobj=str(artifact_path),
                     path_in_repo=str(relative_path),
                     repo_id=repo_id,
                     repo_type="dataset",

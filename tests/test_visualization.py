@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+from ud_genre_bootstrap.utils.sentence_refs import qualify_sentence_ref
+
 
 class TestVisualizationDataLoading:
     """Test visualization data loading and genre assignment."""
@@ -14,6 +16,8 @@ class TestVisualizationDataLoading:
         # Create mock all_genres.parquet
         genres_file = tmp_path / "all_genres.parquet"
         df_genres = pd.DataFrame({
+            "treebank": ["en_ewt", "en_ewt", "de_gsd"],
+            "split": ["train", "train", "test"],
             "sent_id": ["en_ewt-train-001", "en_ewt-train-002", "de_gsd-test-001"],
             "genre": ["news", "news", "wiki"],
             "confidence": [0.85, 0.78, 0.92],
@@ -23,12 +27,15 @@ class TestVisualizationDataLoading:
 
         # Load and verify
         df_loaded = pd.read_parquet(genres_file)
-        sent_id_to_genre = dict(zip(df_loaded["sent_id"], df_loaded["genre"]))
+        sent_id_to_genre = {
+            qualify_sentence_ref(row.treebank, row.split, row.sent_id): row.genre
+            for row in df_loaded[["treebank", "split", "sent_id", "genre"]].itertuples(index=False)
+        }
 
         assert len(sent_id_to_genre) == 3
-        assert sent_id_to_genre["en_ewt-train-001"] == "news"
-        assert sent_id_to_genre["en_ewt-train-002"] == "news"
-        assert sent_id_to_genre["de_gsd-test-001"] == "wiki"
+        assert sent_id_to_genre[("en_ewt", "train", "en_ewt-train-001")] == "news"
+        assert sent_id_to_genre[("en_ewt", "train", "en_ewt-train-002")] == "news"
+        assert sent_id_to_genre[("de_gsd", "test", "de_gsd-test-001")] == "wiki"
 
     def test_genre_assignment_fallback(self, tmp_path):
         """Test fallback to treebank-level metadata when all_genres.parquet doesn't exist."""
@@ -73,22 +80,22 @@ class TestVisualizationDataLoading:
         """Test creating genre list for visualization using sentence-level assignments."""
         # Mock data
         sent_id_to_genre = {
-            "en_ewt-train-001": "news",
-            "en_ewt-train-002": "blog",
-            "de_gsd-test-001": "wiki",
+            ("en_ewt", "train", "en_ewt-train-001"): "news",
+            ("en_ewt", "train", "en_ewt-train-002"): "blog",
+            ("de_gsd", "test", "de_gsd-test-001"): "wiki",
         }
 
         cluster_rows = [
-            {"sent_id": "en_ewt-train-001"},
-            {"sent_id": "en_ewt-train-002"},
-            {"sent_id": "de_gsd-test-001"},
+            {"treebank": "en_ewt", "split": "train", "sent_id": "en_ewt-train-001"},
+            {"treebank": "en_ewt", "split": "train", "sent_id": "en_ewt-train-002"},
+            {"treebank": "de_gsd", "split": "test", "sent_id": "de_gsd-test-001"},
         ]
 
         # Simulate genre assignment
         genre_list = []
         for row in cluster_rows:
-            sent_id = row["sent_id"]
-            genre_str = sent_id_to_genre.get(sent_id, "unlabeled")
+            sent_ref = qualify_sentence_ref(row["treebank"], row["split"], row["sent_id"])
+            genre_str = sent_id_to_genre.get(sent_ref, "unlabeled")
             genre_list.append(genre_str)
 
         assert genre_list == ["news", "blog", "wiki"]

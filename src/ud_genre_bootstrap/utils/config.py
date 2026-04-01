@@ -123,6 +123,10 @@ class OutputConfig:
     embeddings_revision: str = "2.17"
     genres_hf_repo: str = "commul/ud-genres"
     genres_revision: str = "2.17"
+    config_name: Optional[str] = None
+    run_id: Optional[str] = None
+    ud_source_revision: Optional[str] = None
+    baseline_summary_path: Optional[str] = None
     push_to_hub: bool = False
     hf_token: Optional[str] = None
 

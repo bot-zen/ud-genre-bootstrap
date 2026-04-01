@@ -147,32 +147,35 @@ That config should pin:
 
 Do not start the community release run from an ad hoc sweep config.
 
-### 4.3 Release Blockers To Close First
+### 4.3 Release Implementation Status
 
-The current exporter and uploader are not yet sufficient for a community-grade release.
+The release-grade export path is now implemented.
 
-Current limitations:
+Implemented release behavior:
 
-- `all_genres.parquet` currently exports only:
+- `all_genres.parquet` now exports the primary join key:
+  - `treebank`
+  - `split`
   - `sent_id`
-  - `genre`
-  - `confidence`
-  - `method`
-- `push_to_hub()` currently uploads parquet files, but does not generate:
-  - a dataset card
-  - a run manifest
-  - a frozen config snapshot
-  - release-level provenance metadata
+- `all_genres.parquet` now also carries row-level provenance:
+  - `ud_version`
+  - `ud_source_revision`
+  - `model`
+  - `pooling`
+  - `clustering_method`
+  - `config_name`
+  - `run_id`
+- local exports now write release support artifacts automatically:
+  - `README.md`
+  - `run_metadata.json`
+  - `config.snapshot.yaml`
+  - `evaluation/baseline_summary.json` when configured
+  - copied mapping files under `mappings/`
+- `push_to_hub()` now uploads the full non-pickle release artifact set instead of parquet files only
+- `run` / `label` now trigger `push_to_hub()` when `output.push_to_hub=true`
 
-Community release should not rely on `sent_id` alone.
-
-The primary join key should be:
-
-- `treebank`
-- `split`
-- `sent_id`
-
-This should be treated as a release requirement even if `sent_id` is often globally unique in practice.
+Community release no longer relies on `sent_id` alone.
+The primary join key is now `(treebank, split, sent_id)` throughout the release export path.
 
 ### 4.4 Recommended Full-Run Sequence
 
@@ -279,9 +282,9 @@ Promotion should require:
 
 ## 6. Immediate Next Work
 
-Before starting new improvement sweeps, the next concrete tasks should be:
+Before starting new improvement sweeps, the next concrete tasks are now operational:
 
-1. extend export schema to include `treebank` and `split`
-2. write a release manifest / dataset-card generator for `push_to_hub()`
-3. freeze `configs/2.17-community-release.yaml`
-4. run the full v2.17 release pipeline once under that frozen config
+1. run the preflight checks with `configs/2.17-community-release.yaml`
+2. run the full v2.17 pipeline once in resumable stages under that frozen config
+3. validate row counts, method counts, and release artifacts in `output/2.17-community-release/genres`
+4. only after validation, promote and upload the release revision on Hugging Face

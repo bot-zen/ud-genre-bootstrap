@@ -873,12 +873,16 @@ def test_evaluate_xgenre_command_cover_hf_and_local_sources(
     pd.DataFrame(
         [
             {
+                "treebank": "xx_demo",
+                "split": "train",
                 "sent_id": "xx_demo-1",
                 "genre": "news",
                 "confidence": 0.95,
                 "method": "bootstrap-labeled",
             },
             {
+                "treebank": "xx_demo",
+                "split": "train",
                 "sent_id": "xx_demo-2",
                 "genre": "wiki",
                 "confidence": 0.55,
@@ -927,8 +931,8 @@ def test_visualize_clusters_command_flow(monkeypatch, tmp_path: Path):
 
     pd.DataFrame(
         [
-            {"sent_id": "xx_demo-1", "genre": "news"},
-            {"sent_id": "xx_demo-2", "genre": "wiki"},
+            {"treebank": "xx_demo", "split": "train", "sent_id": "xx_demo-1", "genre": "news"},
+            {"treebank": "xx_demo", "split": "train", "sent_id": "xx_demo-2", "genre": "wiki"},
         ]
     ).to_parquet(clusters_dir / "all_genres.parquet", index=False)
 

@@ -23,10 +23,10 @@ class TestGenreExport:
 
         # Mock final_labels
         bootstrapper.final_labels = {
-            "en_ewt-ud-train-00001": ("news", 0.85, "bootstrap-labeled"),
-            "en_ewt-ud-train-00002": ("news", 0.78, "bootstrap-labeled"),
-            "de_gsd-ud-test-00042": ("wiki", 0.43, "bootstrap-inferred"),
-            "fr_gsd-ud-dev-00015": ("fiction", 0.91, "bootstrap-labeled"),
+            ("en_ewt", "train", "en_ewt-ud-train-00001"): ("news", 0.85, "bootstrap-labeled"),
+            ("en_ewt", "train", "en_ewt-ud-train-00002"): ("news", 0.78, "bootstrap-labeled"),
+            ("de_gsd", "test", "de_gsd-ud-test-00042"): ("wiki", 0.43, "bootstrap-inferred"),
+            ("fr_gsd", "dev", "fr_gsd-ud-dev-00015"): ("fiction", 0.91, "bootstrap-labeled"),
         }
 
         # Export results
@@ -40,7 +40,21 @@ class TestGenreExport:
         df = pd.read_parquet(output_file)
 
         # Check columns
-        assert set(df.columns) == {"sent_id", "genre", "confidence", "method"}
+        assert set(df.columns) == {
+            "treebank",
+            "split",
+            "sent_id",
+            "genre",
+            "confidence",
+            "method",
+            "ud_version",
+            "ud_source_revision",
+            "model",
+            "pooling",
+            "clustering_method",
+            "config_name",
+            "run_id",
+        }
 
         # Check number of rows
         assert len(df) == 4
@@ -52,18 +66,31 @@ class TestGenreExport:
         assert df["method"].dtype == object
 
         # Check specific values
-        news_row = df[df["sent_id"] == "en_ewt-ud-train-00001"].iloc[0]
+        news_row = df[
+            (df["treebank"] == "en_ewt")
+            & (df["split"] == "train")
+            & (df["sent_id"] == "en_ewt-ud-train-00001")
+        ].iloc[0]
         assert news_row["genre"] == "news"
         assert news_row["confidence"] == 0.85
         assert news_row["method"] == "bootstrap-labeled"
+        assert news_row["config_name"] == "default"
 
         # Check low confidence row
-        wiki_row = df[df["sent_id"] == "de_gsd-ud-test-00042"].iloc[0]
+        wiki_row = df[
+            (df["treebank"] == "de_gsd")
+            & (df["split"] == "test")
+            & (df["sent_id"] == "de_gsd-ud-test-00042")
+        ].iloc[0]
         assert wiki_row["genre"] == "wiki"
         assert wiki_row["confidence"] == 0.43
         assert wiki_row["method"] == "bootstrap-inferred"
 
-        # Check results statistics
+        # Check results statistics and release artifacts
+        assert (tmp_path / "README.md").exists()
+        assert (tmp_path / "run_metadata.json").exists()
+        assert (tmp_path / "config.snapshot.yaml").exists()
+
         assert results["total_sentences"] == 4
         assert results["labeled_sentences"] == 4
         assert results["genre_counts"]["news"] == 2
@@ -96,7 +123,7 @@ class TestGenreExport:
 
         bootstrapper = GenreBootstrapper(config)
         bootstrapper.final_labels = {
-            "test-001": ("news", None, "metadata"),
+            ("xx_demo", "train", "test-001"): ("news", None, "metadata"),
         }
 
         results = bootstrapper._export_results()
@@ -1045,8 +1072,12 @@ class TestVirtualSplitQualityGates:
         news_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "news")]
         wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "wiki")]
 
-        assert news_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_a"]
-        assert wiki_virtual["cluster_result"]["clusters"][0]["sent_ids"] == ["sid_b"]
+        assert news_virtual["cluster_result"]["clusters"][0]["sent_ids"] == [
+            ("xx_demo", "train", "sid_a")
+        ]
+        assert wiki_virtual["cluster_result"]["clusters"][0]["sent_ids"] == [
+            ("xx_demo", "train", "sid_b")
+        ]
 
         regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "__combined__")]["cluster_result"]["clusters"]
         assert any("sid_c" in cluster["sent_ids"] for cluster in regular_clusters.values())

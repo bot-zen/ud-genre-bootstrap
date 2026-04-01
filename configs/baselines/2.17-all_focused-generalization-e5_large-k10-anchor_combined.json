@@ -1,0 +1,23 @@
+{
+  "name": "UD v2.17 all_focused generalization baseline",
+  "description": "Locked 10-fold sentence-level generalization baseline used to contextualize the community release.",
+  "config": "configs/sweeps/how_universal-generalization-e5_large-k5-anchor_combined.yaml",
+  "treebank_set": "all_focused",
+  "command": "uv run ud-genre-bootstrap evaluate --config configs/sweeps/how_universal-generalization-e5_large-k5-anchor_combined.yaml --set all_focused --n-folds 10 --group-by language | tee output/logs/all_focused-generalization-e5_large-k10-anchor_combined-baseline.log",
+  "source_log": "output/logs/all_focused-generalization-e5_large-k10-anchor_combined-baseline.log",
+  "metrics": {
+    "mean_fold_micro_f1": 0.3901,
+    "std_fold_micro_f1": 0.1458,
+    "overall_micro_f1": 0.3333,
+    "macro_f1": 0.2636,
+    "mean_fold_macro_f1": 0.3245,
+    "std_fold_macro_f1": 0.1629,
+    "purity": 0.5568,
+    "agreement_treebank": 0.5922,
+    "overlap_error_treebank": 0.0589,
+    "missing_anchor_genres": [
+      "email",
+      "government"
+    ]
+  }
+}
