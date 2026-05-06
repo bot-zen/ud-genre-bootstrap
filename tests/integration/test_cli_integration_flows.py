@@ -134,6 +134,8 @@ class StubDataLoader:
 class StubBootstrapper:
     """Bootstrapper stub that satisfies all command interactions."""
 
+    last_push_call: Optional[Dict[str, str]] = None
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.data_loader = StubDataLoader(cfg.ud_source, cfg.ud_version)
@@ -209,6 +211,13 @@ class StubBootstrapper:
 
     def load_cluster_state(self, path: Path) -> Dict:
         return self._generate_embeddings()
+
+    def push_to_hub(self, repo_id: str, revision: str):
+        StubBootstrapper.last_push_call = {
+            "repo_id": repo_id,
+            "revision": revision,
+            "genres_path": self.cfg.output.genres_path,
+        }
 
 
 class StubClusteringEvaluator:
@@ -333,6 +342,39 @@ def test_pipeline_commands_cover_hf_and_local_sources(monkeypatch, cfg: Config):
     for command in (["run"], ["embed"], ["cluster"], ["label"], ["info"]):
         result = runner.invoke(cli_module.app, command)
         assert result.exit_code == 0, f"{command} failed: {result.stdout}"
+
+
+def test_upload_command_reuses_existing_release(monkeypatch, cfg: Config, tmp_path: Path):
+    """`upload` should publish an existing release directory without rerunning labeling."""
+    _patch_common_cli(monkeypatch, cfg)
+    runner = CliRunner()
+
+    release_dir = tmp_path / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
+
+    cfg.output.hf_token = "test-token"
+    StubBootstrapper.last_push_call = None
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "upload",
+            "--output",
+            str(release_dir),
+            "--repo",
+            "commul/test-release",
+            "--revision",
+            "test-branch",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert StubBootstrapper.last_push_call == {
+        "repo_id": "commul/test-release",
+        "revision": "test-branch",
+        "genres_path": str(release_dir),
+    }
 
 
 def test_evaluate_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):

@@ -1020,6 +1020,84 @@ def label(
         raise typer.Exit(1)
 
 
+@app.command("upload")
+def upload_release(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Existing release directory containing all_genres.parquet. Defaults to output.genres_path from config.",
+    ),
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        help="Hugging Face dataset repo override. Defaults to output.genres_hf_repo.",
+    ),
+    revision: Optional[str] = typer.Option(
+        None,
+        "--revision",
+        help="Hugging Face dataset revision/branch override. Defaults to output.genres_revision.",
+    ),
+):
+    """Upload an existing release directory to Hugging Face Hub."""
+    console.print("\n[bold cyan]UD Genre Release Upload[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        cfg = load_config_from_path(config)
+
+        if output:
+            cfg.output.genres_path = str(output)
+            console.print(f"[blue]Release directory:[/blue] {output}")
+
+        output_path = Path(cfg.output.genres_path)
+        labels_path = output_path / "all_genres.parquet"
+        if not labels_path.exists():
+            raise ValueError(
+                f"Release file not found: {labels_path}. "
+                "Run `label` first or pass `--output` to an existing release directory."
+            )
+
+        repo_id = repo or cfg.output.genres_hf_repo
+        if not repo_id:
+            raise ValueError(
+                "No Hugging Face dataset repo configured. "
+                "Set `output.genres_hf_repo` in config or pass `--repo`."
+            )
+
+        target_revision = revision or cfg.output.genres_revision or cfg.ud_version
+        if not cfg.output.hf_token:
+            raise ValueError(
+                "No Hugging Face token configured. "
+                "Set `output.hf_token` in config or via environment-backed config expansion."
+            )
+
+        console.print(f"[blue]Repo:[/blue] {repo_id}")
+        console.print(f"[blue]Revision:[/blue] {target_revision}")
+        console.print(
+            "[yellow]Reusing existing all_genres.parquet and regenerating release artifacts before upload...[/yellow]"
+        )
+
+        bootstrapper = GenreBootstrapper(cfg)
+        bootstrapper.push_to_hub(repo_id, target_revision)
+
+        console.print("\n[bold green]✓ Upload complete![/bold green]")
+        console.print(f"[green]✓ Uploaded release artifacts from {output_path}[/green]")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Upload failed")
+        raise typer.Exit(1)
+
+
 @app.command()
 def evaluate(
     config: Optional[Path] = typer.Option(

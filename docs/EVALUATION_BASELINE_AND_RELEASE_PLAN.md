@@ -172,7 +172,8 @@ Implemented release behavior:
   - `evaluation/baseline_summary.json` when configured
   - copied mapping files under `mappings/`
 - `push_to_hub()` now uploads the full non-pickle release artifact set instead of parquet files only
-- `run` / `label` now trigger `push_to_hub()` when `output.push_to_hub=true`
+- `run` / `label` still trigger `push_to_hub()` when `output.push_to_hub=true`
+- `upload` can publish an already generated release directory without rerunning labeling
 
 Community release no longer relies on `sent_id` alone.
 The primary join key is now `(treebank, split, sent_id)` throughout the release export path.
@@ -209,7 +210,13 @@ uv run ud-genre-bootstrap label   --config configs/2.17-community-release.yaml
 - missing / null genre rate
 - joinability back to UD by `(treebank, split, sent_id)`
 
-6. Only after that, push the promoted release to Hugging Face.
+6. Only after that, push the promoted release to Hugging Face with the standalone upload command:
+
+```bash
+uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml
+```
+
+The upload command reuses `output.genres_path`, requires an existing `all_genres.parquet`, regenerates release metadata, and uploads the non-pickle artifact set. It does not rerun embedding, clustering, or labeling.
 
 ## 5. Community Hugging Face Release Plan
 
@@ -225,6 +232,13 @@ Recommended branch / revision policy:
 - one stable revision per UD release, e.g. `2.17`
 - optional moving alias such as `main` only for the currently promoted default
 - experimental runs should not overwrite the promoted release revision
+
+Upload mechanism:
+
+- uploads use the Hugging Face Hub API, not a local git checkout
+- `README.md` in the release directory is the dataset card on Hugging Face
+- `clusters/cluster_state.pkl` is retained locally but intentionally not uploaded
+- `output.hf_token` must be configured before upload
 
 ### 5.2 Required Release Artifacts
 
@@ -287,4 +301,4 @@ Before starting new improvement sweeps, the next concrete tasks are now operatio
 1. run the preflight checks with `configs/2.17-community-release.yaml`
 2. run the full v2.17 pipeline once in resumable stages under that frozen config
 3. validate row counts, method counts, and release artifacts in `output/2.17-community-release/genres`
-4. only after validation, promote and upload the release revision on Hugging Face
+4. only after validation, promote and upload the release revision on Hugging Face via `ud-genre-bootstrap upload`

@@ -305,6 +305,14 @@ exclude_treebanks:
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
 
+To publish an already generated genre-label release without rerunning labeling:
+
+```bash
+uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml
+```
+
+This uploads the existing `all_genres.parquet` and release metadata from `output.genres_path` via the Hugging Face Hub API.
+
 ## Output Format
 
 ### Genre Classifications
