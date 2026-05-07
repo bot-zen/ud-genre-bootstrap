@@ -168,12 +168,13 @@ Implemented release behavior:
 - local exports now write release support artifacts automatically:
   - `README.md`
   - `run_metadata.json`
+  - `release_manifest.json`
   - `config.snapshot.yaml`
   - `evaluation/baseline_summary.json` when configured
   - copied mapping files under `mappings/`
 - `push_to_hub()` now uploads the full non-pickle release artifact set instead of parquet files only
 - `run` / `label` still trigger `push_to_hub()` when `output.push_to_hub=true`
-- `upload` can publish an already generated release directory without rerunning labeling
+- `upload` can publish an already generated release directory to every configured HF revision without rerunning labeling
 
 Community release no longer relies on `sent_id` alone.
 The primary join key is now `(treebank, split, sent_id)` throughout the release export path.
@@ -227,11 +228,42 @@ Recommended repos:
 - genre labels: `commul/ud-genres`
 - embeddings: keep separate, model-specific repos such as `commul/ud-embeddings-multilingual-e5-large`
 
-Recommended branch / revision policy:
+Recommended Hugging Face revision policy:
 
-- one stable revision per UD release, e.g. `2.17`
-- optional moving alias such as `main` only for the currently promoted default
-- experimental runs should not overwrite the promoted release revision
+- one simple convenience revision per UD release, e.g. `2.17`, for end-user loading
+- one canonical artifact revision per promoted artifact, e.g. `ud2.17-full-ud-v1`
+- optional moving aliases such as `main` only for the currently promoted default
+- experimental runs should not overwrite promoted release revisions
+
+Artifact IDs have the shape:
+
+```text
+ud<UD version>-<scope>-<label schema>-<artifact version>
+```
+
+For the current release this is `ud2.17-full-ud-v1`:
+
+- `ud2.17`: the source Universal Dependencies release
+- `full`: all processed UD treebank data for that UD release after explicit exclusions
+- `ud`: the current UD-derived label schema
+- `v1`: the artifact revision within that UD/scope/schema identity
+
+Algorithm settings are not part of the public artifact ID. The embedding model, pooling,
+clustering method, thresholds, reference weighting, and seed are recorded in
+`run_metadata.json` and `release_manifest.json` as `algorithm_recipe`.
+
+Git linkage policy:
+
+- one best-effort branch per UD version, e.g. `release/ud-2.17`
+- one immutable artifact tag per promoted artifact, e.g. `artifact/ud2.17-full-ud-v1`
+- experiment tags should use `experiment/<artifact-id>/<short-recipe-or-schema-id>`
+- registry entries must point to immutable artifact tags, not only branch names
+
+Label schema policy:
+
+- `ud` means the current UD-derived genre semantics
+- `udmultigenre` is reserved for a future UD-MULTIGENRE-compatible mapping/filtering profile
+- future conflated genre inventories should be modeled as label schemas, not algorithm variants
 
 Upload mechanism:
 
@@ -239,6 +271,13 @@ Upload mechanism:
 - `README.md` in the release directory is the dataset card on Hugging Face
 - `clusters/cluster_state.pkl` is retained locally but intentionally not uploaded
 - `output.hf_token` must be configured before upload
+- `ud-genre-bootstrap upload --dry-run` prints the repo, revisions, artifact ID, files, and git linkage without contacting Hugging Face
+
+Promoted artifacts are registered in `configs/releases/genre_artifacts.yaml`. The registry
+records the artifact ID, HF revisions, immutable git tag, source config, baseline summary,
+and notes. The UD version, data scope, and label schema define the stable public identity;
+the algorithm recipe remains provenance metadata so improved recipes can be promoted
+without conflating recipe names with label semantics.
 
 ### 5.2 Required Release Artifacts
 
@@ -248,6 +287,7 @@ At minimum, the genre release should contain:
 - `clusters/cluster_assignments.parquet` for auditability
 - frozen config snapshot used for the run
 - `run_metadata.json`
+- `release_manifest.json`
 - `evaluation/baseline_summary.json`
 - dataset card / README
 - copies or references for the mapping files used by the run

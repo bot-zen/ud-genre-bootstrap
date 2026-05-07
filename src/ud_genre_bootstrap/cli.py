@@ -15,6 +15,12 @@ from rich.table import Table
 from ud_genre_bootstrap.bootstrapping import GenreBootstrapper
 from ud_genre_bootstrap.evaluation import CrossValidator
 from ud_genre_bootstrap.utils.config import Config
+from ud_genre_bootstrap.utils.release_artifacts import list_release_upload_files
+from ud_genre_bootstrap.utils.release_identity import (
+    resolve_release_hf_repo,
+    resolve_release_hf_revisions,
+    resolve_release_identity,
+)
 from ud_genre_bootstrap.utils.sentence_refs import qualify_sentence_ref
 
 # Create Typer app
@@ -696,7 +702,10 @@ def run(
 
         if cfg.output.push_to_hub:
             console.print("\n[yellow]Uploading release artifacts to Hugging Face Hub...[/yellow]")
-            bootstrapper.push_to_hub(cfg.output.genres_hf_repo, cfg.output.genres_revision)
+            bootstrapper.push_to_hub(
+                resolve_release_hf_repo(cfg),
+                resolve_release_hf_revisions(cfg),
+            )
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -1012,7 +1021,10 @@ def label(
 
         if cfg.output.push_to_hub:
             console.print("\n[yellow]Uploading release artifacts to Hugging Face Hub...[/yellow]")
-            bootstrapper.push_to_hub(cfg.output.genres_hf_repo, cfg.output.genres_revision)
+            bootstrapper.push_to_hub(
+                resolve_release_hf_repo(cfg),
+                resolve_release_hf_revisions(cfg),
+            )
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
@@ -1041,10 +1053,15 @@ def upload_release(
         "--repo",
         help="Hugging Face dataset repo override. Defaults to output.genres_hf_repo.",
     ),
-    revision: Optional[str] = typer.Option(
+    revision: Optional[List[str]] = typer.Option(
         None,
         "--revision",
-        help="Hugging Face dataset revision/branch override. Defaults to output.genres_revision.",
+        help="Hugging Face dataset revision/branch override. Can be repeated. Defaults to release.hf_revisions.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the upload plan without touching Hugging Face.",
     ),
 ):
     """Upload an existing release directory to Hugging Face Hub."""
@@ -1066,28 +1083,57 @@ def upload_release(
                 "Run `label` first or pass `--output` to an existing release directory."
             )
 
-        repo_id = repo or cfg.output.genres_hf_repo
+        repo_id = repo or resolve_release_hf_repo(cfg)
         if not repo_id:
             raise ValueError(
                 "No Hugging Face dataset repo configured. "
-                "Set `output.genres_hf_repo` in config or pass `--repo`."
+                "Set `release.hf_repo`/`output.genres_hf_repo` in config or pass `--repo`."
             )
 
-        target_revision = revision or cfg.output.genres_revision or cfg.ud_version
+        target_revisions = resolve_release_hf_revisions(cfg, revision)
+        if not target_revisions:
+            raise ValueError(
+                "No Hugging Face revisions configured. "
+                "Set `release.hf_revisions` in config or pass `--revision`."
+            )
+
+        cfg.release.hf_repo = repo_id
+        cfg.release.hf_revisions = target_revisions
+        cfg.output.genres_hf_repo = repo_id
+        cfg.output.genres_revision = target_revisions[0]
+        release_identity = resolve_release_identity(cfg)
+
+        console.print(f"[blue]Repo:[/blue] {repo_id}")
+        console.print(f"[blue]Revisions:[/blue] {', '.join(target_revisions)}")
+        console.print(f"[blue]Artifact ID:[/blue] {release_identity['artifact_id']}")
+        console.print(f"[blue]Git branch:[/blue] {release_identity.get('git_branch') or 'n/a'}")
+        console.print(f"[blue]Git tag:[/blue] {release_identity.get('git_tag') or 'n/a'}")
+
+        bootstrapper = GenreBootstrapper(cfg)
+
+        if dry_run:
+            if hasattr(bootstrapper, "prepare_release_artifacts"):
+                bootstrapper.prepare_release_artifacts()
+            upload_files = list_release_upload_files(output_path)
+            console.print("\n[bold yellow]Dry run: no Hugging Face calls will be made.[/bold yellow]")
+            console.print("[blue]Files to upload:[/blue]")
+            for upload_file in upload_files:
+                console.print(f"  - {upload_file.relative_to(output_path)}")
+            console.print("\n[bold green]✓ Dry run complete[/bold green]")
+            return
+
         if not cfg.output.hf_token:
             raise ValueError(
                 "No Hugging Face token configured. "
                 "Set `output.hf_token` in config or via environment-backed config expansion."
             )
 
-        console.print(f"[blue]Repo:[/blue] {repo_id}")
-        console.print(f"[blue]Revision:[/blue] {target_revision}")
         console.print(
             "[yellow]Reusing existing all_genres.parquet and regenerating release artifacts before upload...[/yellow]"
         )
 
-        bootstrapper = GenreBootstrapper(cfg)
-        bootstrapper.push_to_hub(repo_id, target_revision)
+        revision_arg = target_revisions[0] if len(target_revisions) == 1 else target_revisions
+        bootstrapper.push_to_hub(repo_id, revision_arg)
 
         console.print("\n[bold green]✓ Upload complete![/bold green]")
         console.print(f"[green]✓ Uploaded release artifacts from {output_path}[/green]")

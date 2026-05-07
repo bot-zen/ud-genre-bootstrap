@@ -1,0 +1,15 @@
+artifacts:
+  - artifact_id: "ud2.17-full-ud-v1"
+    ud_version: "2.17"
+    scope: "full"
+    label_schema: "ud"
+    artifact_version: "v1"
+    hf_repo: "commul/ud-genres"
+    hf_revisions:
+      - "2.17"
+      - "ud2.17-full-ud-v1"
+    git_branch: "release/ud-2.17"
+    git_tag: "artifact/ud2.17-full-ud-v1"
+    source_config: "configs/2.17-community-release.yaml"
+    baseline_summary: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
+    notes: "Promoted full-data UD v2.17 release using the current UD-derived label schema."

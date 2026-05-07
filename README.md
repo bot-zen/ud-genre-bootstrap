@@ -30,6 +30,26 @@ This tool automatically classifies Universal Dependencies sentences into genres 
 HF parquet comment markers (`__SENT_ID__`/`__TEXT__`) are materialized at read time in
 the metadata extraction path, so HF and local CoNLL-U genre extraction behave the same.
 
+## Public Release
+
+The promoted UD v2.17 genre artifact is published in `commul/ud-genres` with a simple
+end-user alias and a canonical provenance revision:
+
+```python
+from datasets import load_dataset
+
+genres = load_dataset("commul/ud-genres", revision="2.17", split="train")
+```
+
+Current artifact identity:
+
+- convenience revision: `2.17`
+- canonical artifact ID / immutable HF revision: `ud2.17-full-ud-v1`
+- label schema: `ud`
+- scope: `full`
+- git branch: `release/ud-2.17`
+- git tag: `artifact/ud2.17-full-ud-v1`
+
 ## Installation
 
 ### Production Use
@@ -244,9 +264,21 @@ Relative paths are resolved relative to the current working directory.
 Example `config.yaml`:
 
 ```yaml
-ud_version: "2.15"
+ud_version: "2.17"
 ud_source: "hf://commul/universal_dependencies"
 metadata_path: null  # e.g. "../huggingface/universal_dependencies/metadata.json"
+
+release:
+  artifact_id: "ud2.17-full-ud-v1"
+  scope: "full"
+  label_schema: "ud"
+  artifact_version: "v1"
+  hf_repo: "commul/ud-genres"
+  hf_revisions:
+    - "2.17"
+    - "ud2.17-full-ud-v1"
+  git_branch: "release/ud-2.17"
+  git_tag: "artifact/ud2.17-full-ud-v1"
 
 # Optional: Only process specific treebanks
 include_treebanks:
@@ -293,7 +325,7 @@ evaluation:
     min_genre_sentences: 100  # Minimum sentences per genre for evaluation
 
 output:
-  genres_path: "output/ud-v2.15/genres/"
+  genres_path: "output/ud-v2.17/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   push_to_hub: true
 
@@ -311,7 +343,11 @@ To publish an already generated genre-label release without rerunning labeling:
 uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml
 ```
 
-This uploads the existing `all_genres.parquet` and release metadata from `output.genres_path` via the Hugging Face Hub API.
+This uploads the existing `all_genres.parquet` and release metadata from `output.genres_path` via the Hugging Face Hub API. The 2.17 release config publishes both `revision="2.17"` and `revision="ud2.17-full-ud-v1"`. To inspect the upload plan without network calls:
+
+```bash
+uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml --dry-run
+```
 
 ## Output Format
 

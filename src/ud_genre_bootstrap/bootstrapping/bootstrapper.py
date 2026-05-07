@@ -17,6 +17,7 @@ from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 from ud_genre_bootstrap.utils.release_artifacts import (
     build_release_row_metadata,
+    list_release_upload_files,
     resolve_config_name,
     write_release_artifacts,
 )
@@ -1110,21 +1111,38 @@ class GenreBootstrapper:
 
         return stats
 
-    def push_to_hub(self, repo_id: str, revision: str):
+    def prepare_release_artifacts(self) -> Dict[str, str]:
+        """Regenerate release metadata for an existing exported labels directory."""
+        output_path = Path(self.config.output.genres_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        labels_path = output_path / 'all_genres.parquet'
+        stats = self._summarize_exported_labels_file(labels_path)
+        return write_release_artifacts(
+            self.config,
+            output_path,
+            stats,
+            all_genres_path=labels_path,
+        )
+
+    def push_to_hub(self, repo_id: str, revision):
         """Push results to HuggingFace Hub.
 
         Args:
             repo_id: HuggingFace repo ID
-            revision: Revision/branch name
+            revision: Revision/branch name or list of revision/branch names
         """
         from huggingface_hub import HfApi, create_repo
 
         api = HfApi()
+        revisions = [revision] if isinstance(revision, str) else list(revision)
+        revisions = [str(item) for item in revisions if str(item).strip()]
+        if not revisions:
+            raise ValueError("At least one Hugging Face revision is required")
 
         token = self.config.output.hf_token
         if not token:
             logger.warning("No HF token provided, skipping push to hub")
-            return
+            return None
 
         try:
             create_repo(
@@ -1140,34 +1158,50 @@ class GenreBootstrapper:
             raise
 
         output_path = Path(self.config.output.genres_path)
-        output_path.mkdir(parents=True, exist_ok=True)
+        self.prepare_release_artifacts()
+        upload_files = list_release_upload_files(output_path)
 
-        stats = self._summarize_exported_labels_file(output_path / 'all_genres.parquet')
-        write_release_artifacts(
-            self.config,
-            output_path,
-            stats,
-            all_genres_path=output_path / 'all_genres.parquet',
-        )
+        for target_revision in revisions:
+            if hasattr(api, "create_branch"):
+                try:
+                    api.create_branch(
+                        repo_id=repo_id,
+                        branch=target_revision,
+                        repo_type="dataset",
+                        token=token,
+                        exist_ok=True,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to create/verify revision %s on %s: %s",
+                        target_revision,
+                        repo_id,
+                        e,
+                    )
 
-        upload_files = [
-            path for path in output_path.rglob('*')
-            if path.is_file() and path.suffix != '.pkl' and not path.name.startswith('.')
-        ]
+            for artifact_path in upload_files:
+                relative_path = artifact_path.relative_to(output_path)
+                try:
+                    api.upload_file(
+                        path_or_fileobj=str(artifact_path),
+                        path_in_repo=str(relative_path),
+                        repo_id=repo_id,
+                        repo_type="dataset",
+                        token=token,
+                        revision=target_revision,
+                    )
+                    logger.info(
+                        "Uploaded %s to %s (revision: %s)",
+                        relative_path,
+                        repo_id,
+                        target_revision,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to upload {relative_path}: {e}")
 
-        for artifact_path in sorted(upload_files):
-            relative_path = artifact_path.relative_to(output_path)
-            try:
-                api.upload_file(
-                    path_or_fileobj=str(artifact_path),
-                    path_in_repo=str(relative_path),
-                    repo_id=repo_id,
-                    repo_type="dataset",
-                    token=token,
-                    revision=revision,
-                )
-                logger.info(f"Uploaded {relative_path} to {repo_id}")
-            except Exception as e:
-                logger.error(f"Failed to upload {relative_path}: {e}")
-
-        logger.info(f"Push to hub complete: {repo_id} (revision: {revision})")
+        logger.info(f"Push to hub complete: {repo_id} (revisions: {', '.join(revisions)})")
+        return {
+            "repo_id": repo_id,
+            "revisions": revisions,
+            "files": [str(path.relative_to(output_path)) for path in upload_files],
+        }

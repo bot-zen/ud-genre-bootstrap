@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
+from ud_genre_bootstrap.utils.release_identity import validate_artifact_id
+
 
 @dataclass
 class EmbeddingsConfig:
@@ -132,6 +134,20 @@ class OutputConfig:
 
 
 @dataclass
+class ReleaseConfig:
+    """Public identity for promoted genre artifacts."""
+
+    artifact_id: Optional[str] = None
+    scope: str = "full"
+    label_schema: str = "ud"
+    artifact_version: str = "v1"
+    hf_repo: Optional[str] = None
+    hf_revisions: List[str] = field(default_factory=list)
+    git_branch: Optional[str] = None
+    git_tag: Optional[str] = None
+
+
+@dataclass
 class LoggingConfig:
     """Configuration for logging."""
 
@@ -155,6 +171,7 @@ class Config:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     xgenre_evaluation: XGenreEvaluationConfig = field(default_factory=XGenreEvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    release: ReleaseConfig = field(default_factory=ReleaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @staticmethod
@@ -321,6 +338,15 @@ class Config:
         )
 
         output = OutputConfig(**config_dict.get("output", {}))
+        release = ReleaseConfig(**config_dict.get("release", {}))
+        if release.artifact_id:
+            validate_artifact_id(
+                release.artifact_id,
+                ud_version=str(config_dict.get("ud_version", "2.17")),
+                scope=release.scope,
+                label_schema=release.label_schema,
+                artifact_version=release.artifact_version,
+            )
         logging_cfg = LoggingConfig(**config_dict.get("logging", {}))
         xgenre_evaluation = XGenreEvaluationConfig(**config_dict.get("xgenre_evaluation", {}))
 
@@ -337,6 +363,7 @@ class Config:
             evaluation=evaluation,
             xgenre_evaluation=xgenre_evaluation,
             output=output,
+            release=release,
             logging=logging_cfg,
         )
 

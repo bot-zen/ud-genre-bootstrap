@@ -6,6 +6,18 @@ ud_version: "2.17"
 ud_source: "hf://commul/universal_dependencies"
 metadata_path: null
 
+release:
+  artifact_id: "ud2.17-full-ud-v1"
+  scope: "full"
+  label_schema: "ud"
+  artifact_version: "v1"
+  hf_repo: "commul/ud-genres"
+  hf_revisions:
+    - "2.17"
+    - "ud2.17-full-ud-v1"
+  git_branch: "release/ud-2.17"
+  git_tag: "artifact/ud2.17-full-ud-v1"
+
 exclude_treebanks:
   - "ar_nyuad"
   - "ja_bccwj"

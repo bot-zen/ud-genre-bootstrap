@@ -377,6 +377,74 @@ def test_upload_command_reuses_existing_release(monkeypatch, cfg: Config, tmp_pa
     }
 
 
+def test_upload_command_dry_run_skips_push(monkeypatch, cfg: Config, tmp_path: Path):
+    """`upload --dry-run` should print the plan without requiring a token or pushing."""
+    _patch_common_cli(monkeypatch, cfg)
+    runner = CliRunner()
+
+    release_dir = tmp_path / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
+    (release_dir / "clusters").mkdir()
+    (release_dir / "clusters" / "cluster_state.pkl").write_text("local only", encoding="utf-8")
+
+    cfg.output.hf_token = None
+    StubBootstrapper.last_push_call = None
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "upload",
+            "--output",
+            str(release_dir),
+            "--repo",
+            "commul/test-release",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Dry run" in result.stdout
+    assert "all_genres.parquet" in result.stdout
+    assert "cluster_state.pkl" not in result.stdout
+    assert StubBootstrapper.last_push_call is None
+
+
+def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Config, tmp_path: Path):
+    """`upload` should pass all configured release revisions to the uploader."""
+    _patch_common_cli(monkeypatch, cfg)
+    runner = CliRunner()
+
+    release_dir = tmp_path / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
+
+    cfg.release.artifact_id = "ud2.17-full-ud-v1"
+    cfg.release.scope = "full"
+    cfg.release.label_schema = "ud"
+    cfg.release.artifact_version = "v1"
+    cfg.release.hf_repo = "commul/ud-genres"
+    cfg.release.hf_revisions = ["2.17", "ud2.17-full-ud-v1"]
+    cfg.output.hf_token = "test-token"
+    StubBootstrapper.last_push_call = None
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "upload",
+            "--output",
+            str(release_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert StubBootstrapper.last_push_call == {
+        "repo_id": "commul/ud-genres",
+        "revision": ["2.17", "ud2.17-full-ud-v1"],
+        "genres_path": str(release_dir),
+    }
+
+
 def test_evaluate_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):
     """`evaluate` should complete for both HF and local source schemes."""
     _patch_common_cli(monkeypatch, cfg)

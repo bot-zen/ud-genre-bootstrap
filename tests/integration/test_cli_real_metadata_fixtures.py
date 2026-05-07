@@ -220,8 +220,10 @@ class _StubClusteringEvaluator:
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",
         reference_weighting: str = "sentence_count",
+        protocol: str = "generalization",
     ):
         self.n_folds = n_folds
+        self.protocol = protocol
 
     def k_fold_validate(
         self,
@@ -237,6 +239,8 @@ class _StubClusteringEvaluator:
             "overall_accuracy": 0.5,
             "num_folds": self.n_folds,
             "fold_accuracies": [0.5] * self.n_folds,
+            "evaluation_mode": "cross_validation",
+            "evaluation_protocol": self.protocol,
         }
 
 
@@ -517,6 +521,8 @@ def test_evaluate_reports_full_deterministic_metric_bundle(real_eval_golden_setu
         "anchor_counts_by_genre",
         "missing_anchor_genres",
         "fold_anchor_diagnostics",
+        "evaluation_mode",
+        "evaluation_protocol",
     }
     assert set(metrics.keys()) == expected_keys
 
