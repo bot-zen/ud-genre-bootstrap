@@ -232,3 +232,7 @@ cache/
 data/
 *.pkl
 *.npy
+
+# local
+.go*
+tmp/
