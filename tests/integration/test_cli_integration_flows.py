@@ -355,6 +355,18 @@ def test_upload_command_reuses_existing_release(monkeypatch, cfg: Config, tmp_pa
 
     cfg.output.hf_token = "test-token"
     StubBootstrapper.last_push_call = None
+    upload_calls = []
+
+    def _fake_upload(upload_cfg, output_path, repo_id, revisions):
+        upload_calls.append({
+            "repo_id": repo_id,
+            "revisions": revisions,
+            "genres_path": str(output_path),
+            "hf_revisions": list(upload_cfg.release.hf_revisions),
+        })
+        return {"repo_id": repo_id, "revisions": revisions, "files": []}
+
+    monkeypatch.setattr(cli_module, "upload_release_directory_to_hub", _fake_upload)
 
     result = runner.invoke(
         cli_module.app,
@@ -370,11 +382,13 @@ def test_upload_command_reuses_existing_release(monkeypatch, cfg: Config, tmp_pa
     )
 
     assert result.exit_code == 0, result.stdout
-    assert StubBootstrapper.last_push_call == {
+    assert StubBootstrapper.last_push_call is None
+    assert upload_calls == [{
         "repo_id": "commul/test-release",
-        "revision": "test-branch",
+        "revisions": ["test-branch"],
         "genres_path": str(release_dir),
-    }
+        "hf_revisions": ["test-branch"],
+    }]
 
 
 def test_upload_command_dry_run_skips_push(monkeypatch, cfg: Config, tmp_path: Path):
@@ -390,6 +404,21 @@ def test_upload_command_dry_run_skips_push(monkeypatch, cfg: Config, tmp_path: P
 
     cfg.output.hf_token = None
     StubBootstrapper.last_push_call = None
+    prepare_calls = []
+
+    def _fake_prepare(prepare_cfg, output_path):
+        prepare_calls.append({
+            "genres_path": str(output_path),
+            "hf_revisions": list(prepare_cfg.release.hf_revisions),
+        })
+        return {}
+
+    monkeypatch.setattr(cli_module, "prepare_release_directory", _fake_prepare)
+    monkeypatch.setattr(
+        cli_module,
+        "upload_release_directory_to_hub",
+        lambda *_args, **_kwargs: pytest.fail("dry-run should not upload"),
+    )
 
     result = runner.invoke(
         cli_module.app,
@@ -408,6 +437,10 @@ def test_upload_command_dry_run_skips_push(monkeypatch, cfg: Config, tmp_path: P
     assert "all_genres.parquet" in result.stdout
     assert "cluster_state.pkl" not in result.stdout
     assert StubBootstrapper.last_push_call is None
+    assert prepare_calls == [{
+        "genres_path": str(release_dir),
+        "hf_revisions": ["2.17"],
+    }]
 
 
 def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Config, tmp_path: Path):
@@ -427,6 +460,18 @@ def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Con
     cfg.release.hf_revisions = ["2.17", "ud2.17-full-ud-v1"]
     cfg.output.hf_token = "test-token"
     StubBootstrapper.last_push_call = None
+    upload_calls = []
+
+    def _fake_upload(upload_cfg, output_path, repo_id, revisions):
+        upload_calls.append({
+            "repo_id": repo_id,
+            "revisions": revisions,
+            "genres_path": str(output_path),
+            "hf_revisions": list(upload_cfg.release.hf_revisions),
+        })
+        return {"repo_id": repo_id, "revisions": revisions, "files": []}
+
+    monkeypatch.setattr(cli_module, "upload_release_directory_to_hub", _fake_upload)
 
     result = runner.invoke(
         cli_module.app,
@@ -438,11 +483,129 @@ def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Con
     )
 
     assert result.exit_code == 0, result.stdout
-    assert StubBootstrapper.last_push_call == {
+    assert StubBootstrapper.last_push_call is None
+    assert upload_calls == [{
         "repo_id": "commul/ud-genres",
-        "revision": ["2.17", "ud2.17-full-ud-v1"],
+        "revisions": ["2.17", "ud2.17-full-ud-v1"],
         "genres_path": str(release_dir),
-    }
+        "hf_revisions": ["2.17", "ud2.17-full-ud-v1"],
+    }]
+
+
+def test_upload_command_can_include_hf_main_revision(monkeypatch, cfg: Config, tmp_path: Path):
+    """`upload --include-main` should append the HF web/default branch."""
+    _patch_common_cli(monkeypatch, cfg)
+    runner = CliRunner()
+
+    release_dir = tmp_path / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
+
+    cfg.release.artifact_id = "ud2.17-full-ud-v1"
+    cfg.release.scope = "full"
+    cfg.release.label_schema = "ud"
+    cfg.release.artifact_version = "v1"
+    cfg.release.hf_repo = "commul/ud-genres"
+    cfg.release.hf_revisions = ["2.17", "ud2.17-full-ud-v1"]
+    cfg.output.hf_token = "test-token"
+    upload_calls = []
+
+    def _fake_upload(upload_cfg, output_path, repo_id, revisions):
+        upload_calls.append({
+            "repo_id": repo_id,
+            "revisions": revisions,
+            "genres_path": str(output_path),
+            "hf_revisions": list(upload_cfg.release.hf_revisions),
+            "genres_revision": upload_cfg.output.genres_revision,
+        })
+        return {"repo_id": repo_id, "revisions": revisions, "files": []}
+
+    monkeypatch.setattr(cli_module, "upload_release_directory_to_hub", _fake_upload)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "upload",
+            "--output",
+            str(release_dir),
+            "--include-main",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert upload_calls == [{
+        "repo_id": "commul/ud-genres",
+        "revisions": ["2.17", "ud2.17-full-ud-v1", "main"],
+        "genres_path": str(release_dir),
+        "hf_revisions": ["2.17", "ud2.17-full-ud-v1", "main"],
+        "genres_revision": "2.17",
+    }]
+
+
+def test_publish_command_dry_run_uses_git_publish_flow(monkeypatch, cfg: Config, tmp_path: Path):
+    """`publish --dry-run` should plan a Git-backed HF publish without pushing."""
+    _patch_common_cli(monkeypatch, cfg)
+    runner = CliRunner()
+
+    release_dir = tmp_path / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
+    hf_repo_dir = tmp_path / "hf"
+    hf_repo_dir.mkdir()
+
+    cfg.release.artifact_id = "ud2.17-full-ud-v1"
+    cfg.release.scope = "full"
+    cfg.release.label_schema = "ud"
+    cfg.release.artifact_version = "v1"
+    cfg.release.hf_repo = "commul/ud_genre"
+    cfg.release.hf_branches = ["2.17"]
+    cfg.release.hf_tag = "artifact/ud2.17-full-ud-v1"
+    cfg.release.source_tag = "source/ud2.17-full-ud-v1"
+
+    publish_calls = []
+
+    def _fake_publish(publish_cfg, output_path, target_hf_repo_dir, **kwargs):
+        publish_calls.append({
+            "repo_id": publish_cfg.release.hf_repo,
+            "branches": list(publish_cfg.release.hf_branches),
+            "genres_path": str(output_path),
+            "hf_repo_dir": str(target_hf_repo_dir),
+            "include_main": kwargs["include_main"],
+            "push": kwargs["push"],
+            "dry_run": kwargs["dry_run"],
+        })
+        return {
+            "files": ["README.md", "all_genres.parquet", "release_manifest.json"],
+            "target_branches": ["2.17", "main"],
+        }
+
+    monkeypatch.setattr(cli_module, "publish_release_directory_to_hf_git", _fake_publish)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "publish",
+            "--output",
+            str(release_dir),
+            "--hf-repo-dir",
+            str(hf_repo_dir),
+            "--include-main",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Dry run" in result.stdout
+    assert "release_manifest.json" in result.stdout
+    assert publish_calls == [{
+        "repo_id": "commul/ud_genre",
+        "branches": ["2.17"],
+        "genres_path": str(release_dir),
+        "hf_repo_dir": str(hf_repo_dir),
+        "include_main": True,
+        "push": False,
+        "dry_run": True,
+    }]
 
 
 def test_evaluate_command_cover_hf_and_local_sources(monkeypatch, cfg: Config):

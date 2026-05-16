@@ -15,8 +15,14 @@ from rich.table import Table
 from ud_genre_bootstrap.bootstrapping import GenreBootstrapper
 from ud_genre_bootstrap.evaluation import CrossValidator
 from ud_genre_bootstrap.utils.config import Config
-from ud_genre_bootstrap.utils.release_artifacts import list_release_upload_files
+from ud_genre_bootstrap.utils.release_artifacts import (
+    list_release_upload_files,
+    prepare_release_directory,
+    publish_release_directory_to_hf_git,
+    upload_release_directory_to_hub,
+)
 from ud_genre_bootstrap.utils.release_identity import (
+    resolve_release_hf_branches,
     resolve_release_hf_repo,
     resolve_release_hf_revisions,
     resolve_release_identity,
@@ -1046,7 +1052,10 @@ def upload_release(
         None,
         "--output",
         "-o",
-        help="Existing release directory containing all_genres.parquet. Defaults to output.genres_path from config.",
+        help=(
+            "Existing release directory containing all_genres.parquet. "
+            "Defaults to output.genres_path from config."
+        ),
     ),
     repo: Optional[str] = typer.Option(
         None,
@@ -1062,6 +1071,14 @@ def upload_release(
         False,
         "--dry-run",
         help="Print the upload plan without touching Hugging Face.",
+    ),
+    include_main: bool = typer.Option(
+        False,
+        "--include-main",
+        help=(
+            "Also upload to the Hugging Face `main` branch, which is the default "
+            "revision shown in the web UI and used when no revision is specified."
+        ),
     ),
 ):
     """Upload an existing release directory to Hugging Face Hub."""
@@ -1091,6 +1108,8 @@ def upload_release(
             )
 
         target_revisions = resolve_release_hf_revisions(cfg, revision)
+        if include_main and "main" not in target_revisions:
+            target_revisions.append("main")
         if not target_revisions:
             raise ValueError(
                 "No Hugging Face revisions configured. "
@@ -1109,11 +1128,8 @@ def upload_release(
         console.print(f"[blue]Git branch:[/blue] {release_identity.get('git_branch') or 'n/a'}")
         console.print(f"[blue]Git tag:[/blue] {release_identity.get('git_tag') or 'n/a'}")
 
-        bootstrapper = GenreBootstrapper(cfg)
-
         if dry_run:
-            if hasattr(bootstrapper, "prepare_release_artifacts"):
-                bootstrapper.prepare_release_artifacts()
+            prepare_release_directory(cfg, output_path)
             upload_files = list_release_upload_files(output_path)
             console.print("\n[bold yellow]Dry run: no Hugging Face calls will be made.[/bold yellow]")
             console.print("[blue]Files to upload:[/blue]")
@@ -1132,8 +1148,7 @@ def upload_release(
             "[yellow]Reusing existing all_genres.parquet and regenerating release artifacts before upload...[/yellow]"
         )
 
-        revision_arg = target_revisions[0] if len(target_revisions) == 1 else target_revisions
-        bootstrapper.push_to_hub(repo_id, revision_arg)
+        upload_release_directory_to_hub(cfg, output_path, repo_id, target_revisions)
 
         console.print("\n[bold green]✓ Upload complete![/bold green]")
         console.print(f"[green]✓ Uploaded release artifacts from {output_path}[/green]")
@@ -1141,6 +1156,137 @@ def upload_release(
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
         logger.exception("Upload failed")
+        raise typer.Exit(1)
+
+
+@app.command("publish")
+def publish_release(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Existing release directory containing all_genres.parquet. Defaults to output.genres_path from config.",
+    ),
+    hf_repo_dir: Path = typer.Option(
+        ...,
+        "--hf-repo-dir",
+        help="Local Git checkout of the Hugging Face dataset repository.",
+        exists=True,
+        file_okay=False,
+    ),
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        help="Hugging Face dataset repo override. Defaults to release.hf_repo.",
+    ),
+    branch: Optional[List[str]] = typer.Option(
+        None,
+        "--branch",
+        help=(
+            "Moving Hugging Face dataset branch. Can be repeated. "
+            "Defaults to release.hf_branches."
+        ),
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the Git publish plan without touching the HF checkout.",
+    ),
+    include_main: bool = typer.Option(
+        False,
+        "--include-main",
+        help=(
+            "Also move the configured HF default branch, normally `main`, to the "
+            "published artifact commit."
+        ),
+    ),
+    push: bool = typer.Option(
+        False,
+        "--push",
+        help="Push the updated HF branches and artifact tag to the checkout's origin.",
+    ),
+):
+    """Publish an existing release directory through a local HF dataset Git checkout."""
+    console.print("\n[bold cyan]UD Genre Git Publish[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        cfg = load_config_from_path(config)
+
+        if output:
+            cfg.output.genres_path = str(output)
+            console.print(f"[blue]Release directory:[/blue] {output}")
+
+        output_path = Path(cfg.output.genres_path)
+        labels_path = output_path / "all_genres.parquet"
+        if not labels_path.exists():
+            raise ValueError(
+                f"Release file not found: {labels_path}. "
+                "Run `label` first or pass `--output` to an existing release directory."
+            )
+
+        repo_id = repo or resolve_release_hf_repo(cfg)
+        if repo_id:
+            cfg.release.hf_repo = repo_id
+            cfg.output.genres_hf_repo = repo_id
+
+        target_branches = resolve_release_hf_branches(cfg, branch)
+        if not target_branches:
+            raise ValueError(
+                "No Hugging Face branches configured. "
+                "Set `release.hf_branches` in config or pass `--branch`."
+            )
+        cfg.release.hf_branches = target_branches
+        cfg.output.genres_revision = target_branches[0]
+
+        release_identity = resolve_release_identity(cfg)
+
+        console.print(f"[blue]Repo:[/blue] {release_identity.get('hf_repo') or 'n/a'}")
+        console.print(f"[blue]HF checkout:[/blue] {hf_repo_dir}")
+        console.print(f"[blue]HF branches:[/blue] {', '.join(target_branches)}")
+        console.print(f"[blue]HF tag:[/blue] {release_identity.get('hf_tag')}")
+        console.print(f"[blue]Artifact ID:[/blue] {release_identity['artifact_id']}")
+        console.print(f"[blue]Source tag:[/blue] {release_identity.get('source_tag')}")
+
+        result = publish_release_directory_to_hf_git(
+            cfg,
+            output_path,
+            hf_repo_dir,
+            include_main=include_main,
+            push=push,
+            dry_run=dry_run,
+        )
+
+        if dry_run:
+            console.print("\n[bold yellow]Dry run: no HF Git checkout changes will be made.[/bold yellow]")
+            console.print("[blue]Files to publish:[/blue]")
+            for publish_file in result["files"]:
+                console.print(f"  - {publish_file}")
+            console.print(
+                f"[blue]Target branches:[/blue] {', '.join(result['target_branches'])}"
+            )
+            console.print("\n[bold green]✓ Dry run complete[/bold green]")
+            return
+
+        console.print("\n[bold green]✓ Publish complete![/bold green]")
+        console.print(f"[green]✓ HF commit: {result.get('hf_commit')}[/green]")
+        console.print(f"[green]✓ HF tag: {result.get('hf_tag')}[/green]")
+        if push:
+            console.print("[green]✓ Pushed HF branches and artifact tag[/green]")
+        else:
+            console.print("[yellow]Run `git push` in the HF checkout, or rerun with `--push`.[/yellow]")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Publish failed")
         raise typer.Exit(1)
 
 

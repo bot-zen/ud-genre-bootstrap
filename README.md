@@ -32,23 +32,24 @@ the metadata extraction path, so HF and local CoNLL-U genre extraction behave th
 
 ## Public Release
 
-The promoted UD v2.17 genre artifact is published in `commul/ud-genres` with a simple
-end-user alias and a canonical provenance revision:
+The promoted UD v2.17 genre artifact is published in `commul/ud_genre` with a simple
+UD-version branch for end users and an immutable artifact tag for provenance:
 
 ```python
 from datasets import load_dataset
 
-genres = load_dataset("commul/ud-genres", revision="2.17", split="train")
+genres = load_dataset("commul/ud_genre", revision="2.17", split="train")
 ```
 
 Current artifact identity:
 
-- convenience revision: `2.17`
-- canonical artifact ID / immutable HF revision: `ud2.17-full-ud-v1`
+- convenience branch: `2.17`
+- canonical artifact ID: `ud2.17-full-ud-v1`
+- immutable HF tag: `artifact/ud2.17-full-ud-v1`
 - label schema: `ud`
 - scope: `full`
-- git branch: `release/ud-2.17`
-- git tag: `artifact/ud2.17-full-ud-v1`
+- source branch: `release/v1`
+- source tag: `source/ud2.17-full-ud-v1`
 
 ## Installation
 
@@ -206,8 +207,8 @@ results = bootstrapper.fit()
 print(f"Resolved: {results['resolution_rate']:.2%}")
 print(f"Accuracy: {results['accuracy']:.2%}")
 
-# Export to HuggingFace
-bootstrapper.push_to_hub("commul/ud-genres", revision="2.15")
+# Export to Hugging Face using the compatibility API upload path
+bootstrapper.push_to_hub("commul/ud_genre", revision="2.15")
 ```
 
 ### Visualization
@@ -273,12 +274,14 @@ release:
   scope: "full"
   label_schema: "ud"
   artifact_version: "v1"
-  hf_repo: "commul/ud-genres"
-  hf_revisions:
+  hf_repo: "commul/ud_genre"
+  hf_branches:
     - "2.17"
-    - "ud2.17-full-ud-v1"
-  git_branch: "release/ud-2.17"
-  git_tag: "artifact/ud2.17-full-ud-v1"
+  hf_tag: "artifact/ud2.17-full-ud-v1"
+  hf_default_branch: "main"
+  source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
+  source_branch: "release/v1"
+  source_tag: "source/ud2.17-full-ud-v1"
 
 # Optional: Only process specific treebanks
 include_treebanks:
@@ -337,13 +340,31 @@ exclude_treebanks:
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
 
-To publish an already generated genre-label release without rerunning labeling:
+To publish an already generated genre-label release through a local Git checkout of
+the HF dataset repository:
 
 ```bash
-uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml
+uv run ud-genre-bootstrap publish \
+  --config configs/2.17-community-release.yaml \
+  --hf-repo-dir ../ud_genre-hf \
+  --include-main
 ```
 
-This uploads the existing `all_genres.parquet` and release metadata from `output.genres_path` via the Hugging Face Hub API. The 2.17 release config publishes both `revision="2.17"` and `revision="ud2.17-full-ud-v1"`. To inspect the upload plan without network calls:
+This regenerates local release metadata, copies only `README.md`,
+`all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
+the payload on branch `2.17`, creates the immutable tag
+`artifact/ud2.17-full-ud-v1`, and moves `main` when `--include-main` is passed.
+
+To inspect the Git publish plan without touching the HF checkout:
+
+```bash
+uv run ud-genre-bootstrap publish \
+  --config configs/2.17-community-release.yaml \
+  --hf-repo-dir ../ud_genre-hf \
+  --dry-run
+```
+
+The older Hub API upload path remains available for compatibility:
 
 ```bash
 uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml --dry-run

@@ -3,7 +3,7 @@
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -17,8 +17,10 @@ from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 from ud_genre_bootstrap.utils.release_artifacts import (
     build_release_row_metadata,
-    list_release_upload_files,
+    prepare_release_directory,
     resolve_config_name,
+    summarize_exported_labels_file,
+    upload_release_directory_to_hub,
     write_release_artifacts,
 )
 from ud_genre_bootstrap.utils.sentence_refs import (
@@ -1021,31 +1023,7 @@ class GenreBootstrapper:
 
     def _summarize_exported_labels_file(self, output_file: Path) -> Dict:
         """Summarize an exported ``all_genres.parquet`` file."""
-        import pandas as pd
-
-        if not output_file.exists():
-            return {
-                'total_sentences': 0,
-                'labeled_sentences': 0,
-                'method_counts': {},
-                'genre_counts': {},
-            }
-
-        df = pd.read_parquet(output_file)
-        method_counts = {
-            str(method): int(count)
-            for method, count in df.get('method', pd.Series(dtype=object)).value_counts().items()
-        }
-        genre_counts = {
-            str(genre): int(count)
-            for genre, count in df.get('genre', pd.Series(dtype=object)).dropna().value_counts().items()
-        }
-        return {
-            'total_sentences': int(len(df)),
-            'labeled_sentences': int(df.get('genre', pd.Series(dtype=object)).notna().sum()),
-            'method_counts': method_counts,
-            'genre_counts': genre_counts,
-        }
+        return summarize_exported_labels_file(output_file)
 
     def _export_results(self) -> Dict:
         """Export final genre labels to parquet files.
@@ -1114,15 +1092,7 @@ class GenreBootstrapper:
     def prepare_release_artifacts(self) -> Dict[str, str]:
         """Regenerate release metadata for an existing exported labels directory."""
         output_path = Path(self.config.output.genres_path)
-        output_path.mkdir(parents=True, exist_ok=True)
-        labels_path = output_path / 'all_genres.parquet'
-        stats = self._summarize_exported_labels_file(labels_path)
-        return write_release_artifacts(
-            self.config,
-            output_path,
-            stats,
-            all_genres_path=labels_path,
-        )
+        return prepare_release_directory(self.config, output_path)
 
     def push_to_hub(self, repo_id: str, revision):
         """Push results to HuggingFace Hub.
@@ -1131,9 +1101,6 @@ class GenreBootstrapper:
             repo_id: HuggingFace repo ID
             revision: Revision/branch name or list of revision/branch names
         """
-        from huggingface_hub import HfApi, create_repo
-
-        api = HfApi()
         revisions = [revision] if isinstance(revision, str) else list(revision)
         revisions = [str(item) for item in revisions if str(item).strip()]
         if not revisions:
@@ -1144,64 +1111,10 @@ class GenreBootstrapper:
             logger.warning("No HF token provided, skipping push to hub")
             return None
 
-        try:
-            create_repo(
-                repo_id,
-                token=token,
-                repo_type="dataset",
-                exist_ok=True,
-                private=False,
-            )
-            logger.info(f"Created/verified repo: {repo_id}")
-        except Exception as e:
-            logger.error(f"Failed to create repo: {e}")
-            raise
-
         output_path = Path(self.config.output.genres_path)
-        self.prepare_release_artifacts()
-        upload_files = list_release_upload_files(output_path)
-
-        for target_revision in revisions:
-            if hasattr(api, "create_branch"):
-                try:
-                    api.create_branch(
-                        repo_id=repo_id,
-                        branch=target_revision,
-                        repo_type="dataset",
-                        token=token,
-                        exist_ok=True,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to create/verify revision %s on %s: %s",
-                        target_revision,
-                        repo_id,
-                        e,
-                    )
-
-            for artifact_path in upload_files:
-                relative_path = artifact_path.relative_to(output_path)
-                try:
-                    api.upload_file(
-                        path_or_fileobj=str(artifact_path),
-                        path_in_repo=str(relative_path),
-                        repo_id=repo_id,
-                        repo_type="dataset",
-                        token=token,
-                        revision=target_revision,
-                    )
-                    logger.info(
-                        "Uploaded %s to %s (revision: %s)",
-                        relative_path,
-                        repo_id,
-                        target_revision,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to upload {relative_path}: {e}")
-
-        logger.info(f"Push to hub complete: {repo_id} (revisions: {', '.join(revisions)})")
-        return {
-            "repo_id": repo_id,
-            "revisions": revisions,
-            "files": [str(path.relative_to(output_path)) for path in upload_files],
-        }
+        return upload_release_directory_to_hub(
+            self.config,
+            output_path,
+            repo_id,
+            revisions,
+        )

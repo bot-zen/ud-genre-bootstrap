@@ -132,7 +132,7 @@ output:
   genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   embeddings_revision: "2.17"
-  genres_hf_repo: "commul/ud-genres"
+  genres_hf_repo: "commul/ud_genre"
   genres_revision: "2.17"
   config_name: null  # Optional frozen config label copied into release artifacts / all_genres.parquet
   run_id: null  # Optional stable release run identifier copied into release artifacts / all_genres.parquet

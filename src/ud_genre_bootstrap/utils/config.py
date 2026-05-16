@@ -123,7 +123,7 @@ class OutputConfig:
     genres_path: str = "output/ud-v2.17/genres/"
     embeddings_hf_repo: str = "commul/ud-embeddings-xlm-roberta-base"
     embeddings_revision: str = "2.17"
-    genres_hf_repo: str = "commul/ud-genres"
+    genres_hf_repo: str = "commul/ud_genre"
     genres_revision: str = "2.17"
     config_name: Optional[str] = None
     run_id: Optional[str] = None
@@ -142,7 +142,14 @@ class ReleaseConfig:
     label_schema: str = "ud"
     artifact_version: str = "v1"
     hf_repo: Optional[str] = None
+    hf_branches: List[str] = field(default_factory=list)
+    hf_tag: Optional[str] = None
+    hf_default_branch: str = "main"
     hf_revisions: List[str] = field(default_factory=list)
+    source_repo: Optional[str] = None
+    source_branch: Optional[str] = None
+    source_tag: Optional[str] = None
+    source_commit: Optional[str] = None
     git_branch: Optional[str] = None
     git_tag: Optional[str] = None
 
