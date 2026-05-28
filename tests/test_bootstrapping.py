@@ -48,7 +48,6 @@ class TestGenreExport:
             "confidence",
             "method",
             "ud_version",
-            "ud_source_revision",
             "model",
             "pooling",
             "clustering_method",

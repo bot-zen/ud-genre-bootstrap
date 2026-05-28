@@ -157,14 +157,15 @@ Implemented release behavior:
   - `treebank`
   - `split`
   - `sent_id`
-- `all_genres.parquet` now also carries row-level provenance:
+- `all_genres.parquet` now also carries compact row-level provenance:
   - `ud_version`
-  - `ud_source_revision`
   - `model`
   - `pooling`
   - `clustering_method`
   - `config_name`
   - `run_id`
+- artifact-level provenance such as `ud_source_revision` is recorded in
+  `run_metadata.json` and `release_manifest.json`, not repeated in every row
 - local exports now write release support artifacts automatically:
   - `README.md`
   - `run_metadata.json`
@@ -336,12 +337,17 @@ Minimum community-facing schema:
 Recommended provenance columns:
 
 - `ud_version`
-- `ud_source_revision`
 - `model`
 - `pooling`
 - `clustering_method`
 - `config_name`
 - `run_id`
+
+Artifact-level provenance:
+
+- `ud_source`
+- `ud_source_revision`
+- source repo/tag/commit
 
 ### 5.4 Dataset Card Content
 

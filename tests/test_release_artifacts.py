@@ -67,6 +67,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["hf_tag"] == "artifact/ud2.17-full-ud-v1"
     assert run_metadata["source_branch"] == "release/v1"
     assert run_metadata["source_tag"] == "source/ud2.17-full-ud-v1"
+    assert run_metadata["ud_source"] == "hf://commul/universal_dependencies"
+    assert run_metadata["ud_source_revision"] == "2.17"
     assert run_metadata["config_hash"]
     assert run_metadata["mapping_file_hashes"]["mappings/genre_mappings.json"]
     assert run_metadata["source_files"]["config"]["path"] == str(config_path)
@@ -75,6 +77,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["algorithm_recipe"]["thresholds"]["min_confidence"] == 0.8
 
     assert manifest["artifact_id"] == run_metadata["artifact_id"]
+    assert manifest["ud_source"] == run_metadata["ud_source"]
+    assert manifest["ud_source_revision"] == run_metadata["ud_source_revision"]
     assert manifest["hf_payload"] == [
         "README.md",
         "all_genres.parquet",

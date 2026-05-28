@@ -57,7 +57,6 @@ def build_release_row_metadata(config) -> Dict[str, Any]:
     """Build static provenance columns for row-level export."""
     return {
         "ud_version": str(config.ud_version),
-        "ud_source_revision": resolve_ud_source_revision(config),
         "model": str(config.embeddings.model),
         "pooling": str(config.embeddings.pooling),
         "clustering_method": str(config.clustering.method),
@@ -648,6 +647,8 @@ def write_release_artifacts(
         "git_tag": git_metadata.get("tag"),
         "config_name": resolve_config_name(config),
         "run_id": resolve_run_id(config),
+        "ud_source": str(config.ud_source),
+        "ud_source_revision": resolve_ud_source_revision(config),
         "config_hash": config_hash,
         "mapping_file_hashes": mapping_file_hashes,
         "source_files": source_files,
