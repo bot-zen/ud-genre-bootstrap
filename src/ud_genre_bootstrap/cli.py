@@ -2874,6 +2874,12 @@ def coverage(
             treebank_filter = [tb['id'] for tb in all_treebank_data]
             console.print(f"[blue]Analyzing all {len(treebank_filter)} treebanks[/blue]")
 
+        treebank_filter = apply_treebank_exclusions(
+            cfg,
+            bootstrapper.data_loader,
+            treebank_filter,
+        )
+        console.print(f"[blue]Analyzing {len(treebank_filter)} treebanks after exclusions[/blue]")
         console.print(f"[blue]Coverage threshold: {threshold * 100:.0f}%[/blue]\n")
 
         # Analyze treebanks

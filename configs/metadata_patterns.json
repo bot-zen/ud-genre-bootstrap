@@ -129,6 +129,16 @@
     }
   ],
 
+  "egy_pc": [
+    {
+      "_comment": "Treebank genre: bible fiction nonfiction government; Old Egyptian multiword expressions and sentences from the Pyramid Texts",
+      "genre": "poetry",
+      "genre_mapping": {
+        "religious": "poetry"
+      }
+    }
+  ],
+
   "en_ewt": [
     {
       "pattern": "# sent_id = ([a-z]+)-",
