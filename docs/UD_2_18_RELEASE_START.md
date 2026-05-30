@@ -2,6 +2,8 @@
 
 The UD 2.18 cycle starts from `configs/2.18-community-release.yaml`.
 
+The current release-state document is `docs/UD_2_18_RELEASE.md`.
+
 This is a candidate release profile, not a promoted artifact yet. Keep
 `configs/releases/genre_artifacts.yaml` limited to promoted artifacts and add
 `ud2.18-full-ud-v1` there only after the full run, evaluation, source tag, and
@@ -16,6 +18,7 @@ HF publish are complete.
 - Source branch: `release/v1`
 - Source tag: `source/ud2.18-full-ud-v1`
 - Output directory: `output/2.18-community-release/genres`
+- HF Git checkout: `../ud_genre-hf/` mapping to `commul/ud_genre`
 
 ## First Checks
 
@@ -60,10 +63,12 @@ pipeline.
 ```bash
 uv run ud-genre-bootstrap embed   --config configs/2.18-community-release.yaml
 uv run ud-genre-bootstrap cluster --config configs/2.18-community-release.yaml
-uv run ud-genre-bootstrap label   --config configs/2.18-community-release.yaml
+uv run ud-genre-bootstrap label \
+  --config configs/2.18-community-release.yaml \
+  --clusters output/2.18-community-release/genres/clusters
 uv run ud-genre-bootstrap evaluate --config configs/2.18-community-release.yaml
 ```
 
 After validation, create `source/ud2.18-full-ud-v1` at the clean source commit,
-publish to the HF dataset checkout, and then add the promoted artifact to the
-release registry.
+publish through the HF dataset checkout `../ud_genre-hf/`, and then add the
+promoted artifact to the release registry.

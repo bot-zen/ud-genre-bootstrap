@@ -51,6 +51,11 @@ Current artifact identity:
 - source branch: `release/v1`
 - source tag: `source/ud2.17-full-ud-v1`
 
+The UD v2.18 release candidate is documented in
+[docs/UD_2_18_RELEASE.md](docs/UD_2_18_RELEASE.md). Its publication target is the
+local HF Git checkout `../ud_genre-hf/`, whose origin maps to
+`git@hf.co:datasets/commul/ud_genre`.
+
 ## Installation
 
 ### Production Use
@@ -341,7 +346,8 @@ exclude_treebanks:
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
 
 To publish an already generated genre-label release through a local Git checkout of
-the HF dataset repository:
+the HF dataset repository, use the sibling checkout `../ud_genre-hf/`. That
+checkout maps to `commul/ud_genre` on Hugging Face.
 
 ```bash
 uv run ud-genre-bootstrap publish \
@@ -369,6 +375,10 @@ The older Hub API upload path remains available for compatibility:
 ```bash
 uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml --dry-run
 ```
+
+For the UD v2.18 release candidate, use the same Git-backed publish flow with
+`configs/2.18-community-release.yaml`; pass `--include-main` when the artifact
+should become the HF web UI default branch.
 
 ## Output Format
 
