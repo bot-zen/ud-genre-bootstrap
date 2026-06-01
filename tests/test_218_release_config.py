@@ -2,7 +2,7 @@ from ud_genre_bootstrap.utils.config import load_config
 from ud_genre_bootstrap.utils.release_identity import resolve_release_identity
 
 
-def test_218_community_release_config_has_candidate_identity():
+def test_218_community_release_config_has_promoted_identity():
     cfg = load_config("configs/2.18-community-release.yaml")
 
     identity = resolve_release_identity(cfg)

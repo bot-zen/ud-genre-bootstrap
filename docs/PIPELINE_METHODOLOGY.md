@@ -513,7 +513,9 @@ The pipeline computes several quality indicators:
 
 ## 3. Evaluation Framework
 
-For the current locked evaluation baseline, the parity interpretation, and the planned full-data / Hugging Face release process, see `docs/EVALUATION_BASELINE_AND_RELEASE_PLAN.md`.
+For the current locked evaluation baseline and parity interpretation, see
+`docs/EVALUATION_BASELINE.md`. For the reusable full-data /
+Hugging Face release process, see `docs/RELEASE.md`.
 
 ### 3.1 Clustering Evaluation
 

@@ -59,6 +59,10 @@ The UD v2.17 branch remains available as a patched metadata refresh at
 `../ud_genre-hf/`, whose origin maps to
 `git@hf.co:datasets/commul/ud_genre`.
 
+The reusable release workflow, including artifact versioning, source tags, HF
+branches, and publishing commands, is documented in
+[docs/RELEASE.md](docs/RELEASE.md).
+
 ## Installation
 
 ### Production Use
@@ -273,23 +277,23 @@ Relative paths are resolved relative to the current working directory.
 Example `config.yaml`:
 
 ```yaml
-ud_version: "2.17"
+ud_version: "2.18"
 ud_source: "hf://commul/universal_dependencies"
 metadata_path: null  # e.g. "../huggingface/universal_dependencies/metadata.json"
 
 release:
-  artifact_id: "ud2.17-full-ud-v1"
+  artifact_id: "ud2.18-full-ud-v1"
   scope: "full"
   label_schema: "ud"
   artifact_version: "v1"
   hf_repo: "commul/ud_genre"
   hf_branches:
-    - "2.17"
-  hf_tag: "artifact/ud2.17-full-ud-v1"
+    - "2.18"
+  hf_tag: "artifact/ud2.18-full-ud-v1"
   hf_default_branch: "main"
   source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
   source_branch: "release/v1"
-  source_tag: "source/ud2.17-full-ud-v1"
+  source_tag: "source/ud2.18-full-ud-v1"
 
 # Optional: Only process specific treebanks
 include_treebanks:
@@ -350,38 +354,48 @@ exclude_treebanks:
 
 To publish an already generated genre-label release through a local Git checkout of
 the HF dataset repository, use the sibling checkout `../ud_genre-hf/`. That
-checkout maps to `commul/ud_genre` on Hugging Face.
+checkout maps to `commul/ud_genre` on Hugging Face. The reusable release process
+is documented in [docs/RELEASE.md](docs/RELEASE.md).
+
+The current default artifact is UD v2.18, so publishing it should also move the
+HF `main` branch:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/2.17-community-release.yaml \
+  --config configs/2.18-community-release.yaml \
   --hf-repo-dir ../ud_genre-hf \
   --include-main
 ```
 
 This regenerates local release metadata, copies only `README.md`,
 `all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
-the payload on branch `2.17`, creates the immutable tag
-`artifact/ud2.17-full-ud-v1`, and moves `main` when `--include-main` is passed.
+the payload on branch `2.18`, creates the immutable tag
+`artifact/ud2.18-full-ud-v1`, and moves `main` because `--include-main` is
+passed.
+
+The patched UD v2.17 metadata artifact can be published without moving `main`:
+
+```bash
+uv run ud-genre-bootstrap publish \
+  --config configs/2.17-community-release.yaml \
+  --hf-repo-dir ../ud_genre-hf
+```
 
 To inspect the Git publish plan without touching the HF checkout:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/2.17-community-release.yaml \
+  --config configs/2.18-community-release.yaml \
   --hf-repo-dir ../ud_genre-hf \
+  --include-main \
   --dry-run
 ```
 
 The older Hub API upload path remains available for compatibility:
 
 ```bash
-uv run ud-genre-bootstrap upload --config configs/2.17-community-release.yaml --dry-run
+uv run ud-genre-bootstrap upload --config configs/2.18-community-release.yaml --dry-run
 ```
-
-For the UD v2.18 release candidate, use the same Git-backed publish flow with
-`configs/2.18-community-release.yaml`; pass `--include-main` when the artifact
-should become the HF web UI default branch.
 
 ## Output Format
 

@@ -48,7 +48,7 @@ artifacts:
     scope: "full"
     label_schema: "ud"
     artifact_version: "v1"
-    status: "active-default"
+    status: "active"
     change_scope: "source_milestone"
     hf_repo: "commul/ud_genre"
     hf_branches:

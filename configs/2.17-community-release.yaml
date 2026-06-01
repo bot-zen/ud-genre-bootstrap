@@ -1,5 +1,5 @@
 # Frozen community-release profile for UD v2.17.
-# This is the release candidate configuration for the full-data labeling run.
+# This now identifies the v1.0.1 metadata refresh; label data are unchanged from v1.
 # The attached baseline summary points to the locked end-user 10-fold generalization baseline.
 
 ud_version: "2.17"

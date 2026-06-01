@@ -1,6 +1,6 @@
-# Candidate community-release profile for UD v2.18.
-# This starts the full-data labeling run for the next UD release.
-# Add this artifact to configs/releases/genre_artifacts.yaml only after promotion.
+# Promoted community-release profile for UD v2.18.
+# This artifact is the current HF default target for commul/ud_genre.
+# Release mechanics are documented in docs/RELEASE.md.
 
 ud_version: "2.18"
 ud_source: "hf://commul/universal_dependencies"
