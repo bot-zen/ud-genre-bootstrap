@@ -32,28 +32,31 @@ the metadata extraction path, so HF and local CoNLL-U genre extraction behave th
 
 ## Public Release
 
-The promoted UD v2.17 genre artifact is published in `commul/ud_genre` with a simple
-UD-version branch for end users and an immutable artifact tag for provenance:
+The promoted UD v2.18 genre artifact is published in `commul/ud_genre` with a simple
+UD-version branch for end users, the HF default branch for the web UI, and an
+immutable artifact tag for provenance:
 
 ```python
 from datasets import load_dataset
 
-genres = load_dataset("commul/ud_genre", revision="2.17", split="train")
+genres = load_dataset("commul/ud_genre", revision="2.18", split="train")
 ```
 
 Current artifact identity:
 
-- convenience branch: `2.17`
-- canonical artifact ID: `ud2.17-full-ud-v1`
-- immutable HF tag: `artifact/ud2.17-full-ud-v1`
+- default branch: `main`
+- convenience branch: `2.18`
+- canonical artifact ID: `ud2.18-full-ud-v1`
+- immutable HF tag: `artifact/ud2.18-full-ud-v1`
 - label schema: `ud`
 - scope: `full`
 - source branch: `release/v1`
-- source tag: `source/ud2.17-full-ud-v1`
+- source tag: `source/ud2.18-full-ud-v1`
 
-The UD v2.18 release candidate is documented in
-[docs/UD_2_18_RELEASE.md](docs/UD_2_18_RELEASE.md). Its publication target is the
-local HF Git checkout `../ud_genre-hf/`, whose origin maps to
+The UD v2.17 branch remains available as a patched metadata refresh at
+`artifact/ud2.17-full-ud-v1.0.1`; its label data are unchanged from
+`artifact/ud2.17-full-ud-v1`. The publication target is the local HF Git checkout
+`../ud_genre-hf/`, whose origin maps to
 `git@hf.co:datasets/commul/ud_genre`.
 
 ## Installation

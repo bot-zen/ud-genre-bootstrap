@@ -7,18 +7,18 @@ ud_source: "hf://commul/universal_dependencies"
 metadata_path: null
 
 release:
-  artifact_id: "ud2.17-full-ud-v1"
+  artifact_id: "ud2.17-full-ud-v1.0.1"
   scope: "full"
   label_schema: "ud"
-  artifact_version: "v1"
+  artifact_version: "v1.0.1"
   hf_repo: "commul/ud_genre"
   hf_branches:
     - "2.17"
-  hf_tag: "artifact/ud2.17-full-ud-v1"
+  hf_tag: "artifact/ud2.17-full-ud-v1.0.1"
   hf_default_branch: "main"
   source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
   source_branch: "release/v1"
-  source_tag: "source/ud2.17-full-ud-v1"
+  source_tag: "source/ud2.17-full-ud-v1.0.1"
 
 exclude_treebanks:
   - "ar_nyuad"

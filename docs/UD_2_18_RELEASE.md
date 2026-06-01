@@ -1,7 +1,8 @@
 # UD 2.18 Release
 
 This document records the current UD 2.18 genre artifact and the publish path to
-the Hugging Face dataset repository.
+the Hugging Face dataset repository. UD 2.18 is the intended default artifact for
+the HF `main` branch.
 
 ## Identity
 
@@ -15,7 +16,7 @@ the Hugging Face dataset repository.
 - HF dataset repo: `commul/ud_genre`
 - Local HF Git checkout: `../ud_genre-hf/`
 - HF moving branch: `2.18`
-- HF default branch: `main`
+- HF default branch: `main` (points to this artifact)
 - HF artifact tag: `artifact/ud2.18-full-ud-v1`
 - Source branch: `release/v1`
 - Source tag: `source/ud2.18-full-ud-v1`
