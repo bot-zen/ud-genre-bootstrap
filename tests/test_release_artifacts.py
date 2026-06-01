@@ -32,7 +32,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
                 "hf_repo": "commul/ud_genre",
                 "hf_branches": ["2.17"],
                 "hf_tag": "artifact/ud2.17-full-ud-v1",
-                "source_repo": "git@example.test/ud-genre-bootstrap.git",
+                "source_repo": "git@github.com:bot-zen/ud-genre-bootstrap.git",
                 "source_branch": "release/v1",
                 "source_tag": "source/ud2.17-full-ud-v1",
             },
@@ -88,13 +88,31 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert readme.startswith("---\n")
     card_metadata = yaml.safe_load(readme.split("---", 2)[1])
     assert card_metadata["pretty_name"] == "UD Genre Labels 2.17"
+    assert card_metadata["license"] == "apache-2.0"
+    assert card_metadata["annotations_creators"] == ["machine-generated"]
+    assert card_metadata["language_creators"] == ["crowdsourced"]
+    assert card_metadata["multilinguality"] == ["multilingual"]
     assert card_metadata["task_categories"] == ["text-classification"]
     assert "universal-dependencies" in card_metadata["tags"]
+    assert "derived-annotations" in card_metadata["tags"]
     assert card_metadata["size_categories"] == ["n<1K"]
     assert "revision=\"2.17\"" in readme
     assert "revision=\"artifact/ud2.17-full-ud-v1\"" in readme
+    assert "## Dataset Description" in readme
+    assert "- Repository: https://github.com/bot-zen/ud-genre-bootstrap" in readme
+    assert "- Point of Contact: appliedlinguisticsdevs@eurac.edu" in readme
+    assert "https://universaldependencies.org/udw26/papers/41_Paper.pdf" in readme
+    assert (
+        "[commul/universal_dependencies]"
+        "(https://huggingface.co/datasets/commul/universal_dependencies)"
+        in readme
+    )
+    assert "The `train` split is the single exported split" in readme
+    assert "## Joining With Universal Dependencies" in readme
     assert "Artifact ID: `ud2.17-full-ud-v1`" in readme
     assert "Label schema: `ud`" in readme
+    assert "Source repo: `https://github.com/bot-zen/ud-genre-bootstrap`" in readme
+    assert "`run_id`: compact row-level provenance" in readme
 
 
 def _git(repo_dir, *args: str) -> str:

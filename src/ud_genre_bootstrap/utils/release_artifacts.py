@@ -19,6 +19,9 @@ from ud_genre_bootstrap.utils.release_identity import resolve_release_identity
 logger = logging.getLogger(__name__)
 
 HF_PUBLISH_FILES = ("README.md", "all_genres.parquet", "release_manifest.json")
+PROJECT_REPOSITORY_URL = "https://github.com/bot-zen/ud-genre-bootstrap"
+UD_WORKSHOP_PAPER_URL = "https://universaldependencies.org/udw26/papers/41_Paper.pdf"
+POINT_OF_CONTACT = "appliedlinguisticsdevs@eurac.edu"
 
 
 def resolve_config_name(config) -> str:
@@ -344,12 +347,18 @@ def _build_dataset_card_yaml(config, stats: Dict[str, Any]) -> str:
     """Build Hugging Face dataset-card YAML metadata."""
     metadata = {
         "pretty_name": f"UD Genre Labels {config.ud_version}",
+        "license": "apache-2.0",
+        "annotations_creators": ["machine-generated"],
+        "language_creators": ["crowdsourced"],
+        "multilinguality": ["multilingual"],
         "task_categories": ["text-classification"],
         "tags": [
             "universal-dependencies",
             "genre-classification",
             "sentence-classification",
             "multilingual",
+            "linguistics",
+            "derived-annotations",
             "text",
             "tabular",
             "datasets",
@@ -357,6 +366,33 @@ def _build_dataset_card_yaml(config, stats: Dict[str, Any]) -> str:
         "size_categories": [_size_category(int(stats.get("total_sentences", 0)))],
     }
     return "---\n" + yaml.safe_dump(metadata, sort_keys=False) + "---\n"
+
+
+def _hf_dataset_url(ud_source: str) -> str:
+    """Return a clickable URL for an HF dataset source when possible."""
+    if ud_source.startswith("hf://"):
+        repo_id = ud_source.replace("hf://", "", 1).strip("/")
+        if repo_id:
+            return f"https://huggingface.co/datasets/{repo_id}"
+    return ud_source
+
+
+def _display_source_repo(repo: Optional[str]) -> str:
+    """Return a user-facing repository URL for GitHub SSH/HTTPS inputs."""
+    if not repo:
+        return PROJECT_REPOSITORY_URL
+
+    repo = repo.strip()
+    if repo.startswith("git@github.com:"):
+        path = repo.replace("git@github.com:", "", 1)
+        if path.endswith(".git"):
+            path = path[:-4]
+        return f"https://github.com/{path}"
+
+    if repo.startswith("https://github.com/") and repo.endswith(".git"):
+        return repo[:-4]
+
+    return repo
 
 
 def _build_dataset_card(
@@ -393,33 +429,86 @@ def _build_dataset_card(
         else config.ud_version
     )
     immutable_revision = release_identity.get("hf_tag") or release_identity["artifact_id"]
+    hf_repo = release_identity.get("hf_repo") or config.output.genres_hf_repo
+    ud_source_url = _hf_dataset_url(str(config.ud_source))
+    source_repo_url = _display_source_repo(
+        git_metadata.get("repo") or release_identity.get("source_repo")
+    )
 
     body = "\n".join([
         f"# UD Genre Labels {release_identity['artifact_id']}",
         "",
-        "Derived sentence-level genre annotations for Universal Dependencies treebanks.",
+        "Derived sentence-level genre annotations for the "
+        f"[commul/universal_dependencies]({ud_source_url}) Universal Dependencies dataset.",
         "These labels are produced by the bootstrapping pipeline and are not "
         "authoritative gold annotations.",
+        "",
+        "## Dataset Description",
+        f"- Homepage: {source_repo_url}",
+        f"- Repository: {source_repo_url}",
+        f"- Source dataset: [{config.ud_source}]({ud_source_url})",
+        f"- Paper: {UD_WORKSHOP_PAPER_URL}",
+        f"- Point of Contact: {POINT_OF_CONTACT}",
+        "",
+        "## Dataset Summary",
+        "This dataset provides a sentence-level genre layer aligned to the "
+        "[commul/universal_dependencies]"
+        f"({ud_source_url}) Parquet release.",
+        "Each row contains one derived genre label for one UD sentence and can be "
+        "joined back to the UD source data by `(treebank, split, sent_id)`.",
+        "",
+        "The export is a derived annotation layer, not a replacement for the UD "
+        "treebanks and not a hand-validated gold genre dataset.",
         "",
         "## Loading",
         "```python",
         "from datasets import load_dataset",
         "",
         "genres = load_dataset(",
-        f"    \"{release_identity.get('hf_repo') or config.output.genres_hf_repo}\",",
+        f"    \"{hf_repo}\",",
         f"    revision=\"{public_revision}\",",
         "    split=\"train\",",
         ")",
         "```",
         "",
+        "The `train` split is the single exported split containing all sentence-level "
+        "genre labels for this artifact.",
+        "",
         "For immutable provenance, load the artifact tag:",
         "",
         "```python",
         "genres = load_dataset(",
-        f"    \"{release_identity.get('hf_repo') or config.output.genres_hf_repo}\",",
+        f"    \"{hf_repo}\",",
         f"    revision=\"{immutable_revision}\",",
         "    split=\"train\",",
         ")",
+        "```",
+        "",
+        "## Joining With Universal Dependencies",
+        "```python",
+        "from datasets import load_dataset",
+        "",
+        "genres = load_dataset(",
+        f"    \"{hf_repo}\",",
+        f"    revision=\"{public_revision}\",",
+        "    split=\"train\",",
+        ")",
+        "",
+        "ud = load_dataset(",
+        "    \"commul/universal_dependencies\",",
+        "    \"en_ewt\",",
+        f"    revision=\"{resolve_ud_source_revision(config)}\",",
+        "    split=\"train\",",
+        ")",
+        "",
+        "genre_by_key = {",
+        "    (row[\"treebank\"], row[\"split\"], row[\"sent_id\"]): row[\"genre\"]",
+        "    for row in genres",
+        "    if row[\"treebank\"] == \"en_ewt\" and row[\"split\"] == \"train\"",
+        "}",
+        "",
+        "first = ud[0]",
+        "genre = genre_by_key.get((\"en_ewt\", \"train\", first[\"sent_id\"]))",
         "```",
         "",
         "## Release Identity",
@@ -427,12 +516,12 @@ def _build_dataset_card(
         f"- HF branches: `{', '.join(release_identity.get('hf_branches', []))}`",
         f"- HF tag: `{release_identity.get('hf_tag') or 'n/a'}`",
         f"- HF default branch: `{release_identity.get('hf_default_branch') or 'main'}`",
-        f"- HF repo: `{release_identity.get('hf_repo') or 'n/a'}`",
+        f"- HF repo: `{hf_repo}`",
         f"- UD version: `{release_identity['ud_version']}`",
         f"- Scope: `{release_identity['scope']}`",
         f"- Label schema: `{release_identity['label_schema']}`",
         f"- Artifact version: `{release_identity['artifact_version']}`",
-        f"- Source repo: `{git_metadata.get('repo') or 'unknown'}`",
+        f"- Source repo: `{source_repo_url}`",
         f"- Source commit: `{git_metadata.get('commit') or 'unknown'}`",
         f"- Source branch: `{git_metadata.get('branch') or 'unknown'}`",
         f"- Source tag: `{git_metadata.get('tag') or 'none configured'}`",
@@ -453,6 +542,8 @@ def _build_dataset_card(
         "- `confidence`: top-1 similarity score for the assigned cluster label",
         "- `method`: `single-genre-treebank`, `virtual-split`, `bootstrap-labeled`, "
         "or `bootstrap-inferred`",
+        "- `ud_version`, `model`, `pooling`, `clustering_method`, `config_name`, "
+        "`run_id`: compact row-level provenance",
         "",
         "## Evaluation Framing",
         "- `paper_parity` is used only for comparison with the original GMM+L paper protocol.",
@@ -471,6 +562,12 @@ def _build_dataset_card(
         "",
         "## Source Mapping Files",
         *mapping_lines,
+        "",
+        "## Citation",
+        f"Please cite the UD Workshop paper associated with this dataset: {UD_WORKSHOP_PAPER_URL}",
+        "",
+        "## Contact",
+        f"Point of Contact: {POINT_OF_CONTACT}",
         "",
     ]) + "\n"
     return _build_dataset_card_yaml(config, stats) + body
