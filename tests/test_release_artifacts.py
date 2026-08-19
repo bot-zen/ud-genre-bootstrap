@@ -67,7 +67,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["hf_tag"] == "artifact/ud2.17-full-ud-v1"
     assert run_metadata["source_branch"] == "release/v1"
     assert run_metadata["source_tag"] == "source/ud2.17-full-ud-v1"
-    assert run_metadata["ud_source"] == "hf://commul/universal_dependencies"
+    assert run_metadata["ud_source"] == "hf://universal-dependencies/universal_dependencies"
     assert run_metadata["ud_source_revision"] == "2.17"
     assert run_metadata["config_hash"]
     assert run_metadata["mapping_file_hashes"]["mappings/genre_mappings.json"]
@@ -103,8 +103,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "- Point of Contact: appliedlinguisticsdevs@eurac.edu" in readme
     assert "https://universaldependencies.org/udw26/papers/41_Paper.pdf" in readme
     assert (
-        "[commul/universal_dependencies]"
-        "(https://huggingface.co/datasets/commul/universal_dependencies)"
+        "[universal-dependencies/universal_dependencies]"
+        "(https://huggingface.co/datasets/universal-dependencies/universal_dependencies)"
         in readme
     )
     assert "The `train` split is the single exported split" in readme

@@ -578,7 +578,7 @@ The evaluation faithfully mirrors the production implementation in two key ways:
 - Supports strict paper-parity mode (`protocol=paper_parity` or `--protocol paper_parity`) which forces fixed-partition evaluation, `group_by=None`, and same-partition single-genre anchors from the selected `--test-partition`
 
 For index-based paper splits, use:
-- `ud-genre-bootstrap build-sentence-split-map --ud-source hf://commul/universal_dependencies --ud-version 2.8 --split-pickle ... --output ...`
+- `ud-genre-bootstrap build-sentence-split-map --ud-source hf://universal-dependencies/universal_dependencies --ud-version 2.8 --split-pickle ... --output ...`
 - `ud-genre-bootstrap evaluate --config configs/2.8-apples.yaml --sentence-split-map configs/apples/paper-split-map-v2.8.parquet --test-partition test`
 
 **Metrics:**

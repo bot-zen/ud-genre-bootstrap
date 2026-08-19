@@ -17,7 +17,7 @@ import ud_genre_bootstrap.cli as cli_module
 from ud_genre_bootstrap.utils.config import Config
 
 
-@pytest.fixture(params=["hf://commul/universal_dependencies", "local:///tmp/ud"])
+@pytest.fixture(params=["hf://universal-dependencies/universal_dependencies", "local:///tmp/ud"])
 def ud_source(request) -> str:
     """Provide both supported source schemes."""
     return request.param

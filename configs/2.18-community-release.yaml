@@ -1,24 +1,24 @@
 # Promoted community-release profile for UD v2.18.
-# This artifact is the current HF default target for commul/ud_genre.
+# This metadata/provenance patch is the current HF default target for commul/ud_genre.
 # Release mechanics are documented in docs/RELEASE.md.
 
 ud_version: "2.18"
-ud_source: "hf://commul/universal_dependencies"
+ud_source: "hf://universal-dependencies/universal_dependencies"
 metadata_path: null
 
 release:
-  artifact_id: "ud2.18-full-ud-v1"
+  artifact_id: "ud2.18-full-ud-v1.0.1"
   scope: "full"
   label_schema: "ud"
-  artifact_version: "v1"
+  artifact_version: "v1.0.1"
   hf_repo: "commul/ud_genre"
   hf_branches:
     - "2.18"
-  hf_tag: "artifact/ud2.18-full-ud-v1"
+  hf_tag: "artifact/ud2.18-full-ud-v1.0.1"
   hf_default_branch: "main"
   source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
   source_branch: "release/v1"
-  source_tag: "source/ud2.18-full-ud-v1"
+  source_tag: "source/ud2.18-full-ud-v1.0.1"
 
 exclude_treebanks:
   - "ar_nyuad"
@@ -170,7 +170,7 @@ output:
   genres_hf_repo: "commul/ud_genre"
   genres_revision: "2.18"
   config_name: "2.18-community-release"
-  run_id: "ud-v2.18-community-release-v1"
+  run_id: "ud-v2.18-community-release-v1.0.1"
   ud_source_revision: "2.18"
   baseline_summary_path: null
   push_to_hub: false

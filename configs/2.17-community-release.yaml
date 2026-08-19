@@ -3,7 +3,7 @@
 # The attached baseline summary points to the locked end-user 10-fold generalization baseline.
 
 ud_version: "2.17"
-ud_source: "hf://commul/universal_dependencies"
+ud_source: "hf://universal-dependencies/universal_dependencies"
 metadata_path: null
 
 release:
@@ -170,7 +170,7 @@ output:
   genres_hf_repo: "commul/ud_genre"
   genres_revision: "2.17"
   config_name: "2.17-community-release"
-  run_id: "ud-v2.17-community-release-v1"
+  run_id: "ud-v2.17-community-release-v1.0.1"
   ud_source_revision: "2.17"
   baseline_summary_path: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
   push_to_hub: false

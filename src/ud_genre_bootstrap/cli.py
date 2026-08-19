@@ -2685,7 +2685,7 @@ def build_sentence_split_map(
         None,
         "--ud-source",
         help=(
-            "UD source URI (e.g., 'hf://commul/universal_dependencies' or "
+            "UD source URI (e.g., 'hf://universal-dependencies/universal_dependencies' or "
             "'local:///path/to/UD_repos'). Overrides config."
         ),
     ),

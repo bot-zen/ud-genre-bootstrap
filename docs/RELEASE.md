@@ -12,6 +12,7 @@ metadata.
 - generated local release directory: `output/<release-name>/genres`
 - HF dataset Git checkout: `../ud_genre-hf/`
 - HF dataset repo: `commul/ud_genre`
+- upstream UD HF dataset repo: `universal-dependencies/universal_dependencies`
 
 For UD 2.7 through UD 2.16 backfills, add or update a release config and
 registry entry, then use this document. Create a version-specific document only
@@ -29,14 +30,15 @@ ud<UD version>-<scope>-<label schema>-<artifact version>
 Examples:
 
 - `ud2.17-full-ud-v1.0.1`
-- `ud2.18-full-ud-v1`
+- `ud2.18-full-ud-v1.0.1`
 
 Field meanings:
 
 - `ud<UD version>`: source Universal Dependencies release
 - `scope`: data scope, normally `full`
 - `label_schema`: genre inventory/profile, currently `ud`
-- `artifact_version`: semver-like artifact revision; `v1` means `v1.0.0`
+- `artifact_version`: explicit semver-like artifact revision, for example
+  `v1.0.0` or `v1.0.1`
 
 Algorithm settings are not part of the public artifact ID. Embedding model,
 pooling, clustering method, thresholds, reference weighting, and seed are
@@ -46,7 +48,7 @@ recorded as `algorithm_recipe` in `run_metadata.json` and
 ## Versioning Policy
 
 - The first public artifact for a UD version, scope, and label schema uses
-  `artifact_version: v1`, even for backfilled older UD releases.
+  `artifact_version: v1.0.0`, even for backfilled older UD releases.
 - Major or minor artifact changes are source-wide release-train milestones and
   should rebuild every active promoted artifact in the registry.
 - Patch changes are artifact-specific fixes, for example a dataset-card refresh
@@ -56,7 +58,11 @@ recorded as `algorithm_recipe` in `run_metadata.json` and
 - Existing immutable tags must not be moved.
 
 If generated data do not change and only the README/provenance metadata changes,
-bump the artifact patch version, for example from `v1` to `v1.0.1`.
+bump the artifact patch version, for example from `v1.0.0` to `v1.0.1`.
+
+Legacy shorthand artifact IDs such as `ud2.18-full-ud-v1` may exist from early
+publication work, but promoted configs should use explicit patch versions and
+new shorthand artifact tags should not be created.
 
 ## Branches And Tags
 
@@ -84,9 +90,9 @@ The current intended default is UD 2.18:
 
 - default HF branch: `main`
 - UD branch: `2.18`
-- artifact ID: `ud2.18-full-ud-v1`
-- HF tag: `artifact/ud2.18-full-ud-v1`
-- source tag: `source/ud2.18-full-ud-v1`
+- artifact ID: `ud2.18-full-ud-v1.0.1`
+- HF tag: `artifact/ud2.18-full-ud-v1.0.1`
+- source tag: `source/ud2.18-full-ud-v1.0.1`
 
 Default status is represented by the HF `main` branch, not by a separate
 registry status. Registry status values are `active`, `superseded`, and
@@ -129,7 +135,7 @@ Use this path when a new UD version should become the public default, as with
 UD 2.18:
 
 1. Create or update `configs/<ud-version>-community-release.yaml`.
-2. Use `artifact_version: v1` unless an artifact for that exact
+2. Use `artifact_version: v1.0.0` unless an artifact for that exact
    UD/scope/schema has already been published.
 3. Set `hf_branches` to the UD version branch, for example `["2.18"]`.
 4. Set `hf_tag` and `source_tag` from the artifact ID.
@@ -145,10 +151,10 @@ Use this path for first-time public artifacts for UD 2.7 through UD 2.16:
    `configs/2.7-community-release.yaml`.
 2. Set `ud_version`, `output.genres_path`, `output.config_name`,
    `output.run_id`, and `output.ud_source_revision` to that UD version.
-3. Use an initial artifact identity such as `ud2.7-full-ud-v1`.
+3. Use an initial artifact identity such as `ud2.7-full-ud-v1.0.0`.
 4. Set `hf_branches` to the matching UD branch, for example `["2.7"]`.
-5. Set `hf_tag: artifact/ud2.7-full-ud-v1` and
-   `source_tag: source/ud2.7-full-ud-v1`.
+5. Set `hf_tag: artifact/ud2.7-full-ud-v1.0.0` and
+   `source_tag: source/ud2.7-full-ud-v1.0.0`.
 6. Add a registry entry with `status: active` and
    `change_scope: source_milestone`.
 7. Generate and validate each artifact with its own config.
@@ -283,7 +289,7 @@ The generated `README.md` is the HF dataset card. It should state:
 - that labels are derived and not authoritative gold annotations
 - the loading command for the moving UD branch
 - the immutable artifact tag
-- source dataset and join key back to `commul/universal_dependencies`
+- source dataset and join key back to `universal-dependencies/universal_dependencies`
 - artifact identity, source commit, source branch/tag, and HF branch/tag
 - config hash, mapping-file hashes, and algorithm recipe provenance
 - output column meanings

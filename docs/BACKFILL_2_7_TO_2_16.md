@@ -12,7 +12,7 @@ default UD version should move `main`.
 1. Done: Push immutable `artifact/<artifact-id>` tags for the already-promoted artifacts.
 2. Pending: Commit backfill configs + this runbook to `ud-genre-bootstrap` (this repo).
 3. Pending: For each UD version (2.7..2.16), create + push one immutable source tag in this repo:
-   - `source/ud<ud_version>-full-ud-v1`
+   - `source/ud<ud_version>-full-ud-v1.0.0`
 4. Pending: For each UD version (2.7..2.16), run `embed` locally.
 5. Pending: For each UD version (2.7..2.16), run `cluster` locally.
 6. Pending: For each UD version (2.7..2.16), run `label --clusters ...` locally.

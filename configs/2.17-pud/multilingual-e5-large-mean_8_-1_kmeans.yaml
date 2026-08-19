@@ -3,7 +3,7 @@
 # Genre is encoded in sent_id: 'n' = news, 'w' = wiki
 
 ud_version: "2.17"
-ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://commul/universal_dependencies
+ud_source: "local://../huggingface/universal_dependencies/tools/UD_repos/"  # or hf://universal-dependencies/universal_dependencies
 
 # Optional: Include only specific treebanks (None = all treebanks)
 # CLI --treebank flag overrides this setting

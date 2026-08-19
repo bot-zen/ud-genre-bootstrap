@@ -65,7 +65,7 @@ Create `configs/test-ewt.yaml`:
 
 ```yaml
 ud_version: "2.17"
-ud_source: "hf://commul/universal_dependencies"
+ud_source: "hf://universal-dependencies/universal_dependencies"
 
 genre_extraction:
   mapping_path: "configs/genre_mappings.json"

@@ -439,7 +439,7 @@ def _build_dataset_card(
         f"# UD Genre Labels {release_identity['artifact_id']}",
         "",
         "Derived sentence-level genre annotations for the "
-        f"[commul/universal_dependencies]({ud_source_url}) Universal Dependencies dataset.",
+        f"[universal-dependencies/universal_dependencies]({ud_source_url}) Universal Dependencies dataset.",
         "These labels are produced by the bootstrapping pipeline and are not "
         "authoritative gold annotations.",
         "",
@@ -452,7 +452,7 @@ def _build_dataset_card(
         "",
         "## Dataset Summary",
         "This dataset provides a sentence-level genre layer aligned to the "
-        "[commul/universal_dependencies]"
+        "[universal-dependencies/universal_dependencies]"
         f"({ud_source_url}) Parquet release.",
         "Each row contains one derived genre label for one UD sentence and can be "
         "joined back to the UD source data by `(treebank, split, sent_id)`.",
@@ -495,7 +495,7 @@ def _build_dataset_card(
         ")",
         "",
         "ud = load_dataset(",
-        "    \"commul/universal_dependencies\",",
+        "    \"universal-dependencies/universal_dependencies\",",
         "    \"en_ewt\",",
         f"    revision=\"{resolve_ud_source_revision(config)}\",",
         "    split=\"train\",",

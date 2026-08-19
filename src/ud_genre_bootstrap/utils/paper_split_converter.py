@@ -263,7 +263,7 @@ def build_sentence_split_map_from_index_split(
         ud_source = f"local://{treebanks_root}"
     if not ud_source:
         raise ValueError(
-            "ud_source is required (e.g., 'hf://commul/universal_dependencies' "
+            "ud_source is required (e.g., 'hf://universal-dependencies/universal_dependencies' "
             "or 'local:///path/to/ud')."
         )
 

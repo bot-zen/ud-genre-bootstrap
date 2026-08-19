@@ -46,12 +46,12 @@ Current artifact identity:
 
 - default branch: `main`
 - convenience branch: `2.18`
-- canonical artifact ID: `ud2.18-full-ud-v1`
-- immutable HF tag: `artifact/ud2.18-full-ud-v1`
+- canonical artifact ID: `ud2.18-full-ud-v1.0.1`
+- immutable HF tag: `artifact/ud2.18-full-ud-v1.0.1`
 - label schema: `ud`
 - scope: `full`
 - source branch: `release/v1`
-- source tag: `source/ud2.18-full-ud-v1`
+- source tag: `source/ud2.18-full-ud-v1.0.1`
 
 The UD v2.17 branch remains available as a patched metadata refresh at
 `artifact/ud2.17-full-ud-v1.0.1`; its label data are unchanged from
@@ -143,7 +143,7 @@ ud-genre-bootstrap evaluate --progressive --progressive-step 2 --n-folds 5
 
 # Build explicit sentence split map from paper global-index split
 ud-genre-bootstrap build-sentence-split-map \
-  --ud-source hf://commul/universal_dependencies \
+  --ud-source hf://universal-dependencies/universal_dependencies \
   --ud-version 2.8 \
   --split-pickle /tmp/ud-genre-personads/ud28/splits/102-915-204.pkl \
   --output configs/paper-split-map.parquet
@@ -266,7 +266,7 @@ The visualization creates an interactive HTML plot showing:
 ### Data Sources
 
 The `ud_source` configuration accepts:
-- **HuggingFace**: `hf://commul/universal_dependencies` - Load from HuggingFace datasets
+- **HuggingFace**: `hf://universal-dependencies/universal_dependencies` - Load from HuggingFace datasets
 - **Local files**: `local:///absolute/path/to/UD_repos/` - Load from local CoNLL-U files (absolute path)
 - **Local files**: `local://../relative/path/to/UD_repos/` - Load from local CoNLL-U files (relative path)
 
@@ -278,22 +278,22 @@ Example `config.yaml`:
 
 ```yaml
 ud_version: "2.18"
-ud_source: "hf://commul/universal_dependencies"
+ud_source: "hf://universal-dependencies/universal_dependencies"
 metadata_path: null  # e.g. "../huggingface/universal_dependencies/metadata.json"
 
 release:
-  artifact_id: "ud2.18-full-ud-v1"
+  artifact_id: "ud2.18-full-ud-v1.0.1"
   scope: "full"
   label_schema: "ud"
-  artifact_version: "v1"
+  artifact_version: "v1.0.1"
   hf_repo: "commul/ud_genre"
   hf_branches:
     - "2.18"
-  hf_tag: "artifact/ud2.18-full-ud-v1"
+  hf_tag: "artifact/ud2.18-full-ud-v1.0.1"
   hf_default_branch: "main"
   source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
   source_branch: "release/v1"
-  source_tag: "source/ud2.18-full-ud-v1"
+  source_tag: "source/ud2.18-full-ud-v1.0.1"
 
 # Optional: Only process specific treebanks
 include_treebanks:
@@ -340,7 +340,7 @@ evaluation:
     min_genre_sentences: 100  # Minimum sentences per genre for evaluation
 
 output:
-  genres_path: "output/ud-v2.17/genres/"
+  genres_path: "output/2.18-community-release/genres"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   push_to_hub: true
 
@@ -370,7 +370,7 @@ uv run ud-genre-bootstrap publish \
 This regenerates local release metadata, copies only `README.md`,
 `all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
 the payload on branch `2.18`, creates the immutable tag
-`artifact/ud2.18-full-ud-v1`, and moves `main` because `--include-main` is
+`artifact/ud2.18-full-ud-v1.0.1`, and moves `main` because `--include-main` is
 passed.
 
 The patched UD v2.17 metadata artifact can be published without moving `main`:
@@ -448,7 +448,7 @@ df_combined = df_clusters.merge(df, on='sent_id')
 ```python
 # Load genre predictions with original UD data
 from datasets import load_dataset
-ud = load_dataset("commul/universal_dependencies", "en_ewt", split="train", revision="2.15")
+ud = load_dataset("universal-dependencies/universal_dependencies", "en_ewt", split="train", revision="2.15")
 ud_with_genres = ud.to_pandas().merge(df, on="sent_id")
 ```
 

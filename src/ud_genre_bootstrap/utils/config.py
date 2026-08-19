@@ -167,7 +167,7 @@ class Config:
     """Main configuration for UD Genre Bootstrap."""
 
     ud_version: str = "2.17"
-    ud_source: str = "hf://commul/universal_dependencies"
+    ud_source: str = "hf://universal-dependencies/universal_dependencies"
     metadata_path: Optional[str] = None  # Optional path to metadata.json
     include_treebanks: Optional[List[str]] = None  # Treebank codes to include (None = all)
     exclude_treebanks: List[str] = field(default_factory=list)  # Treebank codes to exclude
@@ -359,7 +359,7 @@ class Config:
 
         return cls(
             ud_version=config_dict.get("ud_version", "2.17"),
-            ud_source=config_dict.get("ud_source", "hf://commul/universal_dependencies"),
+            ud_source=config_dict.get("ud_source", "hf://universal-dependencies/universal_dependencies"),
             metadata_path=config_dict.get("metadata_path"),
             include_treebanks=config_dict.get("include_treebanks", None),
             exclude_treebanks=config_dict.get("exclude_treebanks", []),

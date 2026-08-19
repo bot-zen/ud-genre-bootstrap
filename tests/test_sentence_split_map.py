@@ -165,7 +165,7 @@ def test_build_sentence_split_map_skips_treebank_load_errors(tmp_path, monkeypat
         split_pickle_path=split_pickle_path,
         output_path=output_path,
         partitions=["train"],
-        ud_source="hf://commul/universal_dependencies",
+        ud_source="hf://universal-dependencies/universal_dependencies",
         ud_version="2.8",
     )
 

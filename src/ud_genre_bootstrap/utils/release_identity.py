@@ -26,7 +26,7 @@ VALID_REGISTRY_CHANGE_SCOPES = {"source_milestone", "artifact_patch"}
 
 
 def parse_artifact_version(version: str) -> Dict[str, Any]:
-    """Parse artifact version strings such as ``v1``, ``v1.2``, or ``v1.2.1``."""
+    """Parse artifact version strings such as ``v1.0.0``, ``v1.2``, or ``v1.2.1``."""
     if not isinstance(version, str) or not version.strip():
         raise ValueError("artifact_version must be a non-empty string")
 
@@ -53,7 +53,7 @@ def parse_artifact_id(artifact_id: str) -> Dict[str, str]:
     """Parse a canonical genre artifact id.
 
     Expected shape: ``ud<UD version>-<scope>-<label schema>-<artifact version>``.
-    Example: ``ud2.17-full-ud-v1``.
+    Example: ``ud2.17-full-ud-v1.0.1``.
     """
     if not isinstance(artifact_id, str) or not artifact_id.strip():
         raise ValueError("artifact_id must be a non-empty string")
@@ -63,7 +63,7 @@ def parse_artifact_id(artifact_id: str) -> Dict[str, str]:
         raise ValueError(
             "artifact_id must match "
             "'ud<UD version>-<scope>-<label_schema>-<artifact_version>', "
-            "for example 'ud2.17-full-ud-v1'"
+            "for example 'ud2.17-full-ud-v1.0.1'"
         )
 
     parsed = match.groupdict()
