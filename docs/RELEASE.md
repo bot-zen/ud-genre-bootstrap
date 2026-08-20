@@ -1,243 +1,130 @@
 # Release Process
 
-This is the single procedural release document for UD genre artifacts. Do not
-create one release note per UD version. Per-version identity belongs in release
-configs, `configs/releases/genre_artifacts.yaml`, and generated release
-metadata.
+This project publishes synchronized release trains for derived UD genre labels.
+Do not create one release note or one committed full config per UD version. The
+release matrix, registry, generated manifests, and HF Git tags are the release
+record.
 
 ## Source Of Truth
 
-- release config: `configs/<ud-version>-community-release.yaml`
-- promoted artifact registry: `configs/releases/genre_artifacts.yaml`
-- generated local release directory: `output/<release-name>/genres`
+- shared profile: `configs/release_profiles/full-ud.yaml`
+- release matrix: `configs/releases/full-ud-v1.0.0.yaml`
+- train registry: `configs/releases/genre_artifacts.yaml`
+- generated local release directory: `output/<ud-version>-community-release/genres`
 - HF dataset Git checkout: `../ud_genre-hf/`
 - HF dataset repo: `commul/ud_genre`
 - upstream UD HF dataset repo: `universal-dependencies/universal_dependencies`
 
-For UD 2.7 through UD 2.16 backfills, add or update a release config and
-registry entry, then use this document. Create a version-specific document only
-for exceptional narrative context that cannot be represented in config,
-registry, generated metadata, or evaluation documentation.
+The current train is `full-ud-v1.0.0`. It covers UD `2.7` through `2.18`; UD
+`2.18` is the default published on HF `main`.
 
-## Artifact Identity
+## Identity Model
 
-Artifact IDs have the shape:
+The public release train has this shape:
 
 ```text
-ud<UD version>-<scope>-<label schema>-<artifact version>
+<scope>-<label-schema>-vMAJOR.MINOR.PATCH
 ```
 
-Examples:
+Example: `full-ud-v1.0.0`.
 
-- `ud2.17-full-ud-v1.0.1`
-- `ud2.17-full-ud-v1.0.2`
-- `ud2.18-full-ud-v1.0.1`
+Each UD branch is one projection of that train:
 
-Field meanings:
+- artifact key: `full-ud-v1.0.0-ud2.18`
+- moving HF branch: `2.18`
+- immutable HF tag: `artifact/full-ud-v1.0.0/ud2.18`
+- source branch: `release/full-ud-v1`
+- source tag: `source/full-ud-v1.0.0`
 
-- `ud<UD version>`: source Universal Dependencies release
-- `scope`: data scope, normally `full`
-- `label_schema`: genre inventory/profile, currently `ud`
-- `artifact_version`: explicit semver-like artifact revision, for example
-  `v1.0.0` or `v1.0.1`
-
-Algorithm settings are not part of the public artifact ID. Embedding model,
-pooling, clustering method, thresholds, reference weighting, and seed are
-recorded as `algorithm_recipe` in `run_metadata.json` and
-`release_manifest.json`.
+Algorithm settings are not part of the train name. Embedding model, pooling,
+clustering method, thresholds, reference weighting, and seed are recorded as
+`algorithm_recipe` in `run_metadata.json` and `release_manifest.json`.
 
 ## Versioning Policy
 
-- The first public artifact for a UD version, scope, and label schema uses
-  `artifact_version: v1.0.0`, even for backfilled older UD releases.
-- Major or minor artifact changes are source-wide release-train milestones and
-  should rebuild every active promoted artifact in the registry.
-- Patch changes are artifact-specific fixes, for example a dataset-card refresh
-  or metadata extraction fix for one UD line.
-- Every public artifact version change gets a new immutable source tag and a new
-  immutable HF artifact tag.
-- Existing immutable tags must not be moved.
+- `MAJOR.MINOR.PATCH` belongs to the train, not to one UD version.
+- Normal public changes are synchronized: bump the train version and rebuild all
+  supported UD versions.
+- Latest/default hotfixes are allowed. Publish the new train first for the
+  default UD version and HF `main`, mark the registry status `default_hotfix`,
+  then rebuild the rest of the inventory. Mark it `complete` only when all
+  supported UD branches have the same train version.
+- Do not create independent older-UD patch streams. A case like UD `2.17` on
+  `v1.0.2` while UD `2.18` is on `v1.0.1` is intentionally avoided.
+- Historical tags using `ud2.X-full-ud-v...` were transitional scratch state and
+  may be deleted.
 
-If generated data do not change and only the README/provenance metadata changes,
-bump the artifact patch version, for example from `v1.0.0` to `v1.0.1`.
+## Config Resolution
 
-Legacy shorthand artifact IDs such as `ud2.18-full-ud-v1` may exist from early
-publication work, but promoted configs should use explicit patch versions and
-new shorthand artifact tags should not be created.
+Use the matrix for release work:
 
-## Branches And Tags
+```bash
+uv run ud-genre-bootstrap upload \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.18 \
+  --dry-run
+```
 
-Source repository:
+The matrix resolver combines:
 
-- `main`: ongoing development
-- `release/v1`: current source release train for all `v1.x.y` artifacts
-- `source/<artifact-id>`: immutable source tag for the exact producing source
-  state
+1. shared profile settings
+2. train identity and source/HF naming templates
+3. per-UD overrides, such as evaluation sets or baseline summaries
 
-HF dataset repository:
+The resolved config is written to `config.snapshot.yaml` in the generated output
+directory. Existing `--config` commands remain available for experiments and
+debugging, but promoted release work should use `--release-matrix`.
 
-- `<UD version>`, for example `2.18`: moving branch for end-user loading
-- `main`: moving default branch rendered in the HF web UI and used when callers
-  omit `revision`
-- `artifact/<artifact-id>`: immutable HF artifact tag
+## Preflight
 
-HF branches are published dataset views, not development branches. Do not merge
-HF `2.17` into `2.18` or the reverse. Regenerate from the source repository and
-publish each target branch independently.
-
-## Current Public State
-
-The current intended default is UD 2.18:
-
-- default HF branch: `main`
-- UD branch: `2.18`
-- artifact ID: `ud2.18-full-ud-v1.0.1`
-- HF tag: `artifact/ud2.18-full-ud-v1.0.1`
-- source tag: `source/ud2.18-full-ud-v1.0.1`
-
-Default status is represented by the HF `main` branch, not by a separate
-registry status. Registry status values are `active`, `superseded`, and
-`deprecated`.
-
-UD 2.17 remains available as a patched metadata/provenance refresh:
-
-- UD branch: `2.17`
-- artifact ID: `ud2.17-full-ud-v1.0.2`
-- HF tag: `artifact/ud2.17-full-ud-v1.0.2`
-- source tag: `source/ud2.17-full-ud-v1.0.2`
-- data status: label data unchanged from `ud2.17-full-ud-v1`
-
-## Release Config Lifecycle
-
-Start each UD release from a committed config, not from an ad hoc sweep config.
-The config should pin:
-
-- `ud_version` and `ud_source`
-- release identity, HF branch/tag, and source tag
-- explicit treebank exclusions
-- embedding model, pooling, layer, batch size, and cache location
-- clustering method, seed, and fit settings
-- bootstrapping thresholds and reference weighting
-- mapping and metadata-pattern files
-- output directory, config name, run ID, and UD source revision
-
-Promote an artifact by adding it to `configs/releases/genre_artifacts.yaml`.
-The registry should record artifact status, change scope, HF branches/tag,
-source branch/tag, source config, baseline summary, mapping files, and notes.
-`source_config` is the path as it exists at the immutable `source_tag`; for
-superseded artifacts, do not read it as the current worktree version of that
-file.
-
-## Release Modes
-
-### New Current UD Release
-
-Use this path when a new UD version should become the public default, as with
-UD 2.18:
-
-1. Create or update `configs/<ud-version>-community-release.yaml`.
-2. Use `artifact_version: v1.0.0` unless an artifact for that exact
-   UD/scope/schema has already been published.
-3. Set `hf_branches` to the UD version branch, for example `["2.18"]`.
-4. Set `hf_tag` and `source_tag` from the artifact ID.
-5. Generate, validate, and commit the source state.
-6. Create `release/v1` and `source/<artifact-id>` at that source commit.
-7. Publish with `--include-main` so HF `main` renders the new default.
-
-### Initial Backfills For Older UD Releases
-
-Use this path for first-time public artifacts for UD 2.7 through UD 2.16:
-
-1. Create one release config per UD version, for example
-   `configs/2.7-community-release.yaml`.
-2. Set `ud_version`, `output.genres_path`, `output.config_name`,
-   `output.run_id`, and `output.ud_source_revision` to that UD version.
-3. Use an initial artifact identity such as `ud2.7-full-ud-v1.0.0`.
-4. Set `hf_branches` to the matching UD branch, for example `["2.7"]`.
-5. Set `hf_tag: artifact/ud2.7-full-ud-v1.0.0` and
-   `source_tag: source/ud2.7-full-ud-v1.0.0`.
-6. Add a registry entry with `status: active` and
-   `change_scope: source_milestone`.
-7. Generate and validate each artifact with its own config.
-8. Commit the code, config, mapping, and registry state. Generated output stays
-   local.
-9. Create one source tag per artifact. Multiple backfill tags may point to the
-   same source commit if that commit contains the code and configs used for all
-   of them.
-10. Publish each UD branch without `--include-main`; the HF default should
-    remain on the current default artifact unless intentionally changed.
-
-Backfills should not get per-version release-note files. The config, registry
-entry, generated `run_metadata.json`, generated `release_manifest.json`, and HF
-tag provide the per-version record.
-
-## Preflight Checks
-
-Run coverage and focused metadata checks before expensive embedding generation:
+Run coverage and focused metadata checks before expensive generation:
 
 ```bash
 uv run ud-genre-bootstrap coverage \
-  --config configs/<ud-version>-community-release.yaml \
-  --export output/<release-name>/coverage.json
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
+  --export output/<UD_VERSION>-community-release/coverage.json
 
 uv run ud-genre-bootstrap test-genres \
-  --config configs/<ud-version>-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
   --treebank ru_taiga \
   --split train \
   --limit 0 \
   --no-examples
-
-uv run ud-genre-bootstrap test-genres \
-  --config configs/<ud-version>-community-release.yaml \
-  --treebank be_hse \
-  --split train \
-  --limit 0 \
-  --no-examples
-
-uv run ud-genre-bootstrap test-genres \
-  --config configs/<ud-version>-community-release.yaml \
-  --treebank en_ewt \
-  --split train \
-  --limit 0 \
-  --no-examples
 ```
 
-If coverage or extraction changes, update `configs/metadata_patterns.json`,
-`configs/pud-patterns.json`, or `configs/genre_mappings.json` before the full
-run.
+If coverage or extraction changes, update the shared mapping or pattern files
+before full generation.
 
 ## Full Generation
 
-Run the pipeline in resumable stages. Use shared scratch caches for large HF
-inputs when available:
+Run one UD version end to end before starting the next:
 
 ```bash
-HF_DATASETS_CACHE="/mnt/scratch/egon/huggingface/datasets/" \
-HF_HUB_CACHE="/mnt/scratch/egon/huggingface/hub/" \
+export HF_DATASETS_CACHE="/mnt/scratch/egon/huggingface/datasets/"
+export HF_HUB_CACHE="/mnt/scratch/egon/huggingface/hub/"
+
 uv run ud-genre-bootstrap embed \
-  --config configs/<ud-version>-community-release.yaml
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION>
 
-HF_DATASETS_CACHE="/mnt/scratch/egon/huggingface/datasets/" \
-HF_HUB_CACHE="/mnt/scratch/egon/huggingface/hub/" \
 uv run ud-genre-bootstrap cluster \
-  --config configs/<ud-version>-community-release.yaml
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION>
 
-HF_DATASETS_CACHE="/mnt/scratch/egon/huggingface/datasets/" \
-HF_HUB_CACHE="/mnt/scratch/egon/huggingface/hub/" \
 uv run ud-genre-bootstrap label \
-  --config configs/<ud-version>-community-release.yaml \
-  --clusters output/<release-name>/genres/clusters
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
+  --clusters output/<UD_VERSION>-community-release/genres/clusters
+
+uv run ud-genre-bootstrap evaluate \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION>
 ```
 
 `label` must reuse the saved cluster directory for the promoted run. Running
 `label` without `--clusters` can start a new clustering pass.
-
-Run evaluation when the config enables it:
-
-```bash
-uv run ud-genre-bootstrap evaluate \
-  --config configs/<ud-version>-community-release.yaml
-```
 
 ## Required Local Artifacts
 
@@ -262,80 +149,41 @@ The public HF Git payload is intentionally minimal:
 - `all_genres.parquet`
 - `release_manifest.json`
 
-## Output Schema
-
-The community-facing Parquet file should include:
-
-- `treebank`
-- `split`
-- `sent_id`
-- `genre`
-- `confidence`
-- `method`
-- `ud_version`
-- `model`
-- `pooling`
-- `clustering_method`
-- `config_name`
-- `run_id`
-
-Artifact-level details such as `ud_source_revision`, source commit, config hash,
-mapping hashes, HF branch/tag names, and algorithm recipe belong in
-`run_metadata.json` and `release_manifest.json`.
-
-## Dataset Card
-
-The generated `README.md` is the HF dataset card. It should state:
-
-- that labels are derived and not authoritative gold annotations
-- the loading command for the moving UD branch
-- the immutable artifact tag
-- source dataset and join key back to `universal-dependencies/universal_dependencies`
-- artifact identity, source commit, source branch/tag, and HF branch/tag
-- config hash, mapping-file hashes, and algorithm recipe provenance
-- output column meanings
-- known evaluation framing and limitations
-- project repository, paper, and point of contact
-
-For metadata-only card changes after publication, create a patch artifact and
-republish the same data with a new artifact ID and HF tag.
-
 ## Validation
 
-Before publishing, inspect counts and metadata:
+Inspect counts and metadata:
 
 ```bash
-uv run python -c "import json, pathlib, pandas as pd; base=pathlib.Path('output/<release-name>/genres'); df=pd.read_parquet(base/'all_genres.parquet'); manifest=json.loads((base/'release_manifest.json').read_text()); print(len(df)); print(manifest['artifact_id']); print(manifest['ud_source_revision'])"
+uv run python -c "import json, pathlib, pandas as pd; base=pathlib.Path('output/<UD_VERSION>-community-release/genres'); df=pd.read_parquet(base/'all_genres.parquet'); manifest=json.loads((base/'release_manifest.json').read_text()); print(len(df)); print(manifest['train_id']); print(manifest['artifact_key']); print(manifest['ud_source_revision'])"
 ```
 
-Run focused release tests after source changes:
+Run release tests after source changes:
 
 ```bash
-uv run pytest tests/test_release_identity.py tests/test_release_artifacts.py -q
-uv run ruff check src/ud_genre_bootstrap/utils/release_artifacts.py tests/test_release_artifacts.py tests/test_release_identity.py
+uv run pytest tests/test_release_identity.py tests/test_release_artifacts.py tests/test_release_matrix.py -q
 ```
 
-Use the compatibility upload dry-run to inspect the full API-upload file set:
+Inspect the upload plan:
 
 ```bash
 uv run ud-genre-bootstrap upload \
-  --config configs/<ud-version>-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
   --dry-run
 ```
 
 ## Source Tagging
 
-Commit the exact source state responsible for the artifact, then create or update
-the release-train branch and immutable source tag:
+Commit the exact source state responsible for the train, then create or update
+the release branch and source tag:
 
 ```bash
-git branch -f release/v1 HEAD
-git tag source/<artifact-id> HEAD
+git branch -f release/full-ud-v1 HEAD
+git tag source/full-ud-v1.0.0 HEAD
 ```
 
 Do this before non-dry-run Git-backed publishing. The publish command validates
-that the configured `release.source_tag` points at the current clean source
-commit.
+that `source/full-ud-v1.0.0` points at the current clean source commit.
 
 ## Git-Backed HF Publish
 
@@ -350,7 +198,8 @@ Inspect the publish plan:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/<ud-version>-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
   --hf-repo-dir ../ud_genre-hf \
   --dry-run
 ```
@@ -359,15 +208,17 @@ Publish locally into `../ud_genre-hf/`:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/<ud-version>-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version <UD_VERSION> \
   --hf-repo-dir ../ud_genre-hf
 ```
 
-Use `--include-main` only for the artifact that should become the HF default:
+Use `--include-main` only for the default UD version, currently `2.18`:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/<ud-version>-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main
 ```
@@ -375,29 +226,29 @@ uv run ud-genre-bootstrap publish \
 After reviewing the HF checkout, push:
 
 ```bash
-git -C ../ud_genre-hf push origin <ud-version> main
-git -C ../ud_genre-hf push origin artifact/<artifact-id>
+git -C ../ud_genre-hf push origin <UD_VERSION>
+git -C ../ud_genre-hf push origin artifact/full-ud-v1.0.0/ud<UD_VERSION>
 ```
 
-If `main` is not moving for this artifact, omit `main` from the branch push.
+If publishing the default UD version, also push `main`.
 
 Also push the source branch and source tag:
 
 ```bash
-git push origin main release/v1
-git push origin source/<artifact-id>
+git push origin main release/full-ud-v1
+git push origin source/full-ud-v1.0.0
 ```
 
-## Promotion Checklist
+## Inventory Completion
 
-- Source repo is clean and committed.
-- Release config has the intended artifact ID and tags.
-- Local release directory exists and contains `all_genres.parquet`.
-- `README.md`, `release_manifest.json`, and `run_metadata.json` were regenerated.
-- Counts, join key, and output schema were inspected.
-- Focused release tests pass.
-- Source tag points at the current clean source commit.
-- HF checkout is clean before publish.
-- HF moving branch and immutable artifact tag were created locally.
-- HF `main` moved only if the artifact is the default.
-- Registry entry records the promoted artifact.
+For the initial `full-ud-v1.0.0` train:
+
+1. Generate, validate, and publish UD `2.18` with `--include-main`.
+2. Generate, validate, and publish UD `2.17`.
+3. Generate, validate, and publish UD `2.7` through `2.16` without
+   `--include-main`.
+4. Update `configs/releases/genre_artifacts.yaml` from `partial` to `complete`
+   only after all supported branches and immutable HF tags are present.
+
+Do not create per-UD release-note files. Per-version provenance belongs in the
+generated manifests and the HF tags.

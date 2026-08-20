@@ -27,6 +27,7 @@ from ud_genre_bootstrap.utils.release_identity import (
     resolve_release_hf_revisions,
     resolve_release_identity,
 )
+from ud_genre_bootstrap.utils.release_matrix import load_release_matrix_config
 from ud_genre_bootstrap.utils.sentence_refs import qualify_sentence_ref
 
 # Create Typer app
@@ -597,7 +598,11 @@ def build_exported_genre_lookup(df) -> Tuple[Dict, bool]:
     return lookup, False
 
 
-def load_config_from_path(config_path: Optional[Path]) -> Config:
+def load_config_from_path(
+    config_path: Optional[Path],
+    release_matrix: Optional[Path] = None,
+    ud_version: Optional[str] = None,
+) -> Config:
     """Load configuration from file or use defaults.
 
     Args:
@@ -607,6 +612,14 @@ def load_config_from_path(config_path: Optional[Path]) -> Config:
         Config object
     """
     from ud_genre_bootstrap.utils.config import load_config
+
+    if config_path and release_matrix:
+        raise ValueError("Use either --config or --release-matrix, not both")
+
+    if release_matrix:
+        version_msg = f" for UD {ud_version}" if ud_version else ""
+        console.print(f"[blue]Loading release matrix:[/blue] {release_matrix}{version_msg}")
+        return load_release_matrix_config(release_matrix, ud_version=ud_version)
 
     if config_path:
         console.print(f"[blue]Loading config from:[/blue] {config_path}")
@@ -627,6 +640,18 @@ def run(
         help="Path to configuration YAML file",
         exists=True,
         dir_okay=False,
+    ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
     ),
     output: Optional[Path] = typer.Option(
         None,
@@ -650,7 +675,7 @@ def run(
 
     try:
         # Load configuration
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         if output:
             cfg.output.genres_path = str(output)
@@ -729,6 +754,18 @@ def embed(
         exists=True,
         dir_okay=False,
     ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
     treebank: Optional[str] = typer.Option(
         None,
         "--treebank",
@@ -760,7 +797,7 @@ def embed(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         if model:
             cfg.embeddings.model = model
@@ -817,6 +854,18 @@ def cluster(
         exists=True,
         dir_okay=False,
     ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
     treebank: Optional[str] = typer.Option(
         None,
         "--treebank",
@@ -848,7 +897,7 @@ def cluster(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         # Override device setting if --use-gpu flag is provided
         if use_gpu:
@@ -937,6 +986,11 @@ def cluster(
         console.print(f"\n[bold green]✓ Cluster results saved to {output_dir}[/bold green]")
         if config:
             console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --config {config}")
+        elif release_matrix:
+            console.print(
+                "[blue]To visualize clusters, run:[/blue] "
+                f"uv run ud-genre-bootstrap visualize-clusters --clusters {output_dir}"
+            )
         else:
             console.print(f"[blue]To visualize clusters, run:[/blue] uv run ud-genre-bootstrap visualize-clusters --clusters {output_dir}")
 
@@ -955,6 +1009,18 @@ def label(
         help="Path to configuration YAML file",
         exists=True,
         dir_okay=False,
+    ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
     ),
     clusters: Optional[Path] = typer.Option(
         None,
@@ -975,7 +1041,7 @@ def label(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         bootstrapper = GenreBootstrapper(cfg)
 
@@ -1048,6 +1114,18 @@ def upload_release(
         exists=True,
         dir_okay=False,
     ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
     output: Optional[Path] = typer.Option(
         None,
         "--output",
@@ -1086,7 +1164,7 @@ def upload_release(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         if output:
             cfg.output.genres_path = str(output)
@@ -1107,9 +1185,11 @@ def upload_release(
                 "Set `release.hf_repo`/`output.genres_hf_repo` in config or pass `--repo`."
             )
 
+        release_identity = resolve_release_identity(cfg)
+        hf_default_branch = release_identity.get("hf_default_branch") or "main"
         target_revisions = resolve_release_hf_revisions(cfg, revision)
-        if include_main and "main" not in target_revisions:
-            target_revisions.append("main")
+        if include_main and hf_default_branch not in target_revisions:
+            target_revisions.append(hf_default_branch)
         if not target_revisions:
             raise ValueError(
                 "No Hugging Face revisions configured. "
@@ -1124,7 +1204,8 @@ def upload_release(
 
         console.print(f"[blue]Repo:[/blue] {repo_id}")
         console.print(f"[blue]Revisions:[/blue] {', '.join(target_revisions)}")
-        console.print(f"[blue]Artifact ID:[/blue] {release_identity['artifact_id']}")
+        console.print(f"[blue]Train ID:[/blue] {release_identity.get('train_id')}")
+        console.print(f"[blue]Artifact key:[/blue] {release_identity['artifact_key']}")
         console.print(f"[blue]Git branch:[/blue] {release_identity.get('git_branch') or 'n/a'}")
         console.print(f"[blue]Git tag:[/blue] {release_identity.get('git_tag') or 'n/a'}")
 
@@ -1168,6 +1249,18 @@ def publish_release(
         help="Path to configuration YAML file",
         exists=True,
         dir_okay=False,
+    ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
     ),
     output: Optional[Path] = typer.Option(
         None,
@@ -1219,7 +1312,7 @@ def publish_release(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         if output:
             cfg.output.genres_path = str(output)
@@ -1253,7 +1346,8 @@ def publish_release(
         console.print(f"[blue]HF checkout:[/blue] {hf_repo_dir}")
         console.print(f"[blue]HF branches:[/blue] {', '.join(target_branches)}")
         console.print(f"[blue]HF tag:[/blue] {release_identity.get('hf_tag')}")
-        console.print(f"[blue]Artifact ID:[/blue] {release_identity['artifact_id']}")
+        console.print(f"[blue]Train ID:[/blue] {release_identity.get('train_id')}")
+        console.print(f"[blue]Artifact key:[/blue] {release_identity['artifact_key']}")
         console.print(f"[blue]Source tag:[/blue] {release_identity.get('source_tag')}")
 
         result = publish_release_directory_to_hf_git(
@@ -1299,6 +1393,18 @@ def evaluate(
         help="Path to configuration YAML file",
         exists=True,
         dir_okay=False,
+    ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
     ),
     treebank: Optional[str] = typer.Option(
         None,
@@ -1412,7 +1518,7 @@ def evaluate(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         # Get evaluation config values (CLI overrides config)
         eval_cfg = cfg.evaluation.metadata_validation
@@ -2803,6 +2909,18 @@ def coverage(
     config: Optional[Path] = typer.Option(
         None, "--config", "-c", help="Path to configuration file"
     ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
     treebank: Optional[str] = typer.Option(
         None, "--treebank", "-t", help="Comma-separated list of treebank codes to analyze"
     ),
@@ -2846,8 +2964,7 @@ def coverage(
         console.print("=" * 60)
 
         # Load configuration
-        cfg = load_config_from_path(config)
-        console.print(f"Loading config from: {config}")
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         # Initialize components
         from ud_genre_bootstrap.bootstrapping.bootstrapper import GenreBootstrapper
@@ -3458,6 +3575,18 @@ def test_genres(
         exists=True,
         dir_okay=False,
     ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
     treebank: Optional[str] = typer.Option(
         None,
         "--treebank",
@@ -3491,7 +3620,7 @@ def test_genres(
     console.print("=" * 60)
 
     try:
-        cfg = load_config_from_path(config)
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
         from pathlib import Path
         from ud_genre_bootstrap.utils.genre_mapping import GenreMapper

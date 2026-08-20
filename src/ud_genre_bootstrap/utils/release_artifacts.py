@@ -428,7 +428,7 @@ def _build_dataset_card(
         if release_identity.get("hf_branches")
         else config.ud_version
     )
-    immutable_revision = release_identity.get("hf_tag") or release_identity["artifact_id"]
+    immutable_revision = release_identity.get("hf_tag") or release_identity["artifact_key"]
     hf_repo = release_identity.get("hf_repo") or config.output.genres_hf_repo
     ud_source_url = _hf_dataset_url(str(config.ud_source))
     source_repo_url = _display_source_repo(
@@ -436,7 +436,7 @@ def _build_dataset_card(
     )
 
     body = "\n".join([
-        f"# UD Genre Labels {release_identity['artifact_id']}",
+        f"# UD Genre Labels {release_identity['artifact_key']}",
         "",
         "Derived sentence-level genre annotations for the "
         f"[universal-dependencies/universal_dependencies]({ud_source_url}) Universal Dependencies dataset.",
@@ -512,7 +512,9 @@ def _build_dataset_card(
         "```",
         "",
         "## Release Identity",
-        f"- Artifact ID: `{release_identity['artifact_id']}`",
+        f"- Train ID: `{release_identity['train_id']}`",
+        f"- Artifact key: `{release_identity['artifact_key']}`",
+        f"- Inventory status: `{release_identity.get('inventory_status') or 'n/a'}`",
         f"- HF branches: `{', '.join(release_identity.get('hf_branches', []))}`",
         f"- HF tag: `{release_identity.get('hf_tag') or 'n/a'}`",
         f"- HF default branch: `{release_identity.get('hf_default_branch') or 'main'}`",
@@ -595,6 +597,18 @@ def write_release_artifacts(
     git_metadata = _build_git_metadata(release_identity)
     algorithm_recipe = build_algorithm_recipe(config)
     config_source_path = getattr(config, "_config_path", None)
+    profile_source_path = getattr(config, "_release_profile_path", None)
+    matrix_source_path = getattr(config, "_release_matrix_path", None)
+    profile_hash = (
+        file_sha256(Path(profile_source_path))
+        if profile_source_path and Path(profile_source_path).exists()
+        else None
+    )
+    matrix_hash = (
+        file_sha256(Path(matrix_source_path))
+        if matrix_source_path and Path(matrix_source_path).exists()
+        else None
+    )
     source_files = {
         "config": {
             "path": str(config_source_path) if config_source_path else None,
@@ -604,6 +618,16 @@ def write_release_artifacts(
                 else config_hash
             ),
         },
+        "release_profile": (
+            {"path": str(profile_source_path), "sha256": profile_hash}
+            if profile_source_path and profile_hash
+            else None
+        ),
+        "release_matrix": (
+            {"path": str(matrix_source_path), "sha256": matrix_hash}
+            if matrix_source_path and matrix_hash
+            else None
+        ),
         "baseline_summary": (
             {
                 "path": baseline_summary.get("source"),
@@ -667,7 +691,10 @@ def write_release_artifacts(
 
     run_metadata = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "train_id": release_identity["train_id"],
+        "artifact_key": release_identity["artifact_key"],
         "artifact_id": release_identity["artifact_id"],
+        "inventory_status": release_identity["inventory_status"],
         "scope": release_identity["scope"],
         "label_schema": release_identity["label_schema"],
         "artifact_version": release_identity["artifact_version"],
@@ -684,6 +711,8 @@ def write_release_artifacts(
         "git_commit": git_metadata.get("commit"),
         "git_branch": git_metadata.get("branch"),
         "git_tag": git_metadata.get("tag"),
+        "profile_hash": profile_hash,
+        "matrix_hash": matrix_hash,
         "config_hash": config_hash,
         "mapping_file_hashes": mapping_file_hashes,
         "source_files": source_files,
@@ -724,7 +753,10 @@ def write_release_artifacts(
         json.dump(run_metadata, f, indent=2)
 
     release_manifest = {
+        "train_id": release_identity["train_id"],
+        "artifact_key": release_identity["artifact_key"],
         "artifact_id": release_identity["artifact_id"],
+        "inventory_status": release_identity["inventory_status"],
         "ud_version": release_identity["ud_version"],
         "scope": release_identity["scope"],
         "label_schema": release_identity["label_schema"],
@@ -746,6 +778,8 @@ def write_release_artifacts(
         "run_id": resolve_run_id(config),
         "ud_source": str(config.ud_source),
         "ud_source_revision": resolve_ud_source_revision(config),
+        "profile_hash": profile_hash,
+        "matrix_hash": matrix_hash,
         "config_hash": config_hash,
         "mapping_file_hashes": mapping_file_hashes,
         "source_files": source_files,
@@ -906,6 +940,8 @@ def publish_release_directory_to_hf_git(
     plan = {
         "repo_id": release_identity.get("hf_repo"),
         "hf_repo_dir": str(hf_repo_dir),
+        "train_id": release_identity["train_id"],
+        "artifact_key": release_identity["artifact_key"],
         "artifact_id": release_identity["artifact_id"],
         "source_tag": release_identity.get("source_tag"),
         "hf_branches": hf_branches,
@@ -927,7 +963,7 @@ def publish_release_directory_to_hf_git(
 
     if _has_staged_changes(hf_repo_dir):
         _git_run(
-            ["git", "commit", "-m", f"Publish {release_identity['artifact_id']}"],
+            ["git", "commit", "-m", f"Publish {release_identity['artifact_key']}"],
             hf_repo_dir,
         )
 

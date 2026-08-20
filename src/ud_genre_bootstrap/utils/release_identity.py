@@ -1,4 +1,4 @@
-"""Release identity helpers for promoted genre artifacts."""
+"""Release identity helpers for promoted genre release trains."""
 
 from __future__ import annotations
 
@@ -14,15 +14,26 @@ ARTIFACT_VERSION_PATTERN = re.compile(
     r"(?:\.(?P<minor>0|[1-9][0-9]*))?"
     r"(?:\.(?P<patch>0|[1-9][0-9]*))?$"
 )
-ARTIFACT_ID_PATTERN = re.compile(
+TRAIN_ID_PATTERN = re.compile(
+    r"^(?P<scope>[a-z][a-z0-9_]*)-"
+    r"(?P<label_schema>[a-z][a-z0-9_]*)-"
+    r"(?P<artifact_version>v[1-9][0-9]*(?:\.(?:0|[1-9][0-9]*)){0,2})$"
+)
+ARTIFACT_KEY_PATTERN = re.compile(
+    r"^(?P<train_id>"
+    r"(?P<scope>[a-z][a-z0-9_]*)-"
+    r"(?P<label_schema>[a-z][a-z0-9_]*)-"
+    r"(?P<artifact_version>v[1-9][0-9]*(?:\.(?:0|[1-9][0-9]*)){0,2})"
+    r")-ud(?P<ud_version>\d+(?:\.\d+)+)$"
+)
+LEGACY_ARTIFACT_ID_PATTERN = re.compile(
     r"^ud(?P<ud_version>\d+(?:\.\d+)+)-"
     r"(?P<scope>[a-z][a-z0-9_]*)-"
     r"(?P<label_schema>[a-z][a-z0-9_]*)-"
     r"(?P<artifact_version>v[1-9][0-9]*(?:\.(?:0|[1-9][0-9]*)){0,2})$"
 )
 
-VALID_REGISTRY_STATUSES = {"active", "deprecated", "superseded"}
-VALID_REGISTRY_CHANGE_SCOPES = {"source_milestone", "artifact_patch"}
+VALID_REGISTRY_STATUSES = {"partial", "default_hotfix", "complete", "deprecated"}
 
 
 def parse_artifact_version(version: str) -> Dict[str, Any]:
@@ -49,27 +60,157 @@ def parse_artifact_version(version: str) -> Dict[str, Any]:
     }
 
 
-def parse_artifact_id(artifact_id: str) -> Dict[str, str]:
-    """Parse a canonical genre artifact id.
+def parse_train_id(train_id: str) -> Dict[str, Any]:
+    """Parse a synchronized release train id such as ``full-ud-v1.0.0``."""
+    if not isinstance(train_id, str) or not train_id.strip():
+        raise ValueError("train_id must be a non-empty string")
 
-    Expected shape: ``ud<UD version>-<scope>-<label schema>-<artifact version>``.
-    Example: ``ud2.17-full-ud-v1.0.1``.
-    """
-    if not isinstance(artifact_id, str) or not artifact_id.strip():
-        raise ValueError("artifact_id must be a non-empty string")
-
-    match = ARTIFACT_ID_PATTERN.fullmatch(artifact_id.strip())
+    match = TRAIN_ID_PATTERN.fullmatch(train_id.strip())
     if not match:
         raise ValueError(
-            "artifact_id must match "
-            "'ud<UD version>-<scope>-<label_schema>-<artifact_version>', "
-            "for example 'ud2.17-full-ud-v1.0.1'"
+            "train_id must match '<scope>-<label_schema>-<artifact_version>', "
+            "for example 'full-ud-v1.0.0'"
         )
 
     parsed = match.groupdict()
     parsed["artifact_version_normalized"] = parse_artifact_version(
         parsed["artifact_version"]
     )["normalized"]
+    return parsed
+
+
+def build_train_id(*, scope: str, label_schema: str, artifact_version: str) -> str:
+    """Build a synchronized release train id."""
+    return f"{scope}-{label_schema}-{artifact_version}"
+
+
+def validate_train_id(
+    train_id: str,
+    *,
+    scope: Optional[str] = None,
+    label_schema: Optional[str] = None,
+    artifact_version: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Validate train id syntax and optional component consistency."""
+    parsed = parse_train_id(train_id)
+    mismatches = []
+    if scope is not None and parsed["scope"] != str(scope):
+        mismatches.append(f"scope={parsed['scope']!r} does not match {scope!r}")
+    if label_schema is not None and parsed["label_schema"] != str(label_schema):
+        mismatches.append(
+            f"label_schema={parsed['label_schema']!r} does not match {label_schema!r}"
+        )
+    if artifact_version is not None:
+        expected_version = parse_artifact_version(str(artifact_version))["normalized"]
+        if parsed["artifact_version_normalized"] != expected_version:
+            mismatches.append(
+                "artifact_version="
+                f"{parsed['artifact_version']!r} does not match {artifact_version!r}"
+            )
+    if mismatches:
+        raise ValueError(f"train_id components are inconsistent: {', '.join(mismatches)}")
+    return parsed
+
+
+def parse_artifact_key(artifact_key: str) -> Dict[str, Any]:
+    """Parse a per-UD artifact key in a synchronized train.
+
+    Expected shape: ``<train_id>-ud<UD version>``.
+    Example: ``full-ud-v1.0.0-ud2.18``.
+    """
+    if not isinstance(artifact_key, str) or not artifact_key.strip():
+        raise ValueError("artifact_key must be a non-empty string")
+
+    match = ARTIFACT_KEY_PATTERN.fullmatch(artifact_key.strip())
+    if not match:
+        raise ValueError(
+            "artifact_key must match '<train_id>-ud<UD version>', "
+            "for example 'full-ud-v1.0.0-ud2.18'"
+        )
+
+    parsed = match.groupdict()
+    parsed["artifact_version_normalized"] = parse_artifact_version(
+        parsed["artifact_version"]
+    )["normalized"]
+    return parsed
+
+
+def build_artifact_key(*, train_id: str, ud_version: str) -> str:
+    """Build a per-UD artifact key from a release train id."""
+    validate_train_id(train_id)
+    return f"{train_id}-ud{ud_version}"
+
+
+def validate_artifact_key(
+    artifact_key: str,
+    *,
+    ud_version: Optional[str] = None,
+    scope: Optional[str] = None,
+    label_schema: Optional[str] = None,
+    artifact_version: Optional[str] = None,
+    train_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Validate artifact key syntax and optional component consistency."""
+    parsed = parse_artifact_key(artifact_key)
+    expected = {
+        "ud_version": ud_version,
+        "scope": scope,
+        "label_schema": label_schema,
+        "train_id": train_id,
+    }
+    mismatches = [
+        f"{field}={parsed[field]!r} does not match {value!r}"
+        for field, value in expected.items()
+        if value is not None and parsed[field] != str(value)
+    ]
+    if artifact_version is not None:
+        expected_version = parse_artifact_version(str(artifact_version))["normalized"]
+        if parsed["artifact_version_normalized"] != expected_version:
+            mismatches.append(
+                "artifact_version="
+                f"{parsed['artifact_version']!r} does not match {artifact_version!r}"
+            )
+    if mismatches:
+        raise ValueError(
+            f"artifact_key components are inconsistent: {', '.join(mismatches)}"
+        )
+    return parsed
+
+
+def parse_artifact_id(artifact_id: str) -> Dict[str, Any]:
+    """Parse a public artifact identifier.
+
+    New release-train artifacts use ``<train_id>-ud<UD version>``. Legacy
+    ``ud<UD version>-<scope>-<label_schema>-<artifact_version>`` ids are still
+    accepted for compatibility with older config snapshots.
+    """
+    if not isinstance(artifact_id, str) or not artifact_id.strip():
+        raise ValueError("artifact_id must be a non-empty string")
+
+    try:
+        parsed = parse_artifact_key(artifact_id)
+        parsed["legacy"] = False
+        return parsed
+    except ValueError:
+        pass
+
+    match = LEGACY_ARTIFACT_ID_PATTERN.fullmatch(artifact_id.strip())
+    if not match:
+        raise ValueError(
+            "artifact_id must match '<train_id>-ud<UD version>' "
+            "or legacy 'ud<UD version>-<scope>-<label_schema>-<artifact_version>'"
+        )
+
+    parsed = match.groupdict()
+    parsed["train_id"] = build_train_id(
+        scope=parsed["scope"],
+        label_schema=parsed["label_schema"],
+        artifact_version=parsed["artifact_version"],
+    )
+    parsed["artifact_version_normalized"] = parse_artifact_version(
+        parsed["artifact_version"]
+    )["normalized"]
+    parsed["legacy"] = True
     return parsed
 
 
@@ -80,8 +221,13 @@ def build_artifact_id(
     label_schema: str,
     artifact_version: str,
 ) -> str:
-    """Build a canonical artifact id from explicit identity components."""
-    return f"ud{ud_version}-{scope}-{label_schema}-{artifact_version}"
+    """Build a compatibility artifact id from explicit identity components."""
+    train_id = build_train_id(
+        scope=scope,
+        label_schema=label_schema,
+        artifact_version=artifact_version,
+    )
+    return build_artifact_key(train_id=train_id, ud_version=ud_version)
 
 
 def validate_artifact_id(
@@ -91,6 +237,7 @@ def validate_artifact_id(
     scope: Optional[str] = None,
     label_schema: Optional[str] = None,
     artifact_version: Optional[str] = None,
+    train_id: Optional[str] = None,
 ) -> Dict[str, str]:
     """Validate artifact id syntax and optional component consistency."""
     parsed = parse_artifact_id(artifact_id)
@@ -98,6 +245,7 @@ def validate_artifact_id(
         "ud_version": ud_version,
         "scope": scope,
         "label_schema": label_schema,
+        "train_id": train_id,
     }
     mismatches = [
         f"{field}={parsed[field]!r} does not match {value!r}"
@@ -114,6 +262,13 @@ def validate_artifact_id(
     if mismatches:
         raise ValueError(f"artifact_id components are inconsistent: {', '.join(mismatches)}")
     return parsed
+
+
+def build_source_branch(train_id: str) -> str:
+    """Build the shared source release branch for a train major version."""
+    parsed = parse_train_id(train_id)
+    major = parse_artifact_version(parsed["artifact_version"])["major"]
+    return f"release/{parsed['scope']}-{parsed['label_schema']}-v{major}"
 
 
 def _dedupe(values: Iterable[Any]) -> List[str]:
@@ -137,15 +292,25 @@ def resolve_release_identity(config) -> Dict[str, Any]:
     scope = str(getattr(release, "scope", None) or "full")
     label_schema = str(getattr(release, "label_schema", None) or "ud")
     artifact_version = str(getattr(release, "artifact_version", None) or "v1")
-    artifact_id = getattr(release, "artifact_id", None) or build_artifact_id(
-        ud_version=str(config.ud_version),
+    train_id = getattr(release, "train_id", None) or build_train_id(
         scope=scope,
         label_schema=label_schema,
         artifact_version=artifact_version,
     )
+    train_parsed = validate_train_id(
+        train_id,
+        scope=scope,
+        label_schema=label_schema,
+        artifact_version=artifact_version,
+    )
+    artifact_key = (
+        getattr(release, "artifact_key", None)
+        or getattr(release, "artifact_id", None)
+        or build_artifact_key(train_id=train_id, ud_version=str(config.ud_version))
+    )
 
     parsed = validate_artifact_id(
-        artifact_id,
+        artifact_key,
         ud_version=str(config.ud_version),
         scope=scope,
         label_schema=label_schema,
@@ -170,32 +335,39 @@ def resolve_release_identity(config) -> Dict[str, Any]:
             revision
             for revision in _dedupe(configured_revisions)
             if not str(revision).startswith("artifact/")
-            and str(revision) != artifact_id
+            and str(revision) != artifact_key
         ]
         hf_branches = _dedupe(legacy_branch_candidates or [fallback_revision])
     hf_revisions = _dedupe(configured_revisions or [fallback_revision])
-    hf_tag = getattr(release, "hf_tag", None) or f"artifact/{artifact_id}"
+    hf_tag = (
+        getattr(release, "hf_tag", None)
+        or f"artifact/{train_id}/ud{config.ud_version}"
+    )
     hf_default_branch = getattr(release, "hf_default_branch", None) or "main"
     source_branch = (
         getattr(release, "source_branch", None)
         or getattr(release, "git_branch", None)
-        or ""
+        or build_source_branch(train_id)
     )
     source_tag = (
         getattr(release, "source_tag", None)
         or getattr(release, "git_tag", None)
-        or f"source/{artifact_id}"
+        or f"source/{train_id}"
     )
     source_repo = getattr(release, "source_repo", None) or ""
     source_commit = getattr(release, "source_commit", None) or ""
+    inventory_status = getattr(release, "inventory_status", None) or ""
 
     return {
-        "artifact_id": artifact_id,
+        "train_id": train_id,
+        "artifact_key": artifact_key,
+        "artifact_id": artifact_key,
+        "inventory_status": str(inventory_status) if inventory_status else "",
         "ud_version": parsed["ud_version"],
-        "scope": parsed["scope"],
-        "label_schema": parsed["label_schema"],
-        "artifact_version": parsed["artifact_version"],
-        "artifact_version_normalized": parsed["artifact_version_normalized"],
+        "scope": train_parsed["scope"],
+        "label_schema": train_parsed["label_schema"],
+        "artifact_version": train_parsed["artifact_version"],
+        "artifact_version_normalized": train_parsed["artifact_version_normalized"],
         "hf_repo": str(hf_repo) if hf_repo else "",
         "hf_branches": hf_branches,
         "hf_tag": str(hf_tag),
@@ -244,11 +416,10 @@ def resolve_release_hf_branches(
 
 
 def validate_release_registry_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate one promoted artifact registry entry."""
-    artifact_id = str(entry.get("artifact_id", ""))
-    parsed = validate_artifact_id(
-        artifact_id,
-        ud_version=entry.get("ud_version"),
+    """Validate one promoted release train registry entry."""
+    train_id = str(entry.get("train_id", ""))
+    parsed = validate_train_id(
+        train_id,
         scope=entry.get("scope"),
         label_schema=entry.get("label_schema"),
         artifact_version=entry.get("artifact_version"),
@@ -256,11 +427,11 @@ def validate_release_registry_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
 
     required_fields = [
         "status",
-        "change_scope",
         "hf_repo",
-        "hf_branches",
-        "hf_tag",
-        "source_config",
+        "supported_ud_versions",
+        "default_ud_version",
+        "release_matrix",
+        "release_profile",
         "source_repo",
         "source_branch",
         "source_tag",
@@ -272,33 +443,25 @@ def validate_release_registry_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     ]
     if missing:
         raise ValueError(
-            f"release registry entry {artifact_id!r} is missing: {', '.join(missing)}"
+            f"release registry entry {train_id!r} is missing: {', '.join(missing)}"
         )
 
     status = str(entry["status"])
     if status not in VALID_REGISTRY_STATUSES:
         raise ValueError(
-            f"release registry entry {artifact_id!r} has invalid status {status!r}"
+            f"release registry entry {train_id!r} has invalid status {status!r}"
         )
 
-    change_scope = str(entry["change_scope"])
-    if change_scope not in VALID_REGISTRY_CHANGE_SCOPES:
+    if entry["default_ud_version"] not in entry["supported_ud_versions"]:
         raise ValueError(
-            f"release registry entry {artifact_id!r} has invalid change_scope "
-            f"{change_scope!r}"
+            f"release registry entry {train_id!r} default_ud_version must be "
+            "one of supported_ud_versions"
         )
 
-    expected_hf_tag = f"artifact/{artifact_id}"
-    if str(entry["hf_tag"]) != expected_hf_tag:
-        raise ValueError(
-            f"release registry entry {artifact_id!r} hf_tag must be "
-            f"{expected_hf_tag!r}"
-        )
-
-    expected_source_tag = f"source/{artifact_id}"
+    expected_source_tag = f"source/{train_id}"
     if str(entry["source_tag"]) != expected_source_tag:
         raise ValueError(
-            f"release registry entry {artifact_id!r} source_tag must be "
+            f"release registry entry {train_id!r} source_tag must be "
             f"{expected_source_tag!r}"
         )
 
@@ -309,22 +472,22 @@ def validate_release_registry_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_release_registry(path: Path | str) -> List[Dict[str, Any]]:
-    """Load and validate the promoted genre artifact registry."""
+    """Load and validate the promoted genre release-train registry."""
     registry_path = Path(path)
     with open(registry_path, "r", encoding="utf-8") as handle:
         registry = yaml.safe_load(handle) or {}
 
-    artifacts = registry.get("artifacts", [])
+    artifacts = registry.get("trains", registry.get("artifacts", []))
     if not isinstance(artifacts, list):
-        raise ValueError("release registry must contain an 'artifacts' list")
+        raise ValueError("release registry must contain a 'trains' list")
 
     return [validate_release_registry_entry(entry) for entry in artifacts]
 
 
 def active_release_registry_entries(path: Path | str) -> List[Dict[str, Any]]:
-    """Return active promoted artifacts selected for source-wide rebuilds."""
+    """Return release trains selected for source-wide rebuilds."""
     return [
         entry
         for entry in load_release_registry(path)
-        if entry.get("status") == "active"
+        if entry.get("status") in {"partial", "default_hotfix", "complete"}
     ]

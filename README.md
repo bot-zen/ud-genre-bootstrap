@@ -32,9 +32,9 @@ the metadata extraction path, so HF and local CoNLL-U genre extraction behave th
 
 ## Public Release
 
-The promoted UD v2.18 genre artifact is published in `commul/ud_genre` with a simple
-UD-version branch for end users, the HF default branch for the web UI, and an
-immutable artifact tag for provenance:
+The promoted UD v2.18 genre artifact is published in `commul/ud_genre` with a
+simple UD-version branch for end users, the HF default branch for the web UI,
+and an immutable train-first artifact tag for provenance:
 
 ```python
 from datasets import load_dataset
@@ -42,22 +42,20 @@ from datasets import load_dataset
 genres = load_dataset("commul/ud_genre", revision="2.18", split="train")
 ```
 
-Current artifact identity:
+Current release-train identity:
 
 - default branch: `main`
 - convenience branch: `2.18`
-- canonical artifact ID: `ud2.18-full-ud-v1.0.1`
-- immutable HF tag: `artifact/ud2.18-full-ud-v1.0.1`
+- train ID: `full-ud-v1.0.0`
+- artifact key: `full-ud-v1.0.0-ud2.18`
+- immutable HF tag: `artifact/full-ud-v1.0.0/ud2.18`
 - label schema: `ud`
 - scope: `full`
-- source branch: `release/v1`
-- source tag: `source/ud2.18-full-ud-v1.0.1`
+- source branch: `release/full-ud-v1`
+- source tag: `source/full-ud-v1.0.0`
 
-The UD v2.17 branch remains available as a patched metadata/provenance refresh at
-`artifact/ud2.17-full-ud-v1.0.2`; its label data are unchanged from
-`artifact/ud2.17-full-ud-v1`. The publication target is the local HF Git checkout
-`../ud_genre-hf/`, whose origin maps to
-`git@hf.co:datasets/commul/ud_genre`.
+The publication target is the local HF Git checkout `../ud_genre-hf/`, whose
+origin maps to `git@hf.co:datasets/commul/ud_genre`.
 
 The reusable release workflow, including artifact versioning, source tags, HF
 branches, and publishing commands, is documented in
@@ -274,80 +272,23 @@ Optional: set `metadata_path` when metadata is not in the default auto-detected 
 
 Relative paths are resolved relative to the current working directory.
 
-Example `config.yaml`:
+Release work should use the shared profile and release matrix:
 
 ```yaml
-ud_version: "2.18"
-ud_source: "hf://universal-dependencies/universal_dependencies"
-metadata_path: null  # e.g. "../huggingface/universal_dependencies/metadata.json"
+release_profile: "../release_profiles/full-ud.yaml"
 
-release:
-  artifact_id: "ud2.18-full-ud-v1.0.1"
-  scope: "full"
-  label_schema: "ud"
-  artifact_version: "v1.0.1"
-  hf_repo: "commul/ud_genre"
-  hf_branches:
-    - "2.18"
-  hf_tag: "artifact/ud2.18-full-ud-v1.0.1"
-  hf_default_branch: "main"
-  source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
-  source_branch: "release/v1"
-  source_tag: "source/ud2.18-full-ud-v1.0.1"
+train:
+  train_id: "full-ud-v1.0.0"
+  supported_ud_versions: ["2.7", "2.8", "...", "2.18"]
+  default_ud_version: "2.18"
+  source_branch: "release/full-ud-v1"
+  source_tag: "source/full-ud-v1.0.0"
 
-# Optional: Only process specific treebanks
-include_treebanks:
-  - "en_ewt"
-  - "de_gsd"
-  - "fr_gsd"
-
-embeddings:
-  model: "xlm-roberta-base"
-  pooling: "mean"
-  batch_size: 64
-  device: "cuda"
-
-clustering:
-  method: "kmeans"  # "kmeans" (GPU-accelerated) or "gmm" (CPU-only)
-  level: "treebank"
-  seed: 42
-  device: "auto"  # Use GPU if available, or "cuda"/"cpu" to force
-  # Note: K-Means supports GPU via cuML, GMM is CPU-only
-
-bootstrapping:
-  min_confidence: 0.8
-  reference_weighting: "sentence_count"  # or "uniform"
-  max_iterations: 10
-  fail_on_incomplete: false
-
-genre_extraction:
-  # Optional: custom genre mappings and patterns
-  mapping_path: "configs/genre_mappings.json"
-  patterns_path: "configs/metadata_patterns.json"
-  # Optional: override default canonical genre set
-  canonical_genres: ["news", "wiki", "fiction", "blog", "legal", "spoken"]
-
-evaluation:
-  enabled: true
-  metadata_validation:
-    protocol: "generalization"  # or "paper_parity" for the original fixed-split GMM+L-style evaluation
-    method: "kfold"
-    k: 5
-    stratify_by: "genre"
-    group_by: "language"
-    anchor_mode: "strict"  # "strict" = fold-train anchors only; "parity" = broader single-genre anchors for comparability-style runs
-    anchor_pool_policy: "auto"  # strict->train_virtual, parity->combined; paper_parity forces single_genre
-    min_genre_sentences: 100  # Minimum sentences per genre for evaluation
-
-output:
-  genres_path: "output/2.18-community-release/genres"
-  embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
-  push_to_hub: true
-
-# Optional: Exclude specific treebanks from processing
-exclude_treebanks:
-  - "en_lines"  # Example: exclude problematic treebanks
-  - "ar_nyuad"
+versions:
+  "2.18": {}
+  "2.17":
+    output:
+      baseline_summary_path: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
 ```
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
@@ -362,7 +303,8 @@ HF `main` branch:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/2.18-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main
 ```
@@ -370,14 +312,15 @@ uv run ud-genre-bootstrap publish \
 This regenerates local release metadata, copies only `README.md`,
 `all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
 the payload on branch `2.18`, creates the immutable tag
-`artifact/ud2.18-full-ud-v1.0.1`, and moves `main` because `--include-main` is
+`artifact/full-ud-v1.0.0/ud2.18`, and moves `main` because `--include-main` is
 passed.
 
-The patched UD v2.17 metadata artifact can be published without moving `main`:
+UD v2.17 can be published without moving `main`:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/2.17-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.17 \
   --hf-repo-dir ../ud_genre-hf
 ```
 
@@ -385,7 +328,8 @@ To inspect the Git publish plan without touching the HF checkout:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --config configs/2.18-community-release.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main \
   --dry-run
@@ -394,7 +338,10 @@ uv run ud-genre-bootstrap publish \
 The older Hub API upload path remains available for compatibility:
 
 ```bash
-uv run ud-genre-bootstrap upload --config configs/2.18-community-release.yaml --dry-run
+uv run ud-genre-bootstrap upload \
+  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --ud-version 2.18 \
+  --dry-run
 ```
 
 ## Output Format

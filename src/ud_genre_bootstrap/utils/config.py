@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
-from ud_genre_bootstrap.utils.release_identity import validate_artifact_id
+from ud_genre_bootstrap.utils.release_identity import validate_artifact_id, validate_train_id
 
 
 @dataclass
@@ -137,10 +137,13 @@ class OutputConfig:
 class ReleaseConfig:
     """Public identity for promoted genre artifacts."""
 
+    train_id: Optional[str] = None
+    artifact_key: Optional[str] = None
     artifact_id: Optional[str] = None
     scope: str = "full"
     label_schema: str = "ud"
     artifact_version: str = "v1"
+    inventory_status: Optional[str] = None
     hf_repo: Optional[str] = None
     hf_branches: List[str] = field(default_factory=list)
     hf_tag: Optional[str] = None
@@ -346,13 +349,22 @@ class Config:
 
         output = OutputConfig(**config_dict.get("output", {}))
         release = ReleaseConfig(**config_dict.get("release", {}))
-        if release.artifact_id:
+        if release.train_id:
+            validate_train_id(
+                release.train_id,
+                scope=release.scope,
+                label_schema=release.label_schema,
+                artifact_version=release.artifact_version,
+            )
+        artifact_key = release.artifact_key or release.artifact_id
+        if artifact_key:
             validate_artifact_id(
-                release.artifact_id,
+                artifact_key,
                 ud_version=str(config_dict.get("ud_version", "2.17")),
                 scope=release.scope,
                 label_schema=release.label_schema,
                 artifact_version=release.artifact_version,
+                train_id=release.train_id,
             )
         logging_cfg = LoggingConfig(**config_dict.get("logging", {}))
         xgenre_evaluation = XGenreEvaluationConfig(**config_dict.get("xgenre_evaluation", {}))

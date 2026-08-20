@@ -554,7 +554,7 @@ class TestLabelCommandFlow:
             def _export_results(self):
                 return {"labeled_sentences": 0}
 
-        monkeypatch.setattr(cli_module, "load_config_from_path", lambda _: cfg)
+        monkeypatch.setattr(cli_module, "load_config_from_path", lambda *_, **__: cfg)
         monkeypatch.setattr(cli_module, "GenreBootstrapper", DummyBootstrapper)
         monkeypatch.setattr(cli_module, "_display_schedule_summary", lambda _: None)
 

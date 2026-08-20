@@ -1,23 +1,7 @@
-# Backfill community-release profile for UD v2.12.
-# Initial public artifact for this UD version (v1.0.0).
+# Shared profile for full-scope UD-derived genre releases.
 
-ud_version: "2.12"
 ud_source: "hf://universal-dependencies/universal_dependencies"
 metadata_path: null
-
-release:
-  artifact_id: "ud2.12-full-ud-v1.0.0"
-  scope: "full"
-  label_schema: "ud"
-  artifact_version: "v1.0.0"
-  hf_repo: "commul/ud_genre"
-  hf_branches:
-    - "2.12"
-  hf_tag: "artifact/ud2.12-full-ud-v1.0.0"
-  hf_default_branch: "main"
-  source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
-  source_branch: "release/v1"
-  source_tag: "source/ud2.12-full-ud-v1.0.0"
 
 exclude_treebanks:
   - "ar_nyuad"
@@ -91,14 +75,8 @@ xgenre_evaluation:
     Other: null
 
 output:
-  genres_path: "output/2.12-community-release/genres"
   embeddings_hf_repo: "commul/ud-embeddings-multilingual-e5-large"
-  embeddings_revision: "2.12"
   genres_hf_repo: "commul/ud_genre"
-  genres_revision: "2.12"
-  config_name: "2.12-community-release"
-  run_id: "ud-v2.12-community-release-v1.0.0"
-  ud_source_revision: "2.12"
   baseline_summary_path: null
   push_to_hub: false
   hf_token: "${HF_TOKEN}"
@@ -106,4 +84,3 @@ output:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
