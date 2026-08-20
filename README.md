@@ -46,14 +46,14 @@ Current release-train identity:
 
 - default branch: `main`
 - convenience branch: `2.18`
-- train ID: `full-ud-v1.0.0`
-- artifact key: `full-ud-v1.0.0-ud2.18`
-- immutable HF tag: `artifact/full-ud-v1.0.0/ud2.18`
+- train ID: `full-ud-v1.0.1`
+- artifact key: `full-ud-v1.0.1-ud2.18`
+- immutable HF tag: `artifact/full-ud-v1.0.1/ud2.18`
 - label schema: `ud`
 - scope: `full`
 - registry status: `partial` until UD `2.7` through `2.18` have all been rebuilt and published
 - source branch: `release/full-ud-v1`
-- source tag: `source/full-ud-v1.0.0`
+- source tag: `source/full-ud-v1.0.1`
 
 The publication target is the local HF Git checkout `../ud_genre-hf/`, whose
 origin maps to `git@hf.co:datasets/commul/ud_genre`.
@@ -279,11 +279,11 @@ Release work should use the shared profile and release matrix:
 release_profile: "../release_profiles/full-ud.yaml"
 
 train:
-  train_id: "full-ud-v1.0.0"
+  train_id: "full-ud-v1.0.1"
   supported_ud_versions: ["2.7", "2.8", "...", "2.18"]
   default_ud_version: "2.18"
   source_branch: "release/full-ud-v1"
-  source_tag: "source/full-ud-v1.0.0"
+  source_tag: "source/full-ud-v1.0.1"
 
 versions:
   "2.18": {}
@@ -304,7 +304,7 @@ HF `main` branch:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.1.yaml \
   --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main
@@ -313,14 +313,14 @@ uv run ud-genre-bootstrap publish \
 This regenerates local release metadata, copies only `README.md`,
 `all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
 the payload on branch `2.18`, creates the immutable tag
-`artifact/full-ud-v1.0.0/ud2.18`, and moves `main` because `--include-main` is
+`artifact/full-ud-v1.0.1/ud2.18`, and moves `main` because `--include-main` is
 passed.
 
 UD v2.17 can be published without moving `main`:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.1.yaml \
   --ud-version 2.17 \
   --hf-repo-dir ../ud_genre-hf
 ```
@@ -329,7 +329,7 @@ To inspect the Git publish plan without touching the HF checkout:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.1.yaml \
   --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main \
@@ -340,7 +340,7 @@ The older Hub API upload path remains available for compatibility:
 
 ```bash
 uv run ud-genre-bootstrap upload \
-  --release-matrix configs/releases/full-ud-v1.0.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.0.1.yaml \
   --ud-version 2.18 \
   --dry-run
 ```

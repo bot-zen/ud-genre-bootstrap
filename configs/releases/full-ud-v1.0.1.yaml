@@ -3,11 +3,11 @@
 release_profile: "../release_profiles/full-ud.yaml"
 
 train:
-  train_id: "full-ud-v1.0.0"
+  train_id: "full-ud-v1.0.1"
   status: "partial"
   scope: "full"
   label_schema: "ud"
-  artifact_version: "v1.0.0"
+  artifact_version: "v1.0.1"
   supported_ud_versions:
     - "2.7"
     - "2.8"
@@ -26,7 +26,7 @@ train:
   hf_default_branch: "main"
   source_repo: "git@github.com:bot-zen/ud-genre-bootstrap.git"
   source_branch: "release/full-ud-v1"
-  source_tag: "source/full-ud-v1.0.0"
+  source_tag: "source/full-ud-v1.0.1"
 
 versions:
   "2.7": {}

@@ -452,13 +452,13 @@ def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Con
     release_dir.mkdir(parents=True, exist_ok=True)
     (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
 
-    cfg.release.train_id = "full-ud-v1.0.0"
-    cfg.release.artifact_key = "full-ud-v1.0.0-ud2.17"
+    cfg.release.train_id = "full-ud-v1.0.1"
+    cfg.release.artifact_key = "full-ud-v1.0.1-ud2.17"
     cfg.release.scope = "full"
     cfg.release.label_schema = "ud"
-    cfg.release.artifact_version = "v1.0.0"
+    cfg.release.artifact_version = "v1.0.1"
     cfg.release.hf_repo = "commul/ud-genres"
-    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.0/ud2.17"]
+    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.1/ud2.17"]
     cfg.output.hf_token = "test-token"
     StubBootstrapper.last_push_call = None
     upload_calls = []
@@ -487,9 +487,9 @@ def test_upload_command_uses_release_revisions_from_config(monkeypatch, cfg: Con
     assert StubBootstrapper.last_push_call is None
     assert upload_calls == [{
         "repo_id": "commul/ud-genres",
-        "revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17"],
+        "revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17"],
         "genres_path": str(release_dir),
-        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17"],
+        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17"],
     }]
 
 
@@ -502,13 +502,13 @@ def test_upload_command_can_include_hf_main_revision(monkeypatch, cfg: Config, t
     release_dir.mkdir(parents=True, exist_ok=True)
     (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
 
-    cfg.release.train_id = "full-ud-v1.0.0"
-    cfg.release.artifact_key = "full-ud-v1.0.0-ud2.17"
+    cfg.release.train_id = "full-ud-v1.0.1"
+    cfg.release.artifact_key = "full-ud-v1.0.1-ud2.17"
     cfg.release.scope = "full"
     cfg.release.label_schema = "ud"
-    cfg.release.artifact_version = "v1.0.0"
+    cfg.release.artifact_version = "v1.0.1"
     cfg.release.hf_repo = "commul/ud-genres"
-    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.0/ud2.17"]
+    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.1/ud2.17"]
     cfg.output.hf_token = "test-token"
     upload_calls = []
 
@@ -537,9 +537,9 @@ def test_upload_command_can_include_hf_main_revision(monkeypatch, cfg: Config, t
     assert result.exit_code == 0, result.stdout
     assert upload_calls == [{
         "repo_id": "commul/ud-genres",
-        "revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17", "main"],
+        "revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17", "main"],
         "genres_path": str(release_dir),
-        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17", "main"],
+        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17", "main"],
         "genres_revision": "2.17",
     }]
 
@@ -553,13 +553,13 @@ def test_upload_include_main_uses_configured_default_branch(monkeypatch, cfg: Co
     release_dir.mkdir(parents=True, exist_ok=True)
     (release_dir / "all_genres.parquet").write_text("stub", encoding="utf-8")
 
-    cfg.release.train_id = "full-ud-v1.0.0"
-    cfg.release.artifact_key = "full-ud-v1.0.0-ud2.17"
+    cfg.release.train_id = "full-ud-v1.0.1"
+    cfg.release.artifact_key = "full-ud-v1.0.1-ud2.17"
     cfg.release.scope = "full"
     cfg.release.label_schema = "ud"
-    cfg.release.artifact_version = "v1.0.0"
+    cfg.release.artifact_version = "v1.0.1"
     cfg.release.hf_repo = "commul/ud-genres"
-    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.0/ud2.17"]
+    cfg.release.hf_revisions = ["2.17", "artifact/full-ud-v1.0.1/ud2.17"]
     cfg.release.hf_default_branch = "stable"
     cfg.output.hf_token = "test-token"
     upload_calls = []
@@ -588,9 +588,9 @@ def test_upload_include_main_uses_configured_default_branch(monkeypatch, cfg: Co
     assert result.exit_code == 0, result.stdout
     assert upload_calls == [{
         "repo_id": "commul/ud-genres",
-        "revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17", "stable"],
+        "revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17", "stable"],
         "genres_path": str(release_dir),
-        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.0/ud2.17", "stable"],
+        "hf_revisions": ["2.17", "artifact/full-ud-v1.0.1/ud2.17", "stable"],
     }]
 
 
@@ -605,15 +605,15 @@ def test_publish_command_dry_run_uses_git_publish_flow(monkeypatch, cfg: Config,
     hf_repo_dir = tmp_path / "hf"
     hf_repo_dir.mkdir()
 
-    cfg.release.train_id = "full-ud-v1.0.0"
-    cfg.release.artifact_key = "full-ud-v1.0.0-ud2.17"
+    cfg.release.train_id = "full-ud-v1.0.1"
+    cfg.release.artifact_key = "full-ud-v1.0.1-ud2.17"
     cfg.release.scope = "full"
     cfg.release.label_schema = "ud"
-    cfg.release.artifact_version = "v1.0.0"
+    cfg.release.artifact_version = "v1.0.1"
     cfg.release.hf_repo = "commul/ud_genre"
     cfg.release.hf_branches = ["2.17"]
-    cfg.release.hf_tag = "artifact/full-ud-v1.0.0/ud2.17"
-    cfg.release.source_tag = "source/full-ud-v1.0.0"
+    cfg.release.hf_tag = "artifact/full-ud-v1.0.1/ud2.17"
+    cfg.release.source_tag = "source/full-ud-v1.0.1"
 
     publish_calls = []
 

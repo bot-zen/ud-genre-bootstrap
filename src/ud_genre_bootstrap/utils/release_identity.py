@@ -61,7 +61,7 @@ def parse_artifact_version(version: str) -> Dict[str, Any]:
 
 
 def parse_train_id(train_id: str) -> Dict[str, Any]:
-    """Parse a synchronized release train id such as ``full-ud-v1.0.0``."""
+    """Parse a synchronized release train id such as ``full-ud-v1.0.1``."""
     if not isinstance(train_id, str) or not train_id.strip():
         raise ValueError("train_id must be a non-empty string")
 
@@ -69,7 +69,7 @@ def parse_train_id(train_id: str) -> Dict[str, Any]:
     if not match:
         raise ValueError(
             "train_id must match '<scope>-<label_schema>-<artifact_version>', "
-            "for example 'full-ud-v1.0.0'"
+            "for example 'full-ud-v1.0.1'"
         )
 
     parsed = match.groupdict()
@@ -116,7 +116,7 @@ def parse_artifact_key(artifact_key: str) -> Dict[str, Any]:
     """Parse a per-UD artifact key in a synchronized train.
 
     Expected shape: ``<train_id>-ud<UD version>``.
-    Example: ``full-ud-v1.0.0-ud2.18``.
+    Example: ``full-ud-v1.0.1-ud2.18``.
     """
     if not isinstance(artifact_key, str) or not artifact_key.strip():
         raise ValueError("artifact_key must be a non-empty string")
@@ -125,7 +125,7 @@ def parse_artifact_key(artifact_key: str) -> Dict[str, Any]:
     if not match:
         raise ValueError(
             "artifact_key must match '<train_id>-ud<UD version>', "
-            "for example 'full-ud-v1.0.0-ud2.18'"
+            "for example 'full-ud-v1.0.1-ud2.18'"
         )
 
     parsed = match.groupdict()

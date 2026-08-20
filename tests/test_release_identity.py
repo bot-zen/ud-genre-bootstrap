@@ -17,13 +17,13 @@ from ud_genre_bootstrap.utils.release_identity import (
 
 
 def test_parse_train_id_valid():
-    parsed = parse_train_id("full-ud-v1.0.0")
+    parsed = parse_train_id("full-ud-v1.0.1")
 
     assert parsed == {
         "scope": "full",
         "label_schema": "ud",
-        "artifact_version": "v1.0.0",
-        "artifact_version_normalized": "v1.0.0",
+        "artifact_version": "v1.0.1",
+        "artifact_version_normalized": "v1.0.1",
     }
 
 
@@ -33,23 +33,23 @@ def test_parse_artifact_version_valid(version):
 
 
 def test_parse_artifact_key_valid():
-    parsed = parse_artifact_key("full-ud-v1.0.0-ud2.18")
+    parsed = parse_artifact_key("full-ud-v1.0.1-ud2.18")
 
-    assert parsed["train_id"] == "full-ud-v1.0.0"
+    assert parsed["train_id"] == "full-ud-v1.0.1"
     assert parsed["ud_version"] == "2.18"
     assert parsed["scope"] == "full"
     assert parsed["label_schema"] == "ud"
-    assert parsed["artifact_version_normalized"] == "v1.0.0"
+    assert parsed["artifact_version_normalized"] == "v1.0.1"
 
 
 @pytest.mark.parametrize(
     "value",
     [
-        "ud2.18-full-ud-v1.0.0",
+        "ud2.18-full-ud-v1.0.1",
         "full-v1.0.0-ud2.18",
         "full-ud-ud2.18",
         "full-ud-v0.0.1-ud2.18",
-        "full-ud-v1.0.0",
+        "full-ud-v1.0.1",
     ],
 )
 def test_parse_artifact_key_rejects_missing_components(value):
@@ -67,14 +67,14 @@ def test_legacy_parse_artifact_id_remains_accepted_for_snapshots():
 
 def test_validate_artifact_key_rejects_inconsistent_components():
     with pytest.raises(ValueError, match="inconsistent"):
-        validate_artifact_key("full-ud-v1.0.0-ud2.18", label_schema="udmultigenre")
+        validate_artifact_key("full-ud-v1.0.1-ud2.18", label_schema="udmultigenre")
 
 
 def test_train_helpers_build_derived_names():
-    assert build_artifact_key(train_id="full-ud-v1.0.0", ud_version="2.18") == (
-        "full-ud-v1.0.0-ud2.18"
+    assert build_artifact_key(train_id="full-ud-v1.0.1", ud_version="2.18") == (
+        "full-ud-v1.0.1-ud2.18"
     )
-    assert build_source_branch("full-ud-v1.0.0") == "release/full-ud-v1"
+    assert build_source_branch("full-ud-v1.0.1") == "release/full-ud-v1"
     assert validate_train_id("full-ud-v1", artifact_version="v1.0.0")[
         "artifact_version_normalized"
     ] == "v1.0.0"
@@ -85,31 +85,31 @@ def test_config_resolves_train_identity():
         {
             "ud_version": "2.18",
             "release": {
-                "train_id": "full-ud-v1.0.0",
-                "artifact_key": "full-ud-v1.0.0-ud2.18",
+                "train_id": "full-ud-v1.0.1",
+                "artifact_key": "full-ud-v1.0.1-ud2.18",
                 "scope": "full",
                 "label_schema": "ud",
-                "artifact_version": "v1.0.0",
+                "artifact_version": "v1.0.1",
                 "inventory_status": "partial",
                 "hf_repo": "commul/ud_genre",
                 "hf_branches": ["2.18"],
-                "hf_tag": "artifact/full-ud-v1.0.0/ud2.18",
+                "hf_tag": "artifact/full-ud-v1.0.1/ud2.18",
                 "source_branch": "release/full-ud-v1",
-                "source_tag": "source/full-ud-v1.0.0",
+                "source_tag": "source/full-ud-v1.0.1",
             },
         }
     )
 
     identity = resolve_release_identity(cfg)
 
-    assert identity["train_id"] == "full-ud-v1.0.0"
-    assert identity["artifact_key"] == "full-ud-v1.0.0-ud2.18"
-    assert identity["artifact_id"] == "full-ud-v1.0.0-ud2.18"
+    assert identity["train_id"] == "full-ud-v1.0.1"
+    assert identity["artifact_key"] == "full-ud-v1.0.1-ud2.18"
+    assert identity["artifact_id"] == "full-ud-v1.0.1-ud2.18"
     assert identity["inventory_status"] == "partial"
     assert identity["hf_branches"] == ["2.18"]
-    assert identity["hf_tag"] == "artifact/full-ud-v1.0.0/ud2.18"
+    assert identity["hf_tag"] == "artifact/full-ud-v1.0.1/ud2.18"
     assert identity["source_branch"] == "release/full-ud-v1"
-    assert identity["source_tag"] == "source/full-ud-v1.0.0"
+    assert identity["source_tag"] == "source/full-ud-v1.0.1"
 
 
 def test_release_registry_validates_and_selects_rebuild_trains(tmp_path):
@@ -117,32 +117,32 @@ def test_release_registry_validates_and_selects_rebuild_trains(tmp_path):
     registry.write_text(
         """
 trains:
-  - train_id: "full-ud-v1.0.0"
+  - train_id: "full-ud-v1.0.1"
     scope: "full"
     label_schema: "ud"
-    artifact_version: "v1.0.0"
+    artifact_version: "v1.0.1"
     status: "partial"
     hf_repo: "commul/ud_genre"
     supported_ud_versions: ["2.17", "2.18"]
     default_ud_version: "2.18"
     release_profile: "configs/release_profiles/full-ud.yaml"
-    release_matrix: "configs/releases/full-ud-v1.0.0.yaml"
+    release_matrix: "configs/releases/full-ud-v1.0.1.yaml"
     source_repo: "git@example.test/ud-genre-bootstrap.git"
     source_branch: "release/full-ud-v1"
-    source_tag: "source/full-ud-v1.0.0"
-  - train_id: "full-ud-v1.0.1"
+    source_tag: "source/full-ud-v1.0.1"
+  - train_id: "full-ud-v1.0.0"
     scope: "full"
     label_schema: "ud"
-    artifact_version: "v1.0.1"
+    artifact_version: "v1.0.0"
     status: "deprecated"
     hf_repo: "commul/ud_genre"
     supported_ud_versions: ["2.17"]
     default_ud_version: "2.17"
     release_profile: "configs/release_profiles/full-ud.yaml"
-    release_matrix: "configs/releases/full-ud-v1.0.1.yaml"
+    release_matrix: "configs/releases/full-ud-v1.0.0.yaml"
     source_repo: "git@example.test/ud-genre-bootstrap.git"
     source_branch: "release/full-ud-v1"
-    source_tag: "source/full-ud-v1.0.1"
+    source_tag: "source/full-ud-v1.0.0"
 """,
         encoding="utf-8",
     )
@@ -150,5 +150,5 @@ trains:
     entries = load_release_registry(registry)
     active_entries = active_release_registry_entries(registry)
 
-    assert entries[0]["artifact_version_normalized"] == "v1.0.0"
-    assert [entry["train_id"] for entry in active_entries] == ["full-ud-v1.0.0"]
+    assert entries[0]["artifact_version_normalized"] == "v1.0.1"
+    assert [entry["train_id"] for entry in active_entries] == ["full-ud-v1.0.1"]
