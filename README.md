@@ -53,8 +53,8 @@ Current artifact identity:
 - source branch: `release/v1`
 - source tag: `source/ud2.18-full-ud-v1.0.1`
 
-The UD v2.17 branch remains available as a patched metadata refresh at
-`artifact/ud2.17-full-ud-v1.0.1`; its label data are unchanged from
+The UD v2.17 branch remains available as a patched metadata/provenance refresh at
+`artifact/ud2.17-full-ud-v1.0.2`; its label data are unchanged from
 `artifact/ud2.17-full-ud-v1`. The publication target is the local HF Git checkout
 `../ud_genre-hf/`, whose origin maps to
 `git@hf.co:datasets/commul/ud_genre`.

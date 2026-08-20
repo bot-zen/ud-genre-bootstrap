@@ -30,6 +30,7 @@ ud<UD version>-<scope>-<label schema>-<artifact version>
 Examples:
 
 - `ud2.17-full-ud-v1.0.1`
+- `ud2.17-full-ud-v1.0.2`
 - `ud2.18-full-ud-v1.0.1`
 
 Field meanings:
@@ -98,12 +99,12 @@ Default status is represented by the HF `main` branch, not by a separate
 registry status. Registry status values are `active`, `superseded`, and
 `deprecated`.
 
-UD 2.17 remains available as a patched metadata refresh:
+UD 2.17 remains available as a patched metadata/provenance refresh:
 
 - UD branch: `2.17`
-- artifact ID: `ud2.17-full-ud-v1.0.1`
-- HF tag: `artifact/ud2.17-full-ud-v1.0.1`
-- source tag: `source/ud2.17-full-ud-v1.0.1`
+- artifact ID: `ud2.17-full-ud-v1.0.2`
+- HF tag: `artifact/ud2.17-full-ud-v1.0.2`
+- source tag: `source/ud2.17-full-ud-v1.0.2`
 - data status: label data unchanged from `ud2.17-full-ud-v1`
 
 ## Release Config Lifecycle
