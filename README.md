@@ -32,7 +32,7 @@ the metadata extraction path, so HF and local CoNLL-U genre extraction behave th
 
 ## Public Release
 
-The promoted UD v2.18 genre artifact is published in `commul/ud_genre` with a
+The current UD v2.18 genre release train targets `commul/ud_genre` with a
 simple UD-version branch for end users, the HF default branch for the web UI,
 and an immutable train-first artifact tag for provenance:
 
@@ -51,6 +51,7 @@ Current release-train identity:
 - immutable HF tag: `artifact/full-ud-v1.0.0/ud2.18`
 - label schema: `ud`
 - scope: `full`
+- registry status: `partial` until UD `2.7` through `2.18` have all been rebuilt and published
 - source branch: `release/full-ud-v1`
 - source tag: `source/full-ud-v1.0.0`
 

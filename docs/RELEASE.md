@@ -15,8 +15,8 @@ record.
 - HF dataset repo: `commul/ud_genre`
 - upstream UD HF dataset repo: `universal-dependencies/universal_dependencies`
 
-The current train is `full-ud-v1.0.0`. It covers UD `2.7` through `2.18`; UD
-`2.18` is the default published on HF `main`.
+The current configured train is `full-ud-v1.0.0`. It covers UD `2.7` through
+`2.18`; UD `2.18` is the default target for HF `main`.
 
 ## Identity Model
 
@@ -51,8 +51,10 @@ clustering method, thresholds, reference weighting, and seed are recorded as
   supported UD branches have the same train version.
 - Do not create independent older-UD patch streams. A case like UD `2.17` on
   `v1.0.2` while UD `2.18` is on `v1.0.1` is intentionally avoided.
-- Historical tags using `ud2.X-full-ud-v...` were transitional scratch state and
-  may be deleted.
+- Historical source/HF tags and branches using `ud2.X-full-ud-v...`,
+  `source/ud2.*`, or `release/v1` were transitional scratch state. They have
+  been deleted from this source repository and must not be recreated for
+  promoted releases.
 
 ## Config Resolution
 
@@ -174,8 +176,8 @@ uv run ud-genre-bootstrap upload \
 
 ## Source Tagging
 
-Commit the exact source state responsible for the train, then create or update
-the release branch and source tag:
+Commit the exact source state responsible for a new train version, then create
+the release branch and immutable source tag:
 
 ```bash
 git branch -f release/full-ud-v1 HEAD
@@ -183,7 +185,10 @@ git tag source/full-ud-v1.0.0 HEAD
 ```
 
 Do this before non-dry-run Git-backed publishing. The publish command validates
-that `source/full-ud-v1.0.0` points at the current clean source commit.
+that `source/full-ud-v1.0.0` points at the current clean source commit. Once the
+source tag has been pushed, do not move it; bump the train version instead.
+For an already-tagged train, publish from the tagged source commit rather than
+from later docs-only commits on `main`.
 
 ## Git-Backed HF Publish
 
