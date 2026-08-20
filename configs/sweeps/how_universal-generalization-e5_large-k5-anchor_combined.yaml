@@ -117,20 +117,6 @@ evaluation:
   - resolution_rate
   - disjunct_combinations
   - confidence_distribution
-xgenre_evaluation:
-  model: classla/xlm-roberta-base-multilingual-text-genre-classifier
-  batch_size: 32
-  device: auto
-  genre_mapping:
-    News: news
-    Legal: legal
-    Information/Explanation: wiki
-    Forum: social
-    Prose/Lyrical: fiction
-    Opinion/Argumentation: reviews
-    Instruction: nonfiction
-    Promotion: web
-    Other: null
 output:
   genres_path: output/sweeps/2.17/anchor_ab/e5_large-k5-combined/genres
   embeddings_hf_repo: commul/ud-embeddings-xlm-roberta-base

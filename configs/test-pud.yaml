@@ -111,26 +111,6 @@ evaluation:
     - "disjunct_combinations"
     - "confidence_distribution"
 
-# X-GENRE classifier evaluation settings
-# Used by the 'evaluate-xgenre' command to compare bootstrap labels against X-GENRE predictions
-xgenre_evaluation:
-  model: "classla/xlm-roberta-base-multilingual-text-genre-classifier"
-  batch_size: 32
-  device: "auto"
-
-  # Mapping from X-GENRE labels to UD canonical genres
-  # Customize this mapping to match your genre taxonomy
-  genre_mapping:
-    News: "news"
-    Legal: "legal"
-    Information/Explanation: "wiki"
-    Forum: "social"
-    Prose/Lyrical: "fiction"
-    Opinion/Argumentation: "reviews"
-    Instruction: "nonfiction"
-    Promotion: "web"
-    Other: null  # No UD equivalent (excluded from evaluation)
-
 output:
   genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-multilingual-e5-large"
