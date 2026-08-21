@@ -77,6 +77,51 @@ The resolved config is written to `config.snapshot.yaml` in the generated output
 directory. Existing `--config` commands remain available for experiments and
 debugging, but promoted release work should use `--release-matrix`.
 
+## Per-Version Compatibility
+
+Older UD releases may differ from the latest release in treebank inventory,
+metadata conventions, sentence-level genre coverage, and available multi-genre
+evaluation anchors. The synchronized train identity should not change for these
+data-version compatibility differences. Keep the shared profile stable and add
+the smallest necessary override under `versions.<UD_VERSION>`.
+
+Use per-UD overrides for:
+
+- metadata extraction patterns needed only for one older UD release
+- explicit treebank exclusions for source-specific problems
+- evaluation treebank sets that exist in that UD release
+- evaluation thresholds or baseline summary paths
+
+Do not use per-UD overrides to change train identity, scope, label schema,
+artifact version, embedding model, pooling, clustering method, or bootstrapping
+policy. Those are train-level changes and require a new train version.
+
+Example:
+
+```yaml
+versions:
+  "2.10":
+    genre_extraction:
+      patterns_path:
+        - "configs/metadata_patterns.json"
+        - "configs/pud-patterns.json"
+        - "configs/release_overrides/2.10-metadata-patterns.json"
+    evaluation:
+      metadata_validation:
+        min_genre_sentences: 50
+      treebank_sets:
+        older_release_probe:
+          - "en_ewt"
+          - "de_gsd"
+          - "fr_gsd"
+```
+
+Run `coverage` before adding overrides. If a drift-specific override materially
+changes the labels, keep it in the release matrix so it is captured in
+`config.snapshot.yaml`, `run_metadata.json`, and `release_manifest.json`. Do not
+create a separate release-note file for the UD version unless there is
+exceptional provenance that cannot fit in the matrix or generated manifests.
+
 ## Preflight
 
 Run coverage and focused metadata checks before expensive generation:
