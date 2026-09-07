@@ -40,6 +40,43 @@ Algorithm settings are not part of the train name. Embedding model, pooling,
 clustering method, thresholds, reference weighting, and seed are recorded as
 `algorithm_recipe` in `run_metadata.json` and `release_manifest.json`.
 
+## Label Schemas
+
+The current `ud` label schema means the UD-v2 release metadata genre inventory:
+
+- `academic`
+- `bible`
+- `blog`
+- `email`
+- `fiction`
+- `government`
+- `grammar-examples`
+- `learner-essays`
+- `legal`
+- `medical`
+- `news`
+- `nonfiction`
+- `poetry`
+- `reviews`
+- `social`
+- `spoken`
+- `web`
+- `wiki`
+
+This is the inventory used by the official released metadata checked for UD
+`2.14` through `2.18`, so the current train does not split at UD `2.15`.
+The current UD genre contribution documentation also describes newer preferred
+genre/text-type names such as `mail`, `narration`, `regulation`, `review`,
+`grammar`, `learner`, `speech`, and `encyclopedia`. Treat that as a future
+schema unless the released UD metadata itself changes or this project adds an
+explicit transformation profile.
+
+Do not fold such a transformation into a patch release of `full-ud-v1`. Many
+changes are not one-to-one (`spoken`, `medical`, `blog`, `web`, `fiction`,
+`nonfiction`, and `bible` need treebank-level or sentence-level judgment). If
+implemented, publish it as a separate `label_schema`, with its own train, mapping
+rules, extraction tests, and documentation.
+
 ## Versioning Policy
 
 - `MAJOR.MINOR.PATCH` belongs to the train, not to one UD version.

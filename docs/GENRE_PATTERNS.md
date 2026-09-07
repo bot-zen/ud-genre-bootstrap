@@ -45,7 +45,8 @@ Use pattern-based extraction when genre information is encoded in:
 
 ### When Do You Need Mappings?
 
-Use genre mappings when extracted values differ from canonical UD genres:
+Use genre mappings when extracted values differ from the configured canonical
+label schema:
 - **Global mappings**: `"weblog" → "blog"`, `"newspaper" → "news"`
 - **Treebank-specific mappings**: Override behavior for specific treebanks
 
@@ -102,7 +103,7 @@ Use pattern-based extraction when:
 
 ### Genre Mapping File
 
-Maps non-standard genre labels to canonical UD genres.
+Maps non-standard genre labels to the configured canonical label schema.
 
 **Location**: Specified via `genre_mapping_path` in config or passed to `GenreMapper`
 
@@ -483,23 +484,35 @@ print(genres)  # ['blog']
 
 ## Canonical UD Genres
 
-All extracted genres should map to these canonical UD genre labels:
+For the current release train, `label_schema: ud` means the UD-v2 release
+metadata genre inventory. All extracted genres should map to these canonical
+labels:
 
 - `academic` - Academic writing, scientific papers
+- `bible` - Biblical texts
 - `blog` - Blog posts, web logs
 - `email` - Email messages
 - `fiction` - Fiction literature
 - `government` - Government documents
 - `grammar-examples` - Constructed grammar examples
+- `learner-essays` - Learner writing
 - `legal` - Legal documents
 - `medical` - Medical texts
 - `news` - News articles
 - `nonfiction` - Non-fiction prose
+- `poetry` - Poetry and older literary texts
 - `reviews` - Product/service reviews
 - `social` - Social media
 - `spoken` - Transcribed speech
 - `web` - General web content
 - `wiki` - Wikipedia articles
+
+Newer UD contribution documentation describes revised genre/text-type names and
+several former labels. Do not silently normalize this release schema to that
+newer taxonomy. Some correspondences are straightforward (`email` to `mail`,
+`reviews` to `review`), but others require treebank-specific judgment (`spoken`,
+`medical`, `blog`, `web`, `fiction`, `nonfiction`, `bible`). Implement such a
+change as a separate `label_schema` with explicit mappings and tests.
 
 ## Testing Patterns
 
@@ -618,7 +631,7 @@ assert 'blog' in genres, f"Expected 'blog', got {genres}"
 3. **Test thoroughly**: Verify patterns on sample data before full runs
 4. **Document conventions**: Add comments explaining treebank-specific patterns
 5. **Use capture groups**: Extract dynamic values with `$1`, `$2` instead of hardcoding
-6. **Normalize consistently**: Always map to canonical UD genres
+6. **Normalize consistently**: Always map to the configured canonical label schema
 7. **Handle ambiguity**: Define priority order when multiple patterns could match
 
 ## Troubleshooting

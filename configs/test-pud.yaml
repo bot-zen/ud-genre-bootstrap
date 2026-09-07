@@ -62,7 +62,7 @@ bootstrapping:
   unresolved_handling: "null"  # null, omit, string:UNKNOWN
 
 genre_extraction:
-  # Optional: Map non-standard genre labels to canonical UD genres
+  # Optional: Map non-standard genre labels to the configured canonical schema.
   # See configs/genre_mappings.example.json for format
   mapping_path: "configs/genre_mappings.json"
 
@@ -73,8 +73,9 @@ genre_extraction:
     - "configs/metadata_patterns.json"
     - "configs/pud-patterns.json"
 
-  # Optional: Override the default canonical genre set
-  # If not specified, uses the default UD genre taxonomy
+  # Optional: Override the default canonical genre set.
+  # If not specified, uses the UD-v2 release metadata inventory used by
+  # label_schema=ud.
   canonical_genres: null
   # Example: Use a custom genre set
   # canonical_genres:

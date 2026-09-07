@@ -49,7 +49,7 @@ Current release-train identity:
 - train ID: `full-ud-v1.0.1`
 - artifact key: `full-ud-v1.0.1-ud2.18`
 - immutable HF tag: `artifact/full-ud-v1.0.1/ud2.18`
-- label schema: `ud`
+- label schema: `ud` (UD-v2 release metadata genre inventory)
 - scope: `full`
 - registry status: `partial` until UD `2.7` through `2.18` have all been rebuilt and published
 - source branch: `release/full-ud-v1`

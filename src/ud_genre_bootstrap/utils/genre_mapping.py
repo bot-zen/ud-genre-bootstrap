@@ -8,9 +8,10 @@ import json
 
 
 class GenreMapper:
-    """Handle genre extraction and mapping to canonical UD genres."""
+    """Handle genre extraction and mapping to configured canonical labels."""
 
-    # Default canonical UD genre labels (can be overridden via config)
+    # Default canonical labels for label_schema=ud: the UD-v2 release metadata
+    # genre inventory used by official UD releases through 2.18.
     DEFAULT_UD_GENRES = {
         "academic",
         "bible",
@@ -114,14 +115,14 @@ class GenreMapper:
         return merged_patterns
 
     def normalize_genre(self, genre: str, treebank_code: Optional[str] = None) -> str:
-        """Normalize a genre label to canonical UD genre.
+        """Normalize a genre label to the configured canonical schema.
 
         Args:
             genre: Raw genre label
             treebank_code: Optional treebank code for treebank-specific mappings
 
         Returns:
-            Canonical UD genre label
+            Canonical genre label
         """
         # Priority 1: Treebank-specific mapping (allows overriding canonical genres)
         if treebank_code:
@@ -326,7 +327,7 @@ class GenreMapper:
         return list(dict.fromkeys(normalized))
 
     def validate_genre(self, genre: str) -> bool:
-        """Check if a genre is a canonical UD genre.
+        """Check if a genre is in the configured canonical schema.
 
         Args:
             genre: Genre label to validate

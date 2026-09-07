@@ -1,4 +1,5 @@
-# First synchronized public release train for full-scope UD genre labels.
+# First synchronized public release train for full-scope UD-v2 release metadata
+# genre labels.
 
 release_profile: "../release_profiles/full-ud.yaml"
 
@@ -6,7 +7,7 @@ train:
   train_id: "full-ud-v1.0.1"
   status: "partial"
   scope: "full"
-  label_schema: "ud"
+  label_schema: "ud"  # UD-v2 release metadata genre inventory.
   artifact_version: "v1.0.1"
   supported_ud_versions:
     - "2.7"

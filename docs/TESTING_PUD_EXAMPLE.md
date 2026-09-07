@@ -72,7 +72,7 @@ Create or update `configs/genre_mappings.json`:
 }
 ```
 
-This maps the single-letter codes to canonical UD genres.
+This maps the single-letter codes to canonical labels for the configured schema.
 
 ## Step 4: Create Test Configuration
 

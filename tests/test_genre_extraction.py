@@ -1,5 +1,7 @@
 """Tests for genre extraction and mapping."""
 
+import json
+
 import pytest
 from pathlib import Path
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
@@ -7,6 +9,15 @@ from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 
 class TestGenreMapper:
     """Test GenreMapper class."""
+
+    @pytest.mark.parametrize(
+        "mapping_file",
+        ["configs/genre_mappings.json", "configs/genre_mappings.example.json"],
+    )
+    def test_documented_canonical_genres_match_default_schema(self, mapping_file):
+        """Mapping file metadata should not drift from the default ud schema."""
+        data = json.loads(Path(mapping_file).read_text())
+        assert set(data["_canonical_genres"]) == GenreMapper.DEFAULT_UD_GENRES
 
     def test_direct_genre_field(self):
         """Test extraction from direct genre field."""

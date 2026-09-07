@@ -1,9 +1,10 @@
 {
-  "_comment": "Maps non-standard genre labels to canonical UD genres",
+  "_comment": "Maps non-standard genre labels to canonical labels for label_schema=ud",
+  "_schema_note": "The ud schema is the UD-v2 release metadata genre inventory used by official releases through UD 2.18; newer UD contribution-doc taxonomy changes require a separate label_schema.",
   "_canonical_genres": [
-    "academic", "blog", "email", "fiction", "government",
-    "grammar-examples", "legal", "medical", "news", "nonfiction",
-    "reviews", "social", "spoken", "web", "wiki"
+    "academic", "bible", "blog", "email", "fiction", "government",
+    "grammar-examples", "learner-essays", "legal", "medical", "news",
+    "nonfiction", "poetry", "reviews", "social", "spoken", "web", "wiki"
   ],
 
   "scientific": "academic",
