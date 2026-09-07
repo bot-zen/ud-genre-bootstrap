@@ -8,6 +8,7 @@ import yaml
 from ud_genre_bootstrap.utils.config import Config
 from ud_genre_bootstrap.utils.release_artifacts import (
     list_release_publish_files,
+    prepare_release_directory,
     publish_release_directory_to_hf_git,
     write_release_artifacts,
 )
@@ -25,18 +26,18 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
         {
             "ud_version": "2.17",
             "release": {
-                "train_id": "full-ud-v1.0.1",
-                "artifact_key": "full-ud-v1.0.1-ud2.17",
+                "train_id": "full-ud-v1.0.2",
+                "artifact_key": "full-ud-v1.0.2-ud2.17",
                 "scope": "full",
                 "label_schema": "ud",
-                "artifact_version": "v1.0.1",
+                "artifact_version": "v1.0.2",
                 "inventory_status": "partial",
                 "hf_repo": "commul/ud_genre",
                 "hf_branches": ["2.17"],
-                "hf_tag": "artifact/full-ud-v1.0.1/ud2.17",
+                "hf_tag": "artifact/full-ud-v1.0.2/ud2.17",
                 "source_repo": "git@github.com:bot-zen/ud-genre-bootstrap.git",
                 "source_branch": "release/full-ud-v1",
-                "source_tag": "source/full-ud-v1.0.1",
+                "source_tag": "source/full-ud-v1.0.2",
             },
             "genre_extraction": {
                 "mapping_path": str(mapping_path),
@@ -62,16 +63,16 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
 
     assert artifacts["release_manifest"] == "release_manifest.json"
-    assert run_metadata["train_id"] == "full-ud-v1.0.1"
-    assert run_metadata["artifact_key"] == "full-ud-v1.0.1-ud2.17"
-    assert run_metadata["artifact_id"] == "full-ud-v1.0.1-ud2.17"
+    assert run_metadata["train_id"] == "full-ud-v1.0.2"
+    assert run_metadata["artifact_key"] == "full-ud-v1.0.2-ud2.17"
+    assert run_metadata["artifact_id"] == "full-ud-v1.0.2-ud2.17"
     assert run_metadata["inventory_status"] == "partial"
     assert run_metadata["scope"] == "full"
     assert run_metadata["label_schema"] == "ud"
     assert run_metadata["hf_branches"] == ["2.17"]
-    assert run_metadata["hf_tag"] == "artifact/full-ud-v1.0.1/ud2.17"
+    assert run_metadata["hf_tag"] == "artifact/full-ud-v1.0.2/ud2.17"
     assert run_metadata["source_branch"] == "release/full-ud-v1"
-    assert run_metadata["source_tag"] == "source/full-ud-v1.0.1"
+    assert run_metadata["source_tag"] == "source/full-ud-v1.0.2"
     assert run_metadata["ud_source"] == "hf://universal-dependencies/universal_dependencies"
     assert run_metadata["ud_source_revision"] == "2.17"
     assert run_metadata["config_hash"]
@@ -80,6 +81,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["source_files"]["mappings"][0]["path"] == str(mapping_path)
     assert run_metadata["algorithm_recipe"]["embeddings"]["model"] == cfg.embeddings.model
     assert run_metadata["algorithm_recipe"]["thresholds"]["min_confidence"] == 0.8
+    assert "news" in run_metadata["canonical_genres"]
+    assert run_metadata["noncanonical_genre_counts"] == {}
 
     assert manifest["train_id"] == run_metadata["train_id"]
     assert manifest["artifact_key"] == run_metadata["artifact_key"]
@@ -92,6 +95,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
         "release_manifest.json",
     ]
     assert manifest["mapping_file_hashes"] == run_metadata["mapping_file_hashes"]
+    assert manifest["canonical_genres"] == run_metadata["canonical_genres"]
+    assert manifest["noncanonical_genre_counts"] == {}
     assert readme.startswith("---\n")
     card_metadata = yaml.safe_load(readme.split("---", 2)[1])
     assert card_metadata["pretty_name"] == "UD Genre Labels 2.17"
@@ -104,7 +109,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "derived-annotations" in card_metadata["tags"]
     assert card_metadata["size_categories"] == ["n<1K"]
     assert "revision=\"2.17\"" in readme
-    assert "revision=\"artifact/full-ud-v1.0.1/ud2.17\"" in readme
+    assert "revision=\"artifact/full-ud-v1.0.2/ud2.17\"" in readme
     assert "## Dataset Description" in readme
     assert "- Repository: https://github.com/bot-zen/ud-genre-bootstrap" in readme
     assert "- Point of Contact: appliedlinguisticsdevs@eurac.edu" in readme
@@ -116,9 +121,10 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     )
     assert "The `train` split is the single exported split" in readme
     assert "## Joining With Universal Dependencies" in readme
-    assert "Train ID: `full-ud-v1.0.1`" in readme
-    assert "Artifact key: `full-ud-v1.0.1-ud2.17`" in readme
+    assert "Train ID: `full-ud-v1.0.2`" in readme
+    assert "Artifact key: `full-ud-v1.0.2-ud2.17`" in readme
     assert "Label schema: `ud`" in readme
+    assert "Canonical labels: `academic" in readme
     assert "Source repo: `https://github.com/bot-zen/ud-genre-bootstrap`" in readme
     assert "`run_id`: compact row-level provenance" in readme
 
@@ -143,7 +149,7 @@ def _init_git_repo(repo_dir):
     _git(repo_dir, "config", "tag.gpgsign", "false")
 
 
-def _make_source_repo(tmp_path, source_tag="source/full-ud-v1.0.1"):
+def _make_source_repo(tmp_path, source_tag="source/full-ud-v1.0.2"):
     source_repo = tmp_path / "source"
     _init_git_repo(source_repo)
     (source_repo / "source.txt").write_text("source\n", encoding="utf-8")
@@ -158,17 +164,17 @@ def _make_publish_config(tmp_path):
         {
             "ud_version": "2.17",
             "release": {
-                "train_id": "full-ud-v1.0.1",
-                "artifact_key": "full-ud-v1.0.1-ud2.17",
+                "train_id": "full-ud-v1.0.2",
+                "artifact_key": "full-ud-v1.0.2-ud2.17",
                 "scope": "full",
                 "label_schema": "ud",
-                "artifact_version": "v1.0.1",
+                "artifact_version": "v1.0.2",
                 "hf_repo": "commul/ud_genre",
                 "hf_branches": ["2.17"],
-                "hf_tag": "artifact/full-ud-v1.0.1/ud2.17",
+                "hf_tag": "artifact/full-ud-v1.0.2/ud2.17",
                 "hf_default_branch": "main",
                 "source_branch": "release/full-ud-v1",
-                "source_tag": "source/full-ud-v1.0.1",
+                "source_tag": "source/full-ud-v1.0.2",
             },
             "output": {
                 "genres_path": str(tmp_path / "release"),
@@ -191,6 +197,48 @@ def _write_release_data(release_dir):
             "method": "single-genre-treebank",
         }]
     ).to_parquet(release_dir / "all_genres.parquet")
+
+
+def test_prepare_release_directory_rejects_noncanonical_exported_labels(tmp_path):
+    cfg = Config.from_dict(
+        {
+            "ud_version": "2.18",
+            "release": {
+                "train_id": "full-ud-v1.0.2",
+                "artifact_key": "full-ud-v1.0.2-ud2.18",
+                "scope": "full",
+                "label_schema": "ud",
+                "artifact_version": "v1.0.2",
+                "hf_repo": "commul/ud_genre",
+                "hf_branches": ["2.18"],
+                "hf_tag": "artifact/full-ud-v1.0.2/ud2.18",
+                "source_branch": "release/full-ud-v1",
+                "source_tag": "source/full-ud-v1.0.2",
+            },
+            "genre_extraction": {
+                "canonical_genres": ["news", "grammar-examples"],
+            },
+            "output": {
+                "genres_path": str(tmp_path),
+                "genres_hf_repo": "commul/ud_genre",
+                "genres_revision": "2.18",
+            },
+        }
+    )
+    pd.DataFrame(
+        [
+            {
+                "treebank": "nhi_mesotree",
+                "split": "test",
+                "sent_id": "1",
+                "genre": "examples",
+                "method": "single-genre-treebank",
+            }
+        ]
+    ).to_parquet(tmp_path / "all_genres.parquet")
+
+    with pytest.raises(ValueError, match="examples=1"):
+        prepare_release_directory(cfg, tmp_path)
 
 
 def test_list_release_publish_files_uses_minimal_payload(tmp_path):
@@ -231,7 +279,7 @@ def test_publish_release_directory_to_hf_git_commits_minimal_payload(tmp_path):
     assert (hf_repo / "release_manifest.json").exists()
     assert not (hf_repo / "config.snapshot.yaml").exists()
     assert _git(hf_repo, "rev-parse", "--abbrev-ref", "HEAD") == "2.17"
-    assert _git(hf_repo, "rev-parse", "artifact/full-ud-v1.0.1/ud2.17^{}") == result["hf_commit"]
+    assert _git(hf_repo, "rev-parse", "artifact/full-ud-v1.0.2/ud2.17^{}") == result["hf_commit"]
     assert _git(hf_repo, "rev-parse", "main") == result["hf_commit"]
 
 

@@ -85,31 +85,31 @@ def test_config_resolves_train_identity():
         {
             "ud_version": "2.18",
             "release": {
-                "train_id": "full-ud-v1.0.1",
-                "artifact_key": "full-ud-v1.0.1-ud2.18",
+                "train_id": "full-ud-v1.0.2",
+                "artifact_key": "full-ud-v1.0.2-ud2.18",
                 "scope": "full",
                 "label_schema": "ud",
-                "artifact_version": "v1.0.1",
-                "inventory_status": "partial",
+                "artifact_version": "v1.0.2",
+                "inventory_status": "default_hotfix",
                 "hf_repo": "commul/ud_genre",
                 "hf_branches": ["2.18"],
-                "hf_tag": "artifact/full-ud-v1.0.1/ud2.18",
+                "hf_tag": "artifact/full-ud-v1.0.2/ud2.18",
                 "source_branch": "release/full-ud-v1",
-                "source_tag": "source/full-ud-v1.0.1",
+                "source_tag": "source/full-ud-v1.0.2",
             },
         }
     )
 
     identity = resolve_release_identity(cfg)
 
-    assert identity["train_id"] == "full-ud-v1.0.1"
-    assert identity["artifact_key"] == "full-ud-v1.0.1-ud2.18"
-    assert identity["artifact_id"] == "full-ud-v1.0.1-ud2.18"
-    assert identity["inventory_status"] == "partial"
+    assert identity["train_id"] == "full-ud-v1.0.2"
+    assert identity["artifact_key"] == "full-ud-v1.0.2-ud2.18"
+    assert identity["artifact_id"] == "full-ud-v1.0.2-ud2.18"
+    assert identity["inventory_status"] == "default_hotfix"
     assert identity["hf_branches"] == ["2.18"]
-    assert identity["hf_tag"] == "artifact/full-ud-v1.0.1/ud2.18"
+    assert identity["hf_tag"] == "artifact/full-ud-v1.0.2/ud2.18"
     assert identity["source_branch"] == "release/full-ud-v1"
-    assert identity["source_tag"] == "source/full-ud-v1.0.1"
+    assert identity["source_tag"] == "source/full-ud-v1.0.2"
 
 
 def test_release_registry_validates_and_selects_rebuild_trains(tmp_path):
@@ -117,19 +117,19 @@ def test_release_registry_validates_and_selects_rebuild_trains(tmp_path):
     registry.write_text(
         """
 trains:
-  - train_id: "full-ud-v1.0.1"
+  - train_id: "full-ud-v1.0.2"
     scope: "full"
     label_schema: "ud"
-    artifact_version: "v1.0.1"
-    status: "partial"
+    artifact_version: "v1.0.2"
+    status: "default_hotfix"
     hf_repo: "commul/ud_genre"
     supported_ud_versions: ["2.17", "2.18"]
     default_ud_version: "2.18"
     release_profile: "configs/release_profiles/full-ud.yaml"
-    release_matrix: "configs/releases/full-ud-v1.0.1.yaml"
+    release_matrix: "configs/releases/full-ud-v1.0.2.yaml"
     source_repo: "git@example.test/ud-genre-bootstrap.git"
     source_branch: "release/full-ud-v1"
-    source_tag: "source/full-ud-v1.0.1"
+    source_tag: "source/full-ud-v1.0.2"
   - train_id: "full-ud-v1.0.0"
     scope: "full"
     label_schema: "ud"
@@ -150,5 +150,5 @@ trains:
     entries = load_release_registry(registry)
     active_entries = active_release_registry_entries(registry)
 
-    assert entries[0]["artifact_version_normalized"] == "v1.0.1"
-    assert [entry["train_id"] for entry in active_entries] == ["full-ud-v1.0.1"]
+    assert entries[0]["artifact_version_normalized"] == "v1.0.2"
+    assert [entry["train_id"] for entry in active_entries] == ["full-ud-v1.0.2"]

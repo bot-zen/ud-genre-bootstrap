@@ -68,6 +68,16 @@ class TestGenreMapper:
         genres = mapper.extract_genres_from_metadata(sentence, "test_tb")
         assert "grammar-examples" in genres
 
+    def test_examples_metadata_canonicalizes_to_grammar_examples(self):
+        """UD sentence metadata may abbreviate grammar-examples as examples."""
+        mapper = GenreMapper(genre_mapping_path=Path("configs/genre_mappings.json"))
+        sentence = {"comments": ["# genre = examples"]}
+
+        assert mapper.normalize_genre("examples") == "grammar-examples"
+        assert mapper.extract_genres_from_metadata(sentence, "nhi_mesotree") == [
+            "grammar-examples"
+        ]
+
     def test_pattern_with_capture_group(self):
         """Test pattern matching with capture group substitution."""
         # Create temp pattern file

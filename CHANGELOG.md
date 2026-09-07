@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Release identity, registry, and Git-backed publishing workflow for versioned
   UD genre artifacts.
+- `full-ud-v1.0.2` release matrix for the canonicalization hotfix train.
+- Release artifact audit guard that rejects non-canonical labels in
+  `all_genres.parquet` before Hub upload or Git-backed HF publishing.
 - Shared `full-ud` release profile and `full-ud-v1.0.1` release matrix for UD
   2.7 through UD 2.18, replacing committed full configs per UD version.
 - **Cluster quality metrics computation**
@@ -89,12 +92,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default and release UD source repository moved from `commul/universal_dependencies`
   to `universal-dependencies/universal_dependencies`.
-- UD 2.18 is the current default target in the synchronized `full-ud-v1.0.1`
+- UD 2.18 is the current default target in the synchronized `full-ud-v1.0.2`
   release train for `commul/ud_genre`.
+- `examples` sentence-level metadata is canonicalized to `grammar-examples`
+  for the `ud` label schema.
 - Transitional per-UD source refs such as `source/ud2.*`, `release/v1`, and
   `ud2.X-full-ud-v...` artifact identities have been replaced by
-  `release/full-ud-v1`, `source/full-ud-v1.0.1`, and per-UD HF tags such as
-  `artifact/full-ud-v1.0.1/ud2.18`.
+  `release/full-ud-v1`, train source tags such as `source/full-ud-v1.0.2`,
+  and per-UD HF tags such as `artifact/full-ud-v1.0.2/ud2.18`.
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
 - Evaluation uses ALL available splits (train, dev, test) for maximum genre coverage
   - Removed train-only treebank restrictions

@@ -507,6 +507,10 @@ labels:
 - `web` - General web content
 - `wiki` - Wikipedia articles
 
+Sentence metadata may use local shorthand labels. For example, UD 2.18
+`nhi_mesotree` uses `examples` in sentence comments, which is mapped to the
+canonical `grammar-examples` label in `configs/genre_mappings.json`.
+
 Newer UD contribution documentation describes revised genre/text-type names and
 several former labels. Do not silently normalize this release schema to that
 newer taxonomy. Some correspondences are straightforward (`email` to `mail`,

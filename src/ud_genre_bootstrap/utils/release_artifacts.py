@@ -10,10 +10,11 @@ import subprocess
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import yaml
 
+from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 from ud_genre_bootstrap.utils.release_identity import resolve_release_identity
 
 logger = logging.getLogger(__name__)
@@ -298,6 +299,52 @@ def list_release_publish_files(output_path: Path) -> List[Path]:
     ]
 
 
+def _canonical_genres_for_config(config) -> Set[str]:
+    configured_genres = getattr(config.genre_extraction, "canonical_genres", None)
+    if configured_genres is not None:
+        return {str(genre) for genre in configured_genres}
+    return set(GenreMapper.DEFAULT_UD_GENRES)
+
+
+def _format_genre_counts(genre_counts: Dict[str, int]) -> str:
+    return ", ".join(
+        f"{genre}={count}"
+        for genre, count in sorted(
+            genre_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+    )
+
+
+def validate_release_genre_inventory(config, stats: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a release export only contains configured canonical labels."""
+    canonical_genres = _canonical_genres_for_config(config)
+    genre_counts = {
+        str(genre): int(count)
+        for genre, count in (stats.get("genre_counts") or {}).items()
+        if genre is not None
+    }
+    noncanonical_counts = {
+        genre: count
+        for genre, count in genre_counts.items()
+        if genre not in canonical_genres
+    }
+    stats["canonical_genres"] = sorted(canonical_genres)
+    stats["noncanonical_genre_counts"] = noncanonical_counts
+
+    if noncanonical_counts:
+        release_identity = resolve_release_identity(config)
+        raise ValueError(
+            "Release export contains non-canonical genre labels for "
+            f"label_schema={release_identity['label_schema']!r}: "
+            f"{_format_genre_counts(noncanonical_counts)}. "
+            "Update the mapping/pattern config or regenerate the labels before "
+            "publishing."
+        )
+
+    return stats
+
+
 def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
     """Summarize an exported ``all_genres.parquet`` file."""
     import pandas as pd
@@ -308,6 +355,8 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
             "labeled_sentences": 0,
             "method_counts": {},
             "genre_counts": {},
+            "canonical_genres": [],
+            "noncanonical_genre_counts": {},
         }
 
     df = pd.read_parquet(output_file)
@@ -324,6 +373,8 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
         "labeled_sentences": int(df.get("genre", pd.Series(dtype=object)).notna().sum()),
         "method_counts": method_counts,
         "genre_counts": genre_counts,
+        "canonical_genres": [],
+        "noncanonical_genre_counts": {},
     }
 
 
@@ -528,6 +579,8 @@ def _build_dataset_card(
         f"- Source branch: `{git_metadata.get('branch') or 'unknown'}`",
         f"- Source tag: `{git_metadata.get('tag') or 'none configured'}`",
         f"- Config SHA-256: `{config_hash}`",
+        "- Canonical labels: "
+        f"`{', '.join(stats.get('canonical_genres', [])) or 'not recorded'}`",
         "",
         "## Release Configuration",
         f"- Config: `{resolve_config_name(config)}`",
@@ -584,6 +637,7 @@ def write_release_artifacts(
 ) -> Dict[str, str]:
     """Write release metadata files alongside exported labels."""
     output_path.mkdir(parents=True, exist_ok=True)
+    stats = validate_release_genre_inventory(config, stats)
 
     snapshot_name = _write_config_snapshot(config, output_path)
     config_hash = file_sha256(output_path / snapshot_name)
@@ -743,6 +797,8 @@ def write_release_artifacts(
             "max_iterations": int(config.bootstrapping.max_iterations),
         },
         "stats": stats,
+        "canonical_genres": stats.get("canonical_genres", []),
+        "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
         "artifacts": artifacts,
         "hf_payload": hf_payload,
         "mapping_files": mapping_files,
@@ -784,6 +840,8 @@ def write_release_artifacts(
         "mapping_file_hashes": mapping_file_hashes,
         "source_files": source_files,
         "algorithm_recipe": algorithm_recipe,
+        "canonical_genres": stats.get("canonical_genres", []),
+        "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
         "artifacts": artifacts,
         "hf_payload": hf_payload,
     }
