@@ -164,9 +164,19 @@ exceptional provenance that cannot fit in the matrix or generated manifests.
 
 ## Preflight
 
-Run coverage and focused metadata checks before expensive generation:
+Run the README-hint audit, coverage, and focused metadata checks before
+expensive generation:
 
 ```bash
+uv run ud-genre-bootstrap audit-readme-genres \
+  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --ud-version <UD_VERSION> \
+  --ud-root ../huggingface/universal_dependencies/tools/ud-treebanks-v<UD_VERSION> \
+  --sort-by uncovered-sentences \
+  --export output/<UD_VERSION>-community-release/readme_genre_audit.json \
+  --markdown output/<UD_VERSION>-community-release/readme_genre_audit.md \
+  --only-candidates
+
 uv run ud-genre-bootstrap coverage \
   --release-matrix configs/releases/full-ud-v1.0.2.yaml \
   --ud-version <UD_VERSION> \
@@ -185,6 +195,11 @@ If coverage or extraction changes, update the shared mapping or pattern files
 before full generation. Release preparation also audits `all_genres.parquet`
 against the configured canonical labels and fails before upload/publish if a
 non-canonical label is still present.
+
+The README-hint audit is documented in
+[`docs/GENRE_README_AUDIT.md`](GENRE_README_AUDIT.md). Use it to prioritize
+obvious alias mappings, broken configured patterns, and unambiguous README
+source/ID conventions before starting a full regeneration run.
 
 ## Full Generation
 

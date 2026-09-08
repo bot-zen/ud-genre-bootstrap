@@ -302,6 +302,54 @@ class TestGenreMapper:
             patterns_path.unlink()
             mappings_path.unlink()
 
+    def test_pl_pud_uses_sent_id_with_treebank_specific_mapping(self):
+        """Polish PUD maps sent_id w-prefix sentences to nonfiction."""
+        mapper = GenreMapper(
+            genre_mapping_path=Path("configs/genre_mappings.json"),
+            metadata_patterns_path=[
+                Path("configs/metadata_patterns.json"),
+                Path("configs/pud-patterns.json"),
+            ],
+        )
+
+        news_sentence = {
+            "sent_id": "n01001011",
+            "comments": [
+                "# sent_id = n01001011",
+                "# parallel_id = pud/n01001011",
+            ],
+        }
+        nonfiction_sentence = {
+            "sent_id": "w01001049",
+            "comments": [
+                "# sent_id = w01001049",
+                "# parallel_id = pud/w01001049",
+            ],
+        }
+
+        assert mapper.extract_genres_from_metadata(news_sentence, "pl_pud") == ["news"]
+        assert mapper.extract_genres_from_metadata(
+            nonfiction_sentence,
+            "pl_pud",
+        ) == ["nonfiction"]
+
+    def test_ru_syntagrus_journalism_maps_to_news(self):
+        """SynTagRus direct journalism metadata aligns with the UD news genre."""
+        mapper = GenreMapper(
+            genre_mapping_path=Path("configs/genre_mappings.json"),
+            metadata_patterns_path=Path("configs/metadata_patterns.json"),
+        )
+
+        sentence = {
+            "sent_id": "2013News_001",
+            "comments": [
+                "# sent_id = 2013News_001",
+                "# genre = journalism",
+            ],
+        }
+
+        assert mapper.extract_genres_from_metadata(sentence, "ru_syntagrus") == ["news"]
+
     def test_genre_normalization(self):
         """Test genre normalization with mappings."""
         import tempfile

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `full-ud-v1.0.2` release matrix for the canonicalization hotfix train.
 - Release artifact audit guard that rejects non-canonical labels in
   `all_genres.parquet` before Hub upload or Git-backed HF publishing.
+- `audit-readme-genres` CLI command for ranking README-derived genre extraction
+  hints before release regeneration.
+- `audit-readme-genres --sort-by` modes for prioritizing candidates by
+  sentence volume or currently uncovered sentence counts.
 - Shared `full-ud` release profile and `full-ud-v1.0.1` release matrix for UD
   2.7 through UD 2.18, replacing committed full configs per UD version.
 - **Cluster quality metrics computation**
@@ -96,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release train for `commul/ud_genre`.
 - `examples` sentence-level metadata is canonicalized to `grammar-examples`
   for the `ud` label schema.
+- `pl_pud` sentence-level extraction now uses current `sent_id` prefixes and
+  preserves the treebank-specific `w -> nonfiction` mapping.
+- `ru_syntagrus` direct `journalism` sentence metadata now maps to canonical
+  `news`.
 - Transitional per-UD source refs such as `source/ud2.*`, `release/v1`, and
   `ud2.X-full-ud-v...` artifact identities have been replaced by
   `release/full-ud-v1`, train source tags such as `source/full-ud-v1.0.2`,

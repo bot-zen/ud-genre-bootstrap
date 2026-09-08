@@ -65,6 +65,9 @@ origin maps to `git@hf.co:datasets/commul/ud_genre`.
 The reusable release workflow, including artifact versioning, source tags, HF
 branches, and publishing commands, is documented in
 [docs/RELEASE.md](docs/RELEASE.md).
+Use [docs/GENRE_README_AUDIT.md](docs/GENRE_README_AUDIT.md) before full
+regeneration to prioritize obvious mapping or pattern fixes from UD README
+evidence.
 
 ## Installation
 
@@ -347,6 +350,17 @@ uv run ud-genre-bootstrap upload \
   --release-matrix configs/releases/full-ud-v1.0.2.yaml \
   --ud-version 2.18 \
   --dry-run
+```
+
+Before expensive regeneration, run the README-hint audit:
+
+```bash
+uv run ud-genre-bootstrap audit-readme-genres \
+  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --ud-version 2.18 \
+  --ud-root ../huggingface/universal_dependencies/tools/ud-treebanks-v2.18 \
+  --sort-by uncovered-sentences \
+  --only-candidates
 ```
 
 ## Output Format

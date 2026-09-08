@@ -631,6 +631,42 @@ def load_config_from_path(
         return Config()
 
 
+def _resolve_local_ud_root_for_audit(cfg: Config, ud_root: Optional[Path]) -> Path:
+    if ud_root:
+        return ud_root
+
+    ud_source = str(cfg.ud_source)
+    if ud_source.startswith("local://"):
+        return Path(ud_source.replace("local://", "", 1).strip())
+
+    raise ValueError(
+        "README audit requires a local UD treebank root. Pass --ud-root "
+        "for HF-backed release configs."
+    )
+
+
+def _build_genre_mapper_from_config(cfg: Config):
+    from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+
+    mapping_path = (
+        Path(cfg.genre_extraction.mapping_path)
+        if cfg.genre_extraction.mapping_path
+        else None
+    )
+    patterns_path = None
+    if cfg.genre_extraction.patterns_path:
+        if isinstance(cfg.genre_extraction.patterns_path, list):
+            patterns_path = [Path(path) for path in cfg.genre_extraction.patterns_path]
+        else:
+            patterns_path = Path(cfg.genre_extraction.patterns_path)
+
+    return GenreMapper(
+        genre_mapping_path=mapping_path,
+        metadata_patterns_path=patterns_path,
+        canonical_genres=cfg.genre_extraction.canonical_genres,
+    )
+
+
 @app.command()
 def run(
     config: Optional[Path] = typer.Option(
@@ -3215,6 +3251,213 @@ def _export_coverage_data(results: dict, output_path: Path, threshold: float):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump(export_data, f, indent=2)
+
+
+@app.command("audit-readme-genres")
+def audit_readme_genres(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration YAML file",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_matrix: Optional[Path] = typer.Option(
+        None,
+        "--release-matrix",
+        help="Path to a release train matrix YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
+    ud_root: Optional[Path] = typer.Option(
+        None,
+        "--ud-root",
+        help="Local UD treebanks root containing UD_* directories.",
+        exists=True,
+        file_okay=False,
+    ),
+    treebank: Optional[str] = typer.Option(
+        None,
+        "--treebank",
+        "-t",
+        help="Comma-separated treebank codes to audit.",
+    ),
+    threshold: float = typer.Option(
+        0.95,
+        "--threshold",
+        help="Coverage threshold used for prioritizing extraction gaps.",
+    ),
+    max_sentences_per_treebank: int = typer.Option(
+        0,
+        "--max-sentences-per-treebank",
+        help="Maximum sentence metadata rows to scan per treebank. Use 0 for all.",
+    ),
+    top: int = typer.Option(
+        30,
+        "--top",
+        help="Maximum number of candidate treebanks to show.",
+    ),
+    sort_by: str = typer.Option(
+        "priority",
+        "--sort-by",
+        help=(
+            "Sort treebanks by priority, priority-sentences, sentences, "
+            "or uncovered-sentences."
+        ),
+    ),
+    only_candidates: bool = typer.Option(
+        False,
+        "--only-candidates",
+        help="Show only high/medium-priority candidates.",
+    ),
+    include_excluded: bool = typer.Option(
+        False,
+        "--include-excluded",
+        help="Include treebanks listed in config.exclude_treebanks.",
+    ),
+    export: Optional[Path] = typer.Option(
+        None,
+        "--export",
+        "-o",
+        help="Write the full audit report to JSON.",
+    ),
+    markdown: Optional[Path] = typer.Option(
+        None,
+        "--markdown",
+        help="Write a compact Markdown audit report.",
+    ),
+):
+    """Audit UD README genre declarations and prioritize extraction gaps."""
+    try:
+        console.print("\n[bold cyan]Genre README Audit[/bold cyan]")
+        console.print("=" * 60)
+
+        cfg = load_config_from_path(config, release_matrix, release_ud_version)
+        local_ud_root = _resolve_local_ud_root_for_audit(cfg, ud_root)
+        mapper = _build_genre_mapper_from_config(cfg)
+        treebank_filter = (
+            parse_treebank_csv(treebank)
+            if treebank
+            else cfg.include_treebanks
+        )
+        excluded_treebanks = [] if treebank or include_excluded else cfg.exclude_treebanks
+
+        from ud_genre_bootstrap.utils.genre_readme_audit import (
+            audit_genre_readmes as run_genre_readme_audit,
+            write_audit_json,
+            write_audit_markdown,
+        )
+
+        report = run_genre_readme_audit(
+            ud_root=local_ud_root,
+            genre_mapper=mapper,
+            ud_version=cfg.ud_version,
+            metadata_path=Path(cfg.metadata_path) if cfg.metadata_path else None,
+            treebank_filter=treebank_filter,
+            exclude_treebanks=excluded_treebanks,
+            threshold=threshold,
+            max_sentences_per_treebank=max_sentences_per_treebank,
+            sort_by=sort_by,
+        )
+
+        _display_readme_audit_report(
+            report,
+            top=top,
+            only_candidates=only_candidates,
+        )
+        if cfg.exclude_treebanks and include_excluded:
+            console.print("[dim]Included config.exclude_treebanks in this audit.[/dim]")
+
+        if export:
+            write_audit_json(report, export)
+            console.print(f"\n[blue]JSON audit report exported to:[/blue] {export}")
+
+        if markdown:
+            write_audit_markdown(report, markdown, max_candidates=top)
+            console.print(f"[blue]Markdown audit report exported to:[/blue] {markdown}")
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        logger.exception("README genre audit failed")
+        raise typer.Exit(1)
+
+
+def _display_readme_audit_report(report: Dict, *, top: int, only_candidates: bool):
+    summary = report["summary"]
+    console.print(f"[blue]UD root:[/blue] {report['ud_root']}")
+    console.print(f"[blue]UD version:[/blue] {report.get('ud_version') or 'unknown'}")
+    console.print(f"[blue]Sort order:[/blue] {report.get('sort_by') or 'priority'}")
+    if report.get("metadata_path"):
+        console.print(f"[blue]Metadata:[/blue] {report['metadata_path']}")
+
+    summary_table = Table(
+        title="Audit Summary",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green", justify="right")
+    for key in [
+        "treebanks",
+        "readme_files",
+        "readme_genre_mentions",
+        "metadata_genre_mentions",
+        "multi_genre_treebanks",
+        "configured_pattern_treebanks",
+        "candidate_treebanks",
+    ]:
+        summary_table.add_row(key, str(summary[key]))
+    console.print(summary_table)
+
+    genre_table = Table(
+        title="README Genre Scale",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    genre_table.add_column("Genre", style="yellow")
+    genre_table.add_column("Treebanks", justify="right")
+    for genre, count in report["readme_genre_counts"].items():
+        genre_table.add_row(genre, str(count))
+    console.print(genre_table)
+
+    items = report["candidates"] if only_candidates else report["treebanks"]
+    items = items[:top]
+    candidate_table = Table(
+        title="Prioritized Treebanks",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    candidate_table.add_column("Priority", style="cyan")
+    candidate_table.add_column("Action", style="yellow")
+    candidate_table.add_column("Treebank", style="green")
+    candidate_table.add_column("Sentences", justify="right")
+    candidate_table.add_column("Uncovered", justify="right")
+    candidate_table.add_column("Coverage", justify="right")
+    candidate_table.add_column("Declared Genres")
+    candidate_table.add_column("Reason")
+    for item in items:
+        total_sentences = int(item["sentence_scan"]["total_sentences"])
+        uncovered_sentences = total_sentences - int(
+            item["sentence_scan"]["sentences_with_extracted_genre"]
+        )
+        coverage_pct = float(item["sentence_scan"]["coverage"]) * 100
+        candidate_table.add_row(
+            item["priority"],
+            item["action"],
+            item["treebank"],
+            str(total_sentences),
+            str(uncovered_sentences),
+            f"{coverage_pct:.1f}%",
+            ", ".join(item["declared_genres"]) or "n/a",
+            "; ".join(item["reasons"]) or "n/a",
+        )
+    console.print(candidate_table)
 
 
 @app.command()
