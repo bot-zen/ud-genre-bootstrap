@@ -10,9 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Release identity, registry, and Git-backed publishing workflow for versioned
   UD genre artifacts.
+- `full-ud-v1.1.0` release matrix for the current provenance vocabulary
+  cleanup train, with UD 2.18 as the default target and UD 2.7 through UD 2.18
+  as supported backfill targets.
 - `full-ud-v1.0.2` release matrix for the canonicalization hotfix train.
 - Release artifact audit guard that rejects non-canonical labels in
   `all_genres.parquet` before Hub upload or Git-backed HF publishing.
+- Release artifact audit guard that rejects non-canonical public method values
+  before Hub upload or Git-backed HF publishing.
 - `audit-readme-genres` CLI command for ranking README-derived genre extraction
   hints before release regeneration.
 - `audit-readme-genres --sort-by` modes for prioritizing candidates by
@@ -104,8 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default and release UD source repository moved from `commul/universal_dependencies`
   to `universal-dependencies/universal_dependencies`.
-- UD 2.18 is the current default target in the synchronized `full-ud-v1.0.2`
+- UD 2.18 is the current default target in the synchronized `full-ud-v1.1.0`
   release train for `commul/ud_genre`.
+- Public provenance now uses a single cluster-derived method,
+  `cluster-derived`, plus continuous confidence scores. The previous
+  `bootstrap-labeled` / `bootstrap-inferred` split and the associated
+  active `min_confidence` / `min_margin` release distinction have been removed
+  from generated labels and release metadata.
 - `examples` sentence-level metadata is canonicalized to `grammar-examples`
   for the `ud` label schema.
 - `pl_pud` sentence-level extraction now uses current `sent_id` prefixes and
@@ -118,8 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and uses stable-hash sampling when capped.
 - Transitional per-UD source refs such as `source/ud2.*`, `release/v1`, and
   `ud2.X-full-ud-v...` artifact identities have been replaced by
-  `release/full-ud-v1`, train source tags such as `source/full-ud-v1.0.2`,
-  and per-UD HF tags such as `artifact/full-ud-v1.0.2/ud2.18`.
+  `release/full-ud-v1`, train source tags such as `source/full-ud-v1.1.0`,
+  and per-UD HF tags such as `artifact/full-ud-v1.1.0/ud2.18`.
 - Visualization now uses sentence-level genres from `all_genres.parquet` instead of treebank metadata
 - Evaluation uses ALL available splits (train, dev, test) for maximum genre coverage
   - Removed train-only treebank restrictions
