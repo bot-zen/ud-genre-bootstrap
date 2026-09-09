@@ -48,18 +48,18 @@ Current release-train identity:
 
 - default branch: `main`
 - convenience branch: `2.18`
-- train ID: `full-ud-v1.0.2`
-- artifact key: `full-ud-v1.0.2-ud2.18`
-- immutable HF tag: `artifact/full-ud-v1.0.2/ud2.18`
+- train ID: `full-ud-v1.1.0`
+- artifact key: `full-ud-v1.1.0-ud2.18`
+- immutable HF tag: `artifact/full-ud-v1.1.0/ud2.18`
 - label schema: `ud` (UD-v2 release metadata genre inventory)
 - scope: `full`
 - registry status: `default_hotfix` until UD `2.7` through `2.18` have all been rebuilt and published
 - source branch: `release/full-ud-v1`
-- source tag: `source/full-ud-v1.0.2`
+- source tag: `source/full-ud-v1.1.0`
 
-This patch train canonicalizes UD sentence metadata label `examples` to the
-published `grammar-examples` inventory label and rejects non-canonical exported
-labels before upload or Git-backed HF publishing.
+This train keeps the UD sentence metadata canonicalization and release audit
+guard from `full-ud-v1.0.2`, and simplifies cluster-derived provenance to one
+public method value, `cluster-derived`, with continuous confidence scores.
 
 The publication target is the local HF Git checkout `../ud_genre-hf/`, whose
 origin maps to `git@hf.co:datasets/commul/ud_genre`.
@@ -288,11 +288,11 @@ Release work should use the shared profile and release matrix:
 release_profile: "../release_profiles/full-ud.yaml"
 
 train:
-  train_id: "full-ud-v1.0.2"
+  train_id: "full-ud-v1.1.0"
   supported_ud_versions: ["2.7", "2.8", "...", "2.18"]
   default_ud_version: "2.18"
   source_branch: "release/full-ud-v1"
-  source_tag: "source/full-ud-v1.0.2"
+  source_tag: "source/full-ud-v1.1.0"
 
 versions:
   "2.18": {}
@@ -311,7 +311,7 @@ HF `main` branch:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
   --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main
@@ -322,14 +322,14 @@ including label counts, label provenance, genre distribution, confidence
 summary, source provenance, and the locked evaluation baseline. It then copies
 only `README.md`, `all_genres.parquet`, and `release_manifest.json` into the HF
 checkout, commits the payload on branch `2.18`, creates the immutable tag
-`artifact/full-ud-v1.0.2/ud2.18`, and moves `main` because `--include-main` is
+`artifact/full-ud-v1.1.0/ud2.18`, and moves `main` because `--include-main` is
 passed.
 
 UD v2.17 can be published without moving `main`:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
   --ud-version 2.17 \
   --hf-repo-dir ../ud_genre-hf
 ```
@@ -338,7 +338,7 @@ To inspect the Git publish plan without touching the HF checkout:
 
 ```bash
 uv run ud-genre-bootstrap publish \
-  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
   --ud-version 2.18 \
   --hf-repo-dir ../ud_genre-hf \
   --include-main \
@@ -349,7 +349,7 @@ The older Hub API upload path remains available for compatibility:
 
 ```bash
 uv run ud-genre-bootstrap upload \
-  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
   --ud-version 2.18 \
   --dry-run
 ```
@@ -358,7 +358,7 @@ Before expensive regeneration, run the README-hint audit:
 
 ```bash
 uv run ud-genre-bootstrap audit-readme-genres \
-  --release-matrix configs/releases/full-ud-v1.0.2.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
   --ud-version 2.18 \
   --ud-root ../huggingface/universal_dependencies/tools/ud-treebanks-v2.18 \
   --sort-by uncovered-sentences \
@@ -382,15 +382,15 @@ df = pd.read_parquet("output/ud-v2.15/genres/all_genres.parquet")
 # Columns:
 # - sent_id: Sentence identifier (e.g., "en_ewt-ud-train-00001")
 # - genre: Single genre label assigned by bootstrap (e.g., "news", "wiki")
-# - confidence: Cosine similarity to genre centroid [0-1]
-# - method: "bootstrap-labeled" or "bootstrap-inferred" (low confidence)
+# - confidence: Cosine similarity for cluster-derived labels, 1.0 for direct labels
+# - method: "single-genre-treebank", "virtual-split", or "cluster-derived"
 
 # Example usage
 print(df.head())
 #                    sent_id  genre  confidence          method
-# 0  en_ewt-ud-train-00001   news      0.8523  bootstrap-labeled
-# 1  en_ewt-ud-train-00002   news      0.7891  bootstrap-labeled
-# 2  de_gsd-ud-test-00042    wiki      0.4321  bootstrap-inferred
+# 0  en_ewt-ud-train-00001   news      1.0000  single-genre-treebank
+# 1  en_ewt-ud-train-00002   news      1.0000  virtual-split
+# 2  de_gsd-ud-test-00042    wiki      0.4321  cluster-derived
 ```
 
 #### 2. Cluster Assignments (`clusters/cluster_assignments.parquet`)
@@ -507,16 +507,15 @@ CROSS-LINGUAL CONSISTENCY CHECK:
 
 **Warning signs**:
 - If no genres span multiple languages, clustering may be separating by language rather than genre
-- Low confidence scores indicate weak genre signals
-- Many "bootstrap-inferred" assignments suggest the model is uncertain
+- Low `cluster-derived` confidence scores indicate weak genre signals
 
 ### Label Assignment Details
 
 Shows similarity scores for each cluster assignment:
 
 ```
-Cluster c2 (150 sents) → news (conf=0.850, top3: news:0.850, blog:0.720, reviews:0.650)
-⚠ Cluster c5 in de_gsd:test → wiki (LOW conf=0.432, top3: wiki:0.432, news:0.428, fiction:0.401)
+Cluster c2 (150 sents) -> news (conf=0.850, top3: news:0.850, blog:0.720, reviews:0.650)
+Cluster c5 in de_gsd:test -> wiki (conf=0.432, top3: wiki:0.432, news:0.428, fiction:0.401)
 ```
 
 This helps identify:

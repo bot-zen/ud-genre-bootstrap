@@ -38,8 +38,6 @@ clustering:
   fit_sample_size: null  # Optional: fit GMM on a random subset (e.g., 50000) for large treebanks, then predict all sentences
 
 bootstrapping:
-  min_confidence: 0.8
-  min_margin: 0.05  # Minimum gap between top-1 and top-2 cosine similarity for high-confidence labeling
   reference_weighting: "sentence_count"  # "sentence_count" (default) or "uniform"
   max_iterations: 32
   fail_on_incomplete: false
@@ -113,7 +111,7 @@ evaluation:
     - "confidence_distribution"
 
 output:
-  genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}_{bootstrapping.min_confidence}/genres/"
+  genres_path: "output/{ud_version}/{embeddings.model}_{embeddings.pooling}_{embeddings.batch_size}_{embeddings.layer}_{clustering.method}/genres/"
   embeddings_hf_repo: "commul/ud-embeddings-xlm-roberta-base"
   embeddings_revision: "2.8"
   genres_hf_repo: "commul/ud-genres"

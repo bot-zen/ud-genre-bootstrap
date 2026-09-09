@@ -77,15 +77,15 @@ def test_clustering_evaluator_disables_expensive_cluster_metrics(monkeypatch):
         sentence_labels = {}
         for cluster in cluster_descriptors:
             if cluster["cluster_id"] == 0:
-                label = ("news", 0.99, "bootstrap-labeled")
+                label = ("news", 0.99, "cluster-derived")
             else:
-                label = ("forum", 0.99, "bootstrap-labeled")
+                label = ("forum", 0.99, "cluster-derived")
             for sent_id in cluster["sent_ids"]:
                 sentence_labels[sent_id] = label
         return {
-            0: ("news", 0.99, "bootstrap-labeled"),
-            1: ("forum", 0.99, "bootstrap-labeled"),
-        }, sentence_labels, {}, 2, 0
+            0: ("news", 0.99, "cluster-derived"),
+            1: ("forum", 0.99, "cluster-derived"),
+        }, sentence_labels, {}, 2
 
     monkeypatch.setattr(
         evaluator.clustering_ops,
@@ -171,13 +171,11 @@ def test_clustering_evaluator_uses_shared_bootstrap_schedule_runner(monkeypatch)
         captured["genre_combinations"] = set(genre_combination_clusters.keys())
         captured["preserve_methods"] = preserve_methods
         return {
-            ("test_tb", "test", "test1"): ("news", 0.99, "bootstrap-labeled"),
-            ("test_tb", "test", "test2"): ("forum", 0.99, "bootstrap-labeled"),
+            ("test_tb", "test", "test1"): ("news", 0.99, "cluster-derived"),
+            ("test_tb", "test", "test2"): ("forum", 0.99, "cluster-derived"),
         }, [
             {
                 "labels_assigned": 2,
-                "labels_high_confidence": 2,
-                "labels_low_confidence": 0,
             }
         ]
 
@@ -272,15 +270,13 @@ def test_clustering_evaluator_qualifies_duplicate_sentence_ids_across_treebanks(
                 tb_code = tb_key[0]
                 if tb_code not in {"tb_a", "tb_b"}:
                     continue
-                label = ("news", 0.99, "bootstrap-labeled") if tb_code == "tb_a" else ("wiki", 0.99, "bootstrap-labeled")
+                label = ("news", 0.99, "cluster-derived") if tb_code == "tb_a" else ("wiki", 0.99, "cluster-derived")
                 for cluster in clusters:
                     for sent_ref in cluster.get("sent_ids", []):
                         qualified_labels[sent_ref] = label
         return qualified_labels, [
             {
                 "labels_assigned": 2,
-                "labels_high_confidence": 2,
-                "labels_low_confidence": 0,
             }
         ]
 
@@ -402,11 +398,11 @@ def test_clustering_evaluator_uses_union_of_split_genres_for_cluster_count(monke
         sentence_labels = {}
         for cluster in cluster_descriptors:
             genre = labels[cluster["cluster_id"] % len(labels)]
-            label = (genre, 0.99, "bootstrap-labeled")
+            label = (genre, 0.99, "cluster-derived")
             cluster_labels[cluster["cluster_id"]] = label
             for sent_id in cluster["sent_ids"]:
                 sentence_labels[sent_id] = label
-        return cluster_labels, sentence_labels, {}, len(cluster_labels), 0
+        return cluster_labels, sentence_labels, {}, len(cluster_labels)
 
     monkeypatch.setattr(
         evaluator.clustering_ops,
@@ -919,15 +915,13 @@ def test_evaluate_fold_scores_only_requested_scoring_treebanks(monkeypatch):
         for _genre_combination, treebank_clusters in genre_combination_clusters.items():
             for tb_key, clusters in treebank_clusters.items():
                 tb_code = tb_key[0]
-                label = ("news", 0.99, "bootstrap-labeled") if tb_code == "score_tb" else ("blog", 0.99, "bootstrap-labeled")
+                label = ("news", 0.99, "cluster-derived") if tb_code == "score_tb" else ("blog", 0.99, "cluster-derived")
                 for cluster in clusters:
                     for sent_ref in cluster.get("sent_ids", []):
                         labels[sent_ref] = label
         return labels, [
             {
                 "labels_assigned": 2,
-                "labels_high_confidence": 2,
-                "labels_low_confidence": 0,
             }
         ]
 

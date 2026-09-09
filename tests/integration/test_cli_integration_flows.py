@@ -201,14 +201,14 @@ class StubBootstrapper:
 
     def execute_bootstrap_labeling(self, schedule: Optional[List[Dict]] = None):
         self.final_labels = {
-            "xx_demo-1": ("news", 0.95, "bootstrap-labeled"),
-            "xx_demo-2": ("wiki", 0.55, "bootstrap-inferred"),
+            "xx_demo-1": ("news", 0.95, "cluster-derived"),
+            "xx_demo-2": ("wiki", 0.55, "cluster-derived"),
         }
 
     def _export_results(self) -> Dict:
         return {
             "labeled_sentences": 2,
-            "method_counts": {"bootstrap-labeled": 1, "bootstrap-inferred": 1},
+            "method_counts": {"cluster-derived": 2},
         }
 
     def load_cluster_state(self, path: Path) -> Dict:
@@ -231,8 +231,6 @@ class StubClusteringEvaluator:
         self,
         n_folds: int,
         group_by: str,
-        min_confidence: float,
-        min_margin: float,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",

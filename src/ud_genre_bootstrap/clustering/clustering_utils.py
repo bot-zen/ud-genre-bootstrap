@@ -19,27 +19,21 @@ class ClusteringOperations:
     - Creating virtual splits from sentence metadata
     - Computing cluster centroids
     - Building reference embeddings
-    - Labeling clusters with confidence and margin thresholds
+    - Labeling clusters with continuous confidence scores
 
     By sharing this code, production and evaluation are guaranteed to stay consistent.
     """
 
     def __init__(
         self,
-        min_confidence: float = 0.8,
-        min_margin: float = 0.05,
         reference_weighting: str = "sentence_count",
     ):
         """Initialize clustering operations.
 
         Args:
-            min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
-            min_margin: Minimum gap between top-1 and top-2 similarity for high-confidence labeling
             reference_weighting: Reference centroid aggregation strategy
                 ('sentence_count' or 'uniform')
         """
-        self.min_confidence = min_confidence
-        self.min_margin = min_margin
         self.reference_weighting = (reference_weighting or "sentence_count").strip().lower()
         if self.reference_weighting not in {"sentence_count", "uniform"}:
             raise ValueError(
@@ -322,8 +316,6 @@ class ClusteringOperations:
             Summary counts for this environment.
         """
         labels_assigned = 0
-        labels_high_confidence = 0
-        labels_low_confidence = 0
         treebanks_processed = 0
 
         # Snapshot combinations because this method mutates the pool in place.
@@ -361,10 +353,6 @@ class ClusteringOperations:
                 # Promote assigned clusters to single-genre pools and label sentences.
                 for cluster_idx, (assigned_genre, confidence, method, _sorted_sims) in assignments.items():
                     labels_assigned += 1
-                    if method == "bootstrap-labeled":
-                        labels_high_confidence += 1
-                    else:
-                        labels_low_confidence += 1
 
                     cluster = clusters[cluster_idx]
                     self._store_sentence_labels(
@@ -384,14 +372,13 @@ class ClusteringOperations:
 
                 remaining_clusters = [clusters[idx] for idx in remaining_cluster_indices]
 
-                # If exactly one unknown genre and one remaining cluster, infer directly.
+                # If exactly one unknown genre and one remaining cluster, assign directly.
                 if len(unresolved_genres) == 1 and len(remaining_clusters) == 1:
                     inferred_genre = unresolved_genres[0]
                     inferred_cluster = remaining_clusters[0]
-                    inferred_label = (inferred_genre, 0.0, "bootstrap-inferred")
+                    inferred_label = (inferred_genre, 0.0, "cluster-derived")
 
                     labels_assigned += 1
-                    labels_low_confidence += 1
 
                     self._store_sentence_labels(
                         sent_ids=inferred_cluster.get("sent_ids", []),
@@ -420,10 +407,6 @@ class ClusteringOperations:
                             continue
                         best_genre, confidence, method, _sorted_sims = label_result
                         labels_assigned += 1
-                        if method == "bootstrap-labeled":
-                            labels_high_confidence += 1
-                        else:
-                            labels_low_confidence += 1
 
                         self._store_sentence_labels(
                             sent_ids=cluster.get("sent_ids", []),
@@ -461,8 +444,6 @@ class ClusteringOperations:
         return {
             "treebanks_processed": treebanks_processed,
             "labels_assigned": labels_assigned,
-            "labels_high_confidence": labels_high_confidence,
-            "labels_low_confidence": labels_low_confidence,
         }
 
     def run_bootstrap_schedule(
@@ -566,22 +547,11 @@ class ClusteringOperations:
             cluster_idx, assigned_genre = best_pair
             sorted_sims = similarity_rankings[cluster_idx]
             confidence = similarity_lookup[cluster_idx][assigned_genre]
-            competing_sims = [sim for genre, sim in sorted_sims if genre != assigned_genre]
-            margin = (
-                confidence - max(competing_sims)
-                if len(competing_sims) > 0
-                else float("inf")
-            )
-            method = (
-                "bootstrap-labeled"
-                if confidence >= self.min_confidence and margin >= self.min_margin
-                else "bootstrap-inferred"
-            )
 
             assignments[cluster_idx] = (
                 assigned_genre,
                 confidence,
-                method,
+                "cluster-derived",
                 sorted_sims,
             )
             unlabeled_clusters.remove(cluster_idx)
@@ -615,11 +585,10 @@ class ClusteringOperations:
         self,
         cluster_centroids: Dict[int, np.ndarray],
         reference_embeddings: Dict[str, np.ndarray],
-    ) -> Tuple[Dict[int, Tuple[str, float, str]], int, int]:
+    ) -> Tuple[Dict[int, Tuple[str, float, str]], int]:
         """Label clusters by comparing to reference embeddings.
 
         Uses cosine similarity to find best matching genre for each cluster.
-        Applies confidence + margin thresholds to distinguish high vs low confidence assignments.
 
         Args:
             cluster_centroids: Dict mapping cluster_id -> centroid embedding
@@ -628,13 +597,10 @@ class ClusteringOperations:
         Returns:
             Tuple of:
                 - cluster_labels: Dict mapping cluster_id -> (genre, confidence, method)
-                  where method is 'bootstrap-labeled' (high conf) or 'bootstrap-inferred' (low conf)
-                - high_conf_count: Number of high confidence assignments
-                - low_conf_count: Number of low confidence assignments
+                  where method is 'cluster-derived'
+                - labeled_count: Number of labeled cluster assignments
         """
         cluster_labels = {}
-        high_conf_count = 0
-        low_conf_count = 0
 
         for cluster_id, centroid in cluster_centroids.items():
             label_result = self.assign_cluster_label(centroid, reference_embeddings)
@@ -643,14 +609,9 @@ class ClusteringOperations:
 
             best_genre, confidence, method, _ = label_result
 
-            if method == "bootstrap-labeled":
-                high_conf_count += 1
-            else:
-                low_conf_count += 1
-
             cluster_labels[cluster_id] = (best_genre, confidence, method)
 
-        return cluster_labels, high_conf_count, low_conf_count
+        return cluster_labels, len(cluster_labels)
 
     def label_cluster_descriptors(
         self,
@@ -660,7 +621,6 @@ class ClusteringOperations:
         Dict[int, Tuple[str, float, str]],
         Dict[str, Tuple[str, float, str]],
         Dict[int, List[Tuple[str, float]]],
-        int,
         int,
     ]:
         """Label cluster descriptors and propagate labels to sentence level.
@@ -679,14 +639,11 @@ class ClusteringOperations:
                 - cluster_labels: Dict cluster_id -> (genre, confidence, method)
                 - sentence_labels: Dict sent_id -> (genre, confidence, method)
                 - cluster_similarities: Dict cluster_id -> sorted similarities
-                - high_conf_count: Number of high-confidence assignments
-                - low_conf_count: Number of low-confidence assignments
+                - labeled_count: Number of labeled cluster assignments
         """
         cluster_labels = {}
         sentence_labels = {}
         cluster_similarities = {}
-        high_conf_count = 0
-        low_conf_count = 0
 
         for cluster in cluster_descriptors:
             cluster_id = cluster.get("cluster_id")
@@ -704,11 +661,6 @@ class ClusteringOperations:
             cluster_labels[cluster_id] = (best_genre, confidence, method)
             cluster_similarities[cluster_id] = sorted_sims
 
-            if method == "bootstrap-labeled":
-                high_conf_count += 1
-            else:
-                low_conf_count += 1
-
             for sent_id in sent_ids:
                 sentence_labels[sent_id] = (best_genre, confidence, method)
 
@@ -716,8 +668,7 @@ class ClusteringOperations:
             cluster_labels,
             sentence_labels,
             cluster_similarities,
-            high_conf_count,
-            low_conf_count,
+            len(cluster_labels),
         )
 
     def assign_cluster_label(
@@ -735,7 +686,7 @@ class ClusteringOperations:
             Tuple of:
                 - best_genre
                 - confidence (top-1 cosine similarity)
-                - method ('bootstrap-labeled' or 'bootstrap-inferred')
+                - method ('cluster-derived')
                 - sorted similarities as [(genre, similarity), ...] descending
             Returns None if no reference embeddings are provided.
         """
@@ -755,19 +706,7 @@ class ClusteringOperations:
 
         confidence = best_similarity
         sorted_similarities = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
-        if len(sorted_similarities) > 1:
-            margin = sorted_similarities[0][1] - sorted_similarities[1][1]
-        else:
-            # No competing label to compare against.
-            margin = float("inf")
-
-        method = (
-            "bootstrap-labeled"
-            if confidence >= self.min_confidence and margin >= self.min_margin
-            else "bootstrap-inferred"
-        )
-
-        return best_genre, confidence, method, sorted_similarities
+        return best_genre, confidence, "cluster-derived", sorted_similarities
 
     def check_virtual_split_coverage(
         self,

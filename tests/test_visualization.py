@@ -21,7 +21,7 @@ class TestVisualizationDataLoading:
             "sent_id": ["en_ewt-train-001", "en_ewt-train-002", "de_gsd-test-001"],
             "genre": ["news", "news", "wiki"],
             "confidence": [0.85, 0.78, 0.92],
-            "method": ["bootstrap-labeled", "bootstrap-labeled", "bootstrap-labeled"],
+            "method": ["cluster-derived", "cluster-derived", "cluster-derived"],
         })
         df_genres.to_parquet(genres_file, index=False)
 

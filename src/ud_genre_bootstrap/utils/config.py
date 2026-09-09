@@ -42,8 +42,6 @@ class ClusteringConfig:
 class BootstrappingConfig:
     """Configuration for bootstrapping."""
 
-    min_confidence: float = 0.8
-    min_margin: float = 0.05
     reference_weighting: str = "sentence_count"  # "sentence_count" or "uniform"
     max_iterations: int = 10
     fail_on_incomplete: bool = False
@@ -290,6 +288,11 @@ class Config:
             )
         clustering = ClusteringConfig(**clustering_dict)
         bootstrapping_dict = dict(config_dict.get("bootstrapping", {}))
+        # Legacy threshold keys from the previous two-method cluster vocabulary.
+        # The current public method vocabulary keeps one cluster-derived method
+        # plus continuous confidence.
+        bootstrapping_dict.pop("min_confidence", None)
+        bootstrapping_dict.pop("min_margin", None)
         if "reference_weighting" in bootstrapping_dict:
             bootstrapping_dict["reference_weighting"] = cls._parse_reference_weighting(
                 bootstrapping_dict["reference_weighting"],

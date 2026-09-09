@@ -9,7 +9,7 @@ Successfully refactored the codebase to eliminate code duplication between produ
 **Problem:**
 - Production and evaluation pipelines had ~300 lines of duplicated code
 - High risk of divergence when updating one pipeline but not the other
-- Already happened multiple times during development (treebank-level clustering, virtual splits, confidence thresholds, GMM parameters)
+- Already happened multiple times during development (treebank-level clustering, virtual splits, GMM parameters)
 - Bug fixes and improvements had to be applied twice
 - No guarantee that production and evaluation stayed consistent
 
@@ -30,7 +30,7 @@ Created `ClusteringOperations` class with the following methods:
 - `create_virtual_splits()`: Creates single-genre subsets from multi-genre treebanks
 - `compute_cluster_centroids()`: Computes mean embedding for each cluster
 - `build_reference_embeddings_from_virtual_splits()`: Builds genre references from centroids
-- `label_clusters()`: Assigns genres to clusters with confidence thresholds
+- `label_clusters()`: Assigns genres to clusters with continuous confidence scores
 - `check_virtual_split_coverage()`: Checks if sufficient sentence-level metadata exists
 
 **Key Feature:** All operations are fully parameterized and reusable across both pipelines.
@@ -63,7 +63,7 @@ for genre in genres:
 ```python
 # Initialize shared operations
 self.clustering_ops = ClusteringOperations(
-    min_confidence=config.bootstrapping.min_confidence
+    reference_weighting=config.bootstrapping.reference_weighting
 )
 
 # Use shared operations
@@ -125,7 +125,7 @@ for cluster_id, centroid in cluster_centroids.items():
 **After:**
 ```python
 # Initialize shared operations
-self.clustering_ops = ClusteringOperations(min_confidence=min_confidence)
+self.clustering_ops = ClusteringOperations(reference_weighting=reference_weighting)
 
 # Use shared operations for training reference construction
 train_treebank_groups = self.clustering_ops.group_splits_by_treebank(
@@ -153,7 +153,7 @@ test_treebank_groups = self.clustering_ops.group_splits_by_treebank(
 )
 
 # Use shared operations for cluster labeling
-cluster_labels, high_conf_count, low_conf_count = (
+cluster_labels, labeled_count = (
     self.clustering_ops.label_clusters(cluster_centroids, known_genre_embeddings)
 )
 ```
@@ -211,7 +211,7 @@ If we wanted to add a new clustering metric, we would need to:
 2. Done! Both pipelines automatically get the new metric
 
 **Real Example from This Session:**
-When we added `min_confidence` threshold support:
+When we updated cluster labeling behavior:
 - Before: Had to update evaluation separately after adding to production
 - After: Would only need to update `ClusteringOperations.label_clusters()` once
 

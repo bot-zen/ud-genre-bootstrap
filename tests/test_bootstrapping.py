@@ -26,10 +26,10 @@ class TestGenreExport:
 
         # Mock final_labels
         bootstrapper.final_labels = {
-            ("en_ewt", "train", "en_ewt-ud-train-00001"): ("news", 0.85, "bootstrap-labeled"),
-            ("en_ewt", "train", "en_ewt-ud-train-00002"): ("news", 0.78, "bootstrap-labeled"),
-            ("de_gsd", "test", "de_gsd-ud-test-00042"): ("wiki", 0.43, "bootstrap-inferred"),
-            ("fr_gsd", "dev", "fr_gsd-ud-dev-00015"): ("fiction", 0.91, "bootstrap-labeled"),
+            ("en_ewt", "train", "en_ewt-ud-train-00001"): ("news", 0.85, "cluster-derived"),
+            ("en_ewt", "train", "en_ewt-ud-train-00002"): ("news", 0.78, "cluster-derived"),
+            ("de_gsd", "test", "de_gsd-ud-test-00042"): ("wiki", 0.43, "cluster-derived"),
+            ("fr_gsd", "dev", "fr_gsd-ud-dev-00015"): ("fiction", 0.91, "cluster-derived"),
         }
 
         # Export results
@@ -75,10 +75,9 @@ class TestGenreExport:
         ].iloc[0]
         assert news_row["genre"] == "news"
         assert news_row["confidence"] == 0.85
-        assert news_row["method"] == "bootstrap-labeled"
+        assert news_row["method"] == "cluster-derived"
         assert news_row["config_name"] == "default"
 
-        # Check low confidence row
         wiki_row = df[
             (df["treebank"] == "de_gsd")
             & (df["split"] == "test")
@@ -86,7 +85,7 @@ class TestGenreExport:
         ].iloc[0]
         assert wiki_row["genre"] == "wiki"
         assert wiki_row["confidence"] == 0.43
-        assert wiki_row["method"] == "bootstrap-inferred"
+        assert wiki_row["method"] == "cluster-derived"
 
         # Check results statistics and release artifacts
         assert (tmp_path / "README.md").exists()
@@ -98,8 +97,7 @@ class TestGenreExport:
         assert results["genre_counts"]["news"] == 2
         assert results["genre_counts"]["wiki"] == 1
         assert results["genre_counts"]["fiction"] == 1
-        assert results["method_counts"]["bootstrap-labeled"] == 3
-        assert results["method_counts"]["bootstrap-inferred"] == 1
+        assert results["method_counts"]["cluster-derived"] == 4
 
     def test_export_handles_empty_labels(self, tmp_path):
         """Test that export handles empty final_labels gracefully."""
@@ -179,10 +177,10 @@ class TestCrossLingualReport:
 
         # Mock final_labels
         bootstrapper.final_labels = {
-            "en_ewt-train-001": ("news", 0.85, "bootstrap-labeled"),
-            "en_ewt-train-002": ("news", 0.85, "bootstrap-labeled"),
-            "de_gsd-test-001": ("news", 0.82, "bootstrap-labeled"),
-            "en_ewt-train-003": ("wiki", 0.78, "bootstrap-labeled"),
+            "en_ewt-train-001": ("news", 0.85, "cluster-derived"),
+            "en_ewt-train-002": ("news", 0.85, "cluster-derived"),
+            "de_gsd-test-001": ("news", 0.82, "cluster-derived"),
+            "en_ewt-train-003": ("wiki", 0.78, "cluster-derived"),
         }
 
         # Generate report
@@ -238,8 +236,8 @@ class TestCrossLingualReport:
         }
 
         bootstrapper.final_labels = {
-            "en_ewt-train-001": ("news", 0.85, "bootstrap-labeled"),
-            "de_gsd-test-001": ("wiki", 0.78, "bootstrap-labeled"),
+            "en_ewt-train-001": ("news", 0.85, "cluster-derived"),
+            "de_gsd-test-001": ("wiki", 0.78, "cluster-derived"),
         }
 
         import logging
@@ -285,12 +283,12 @@ class TestCrossLingualReport:
         }
 
         bootstrapper.final_labels = {
-            "en-001": ("news", 0.85, "bootstrap-labeled"),
-            "en-002": ("news", 0.85, "bootstrap-labeled"),
-            "en-003": ("news", 0.85, "bootstrap-labeled"),
-            "en-004": ("news", 0.80, "bootstrap-labeled"),
-            "en-005": ("news", 0.80, "bootstrap-labeled"),
-            "de-001": ("news", 0.75, "bootstrap-labeled"),
+            "en-001": ("news", 0.85, "cluster-derived"),
+            "en-002": ("news", 0.85, "cluster-derived"),
+            "en-003": ("news", 0.85, "cluster-derived"),
+            "en-004": ("news", 0.80, "cluster-derived"),
+            "en-005": ("news", 0.80, "cluster-derived"),
+            "de-001": ("news", 0.75, "cluster-derived"),
         }
 
         import logging
@@ -421,13 +419,11 @@ class TestPipelineSegments:
         assert bootstrapper.final_labels["sid_virtual"] == ("news", 1.0, "virtual-split")
         assert bootstrapper.final_labels["sid_single"] == ("news", 1.0, "single-genre-treebank")
         assert bootstrapper.final_labels["sid_new"][0] == "news"
-        assert bootstrapper.final_labels["sid_new"][2] == "bootstrap-labeled"
+        assert bootstrapper.final_labels["sid_new"][2] == "cluster-derived"
 
-    def test_label_environment_assigns_threshold_based_methods(self):
-        """Clusters should always be labeled, with method decided by uncertainty thresholds."""
+    def test_label_environment_assigns_cluster_derived_methods(self):
+        """Clusters should always be labeled with continuous confidence scores."""
         config = Config()
-        config.bootstrapping.min_confidence = 0.8
-        config.bootstrapping.min_margin = 0.0
         bootstrapper = GenreBootstrapper(config)
 
         bootstrapper.genre_combination_clusters = {
@@ -457,16 +453,14 @@ class TestPipelineSegments:
 
         bootstrapper._label_environment(environment, known_embeddings)
 
-        assert bootstrapper.final_labels["sid_high"][2] == "bootstrap-labeled"
-        assert bootstrapper.final_labels["sid_low"][2] == "bootstrap-inferred"
-        assert bootstrapper.final_labels["sid_high"][1] >= config.bootstrapping.min_confidence
-        assert bootstrapper.final_labels["sid_low"][1] < config.bootstrapping.min_confidence
+        assert bootstrapper.final_labels["sid_high"][2] == "cluster-derived"
+        assert bootstrapper.final_labels["sid_low"][2] == "cluster-derived"
+        assert isinstance(bootstrapper.final_labels["sid_high"][1], float)
+        assert isinstance(bootstrapper.final_labels["sid_low"][1], float)
 
-    def test_label_environment_marks_near_ties_as_inferred_by_margin(self):
-        """Near-tie top-1/top-2 scores should be flagged as inferred even at high confidence."""
+    def test_label_environment_keeps_near_ties_cluster_derived(self):
+        """Near-tie assignments keep the method and expose uncertainty via confidence."""
         config = Config()
-        config.bootstrapping.min_confidence = 0.8
-        config.bootstrapping.min_margin = 0.02
         bootstrapper = GenreBootstrapper(config)
 
         bootstrapper.genre_combination_clusters = {
@@ -493,8 +487,8 @@ class TestPipelineSegments:
 
         label = bootstrapper.final_labels["sid_tie"]
         assert label[0] == "news"
-        assert label[1] >= config.bootstrapping.min_confidence
-        assert label[2] == "bootstrap-inferred"
+        assert isinstance(label[1], float)
+        assert label[2] == "cluster-derived"
 
     def test_label_environment_uses_shared_cluster_labeling_logic(self, monkeypatch):
         """Bootstrap labeling should delegate cluster scoring to shared clustering ops."""
@@ -517,7 +511,7 @@ class TestPipelineSegments:
         def _mock_assign_cluster_label(centroid, references):
             captured["centroid"] = centroid
             captured["references"] = references
-            return ("wiki", 0.42, "bootstrap-inferred", [("wiki", 0.42), ("news", 0.41)])
+            return ("wiki", 0.42, "cluster-derived", [("wiki", 0.42), ("news", 0.41)])
 
         monkeypatch.setattr(
             bootstrapper.clustering_ops,
@@ -535,8 +529,8 @@ class TestPipelineSegments:
 
         assert np.array_equal(captured["centroid"], np.array([1.0, 0.0]))
         assert set(captured["references"].keys()) == {"news", "wiki"}
-        assert bootstrapper.final_labels["sid_1"] == ("wiki", 0.42, "bootstrap-inferred")
-        assert bootstrapper.final_labels["sid_2"] == ("wiki", 0.42, "bootstrap-inferred")
+        assert bootstrapper.final_labels["sid_1"] == ("wiki", 0.42, "cluster-derived")
+        assert bootstrapper.final_labels["sid_2"] == ("wiki", 0.42, "cluster-derived")
 
 
 class TestBootstrapperConfigWiring:
@@ -547,13 +541,11 @@ class TestBootstrapperConfigWiring:
         config = Config()
         config.clustering.method = "kmeans"
         config.clustering.max_iter = 123
-        config.bootstrapping.min_margin = 0.11
 
         bootstrapper = GenreBootstrapper(config)
 
         assert type(bootstrapper.clusterer).__name__ == "KMeansClusterer"
         assert bootstrapper.clusterer.max_iter == 123
-        assert bootstrapper.clustering_ops.min_margin == 0.11
 
     def test_gmm_clusterer_receives_fit_sample_size_from_config(self):
         """GMM clusterer should use configurable fit_sample_size from clustering config."""
@@ -751,7 +743,7 @@ class TestSharedClusterLabeling:
 
     def test_assign_cluster_label_returns_genre_confidence_method(self):
         """Shared assignment should return top genre, confidence, and method."""
-        ops = ClusteringOperations(min_confidence=0.8, min_margin=0.05)
+        ops = ClusteringOperations()
         centroid = np.array([1.0, 0.0])
         reference_embeddings = {
             "news": np.array([1.0, 0.0]),
@@ -764,13 +756,13 @@ class TestSharedClusterLabeling:
 
         assert best_genre == "news"
         assert confidence == pytest.approx(1.0)
-        assert method == "bootstrap-labeled"
+        assert method == "cluster-derived"
         assert sorted_sims[0][0] == "news"
         assert sorted_sims[0][1] == pytest.approx(1.0)
 
-    def test_assign_cluster_label_uses_margin_for_uncertainty(self):
-        """High top-1 similarity with a tiny margin should be marked as inferred."""
-        ops = ClusteringOperations(min_confidence=0.8, min_margin=0.02)
+    def test_assign_cluster_label_keeps_method_for_near_ties(self):
+        """Near-tie assignments expose uncertainty through confidence, not method."""
+        ops = ClusteringOperations()
         centroid = np.array([1.0, 0.0])
         reference_embeddings = {
             "news": np.array([1.0, 0.0]),
@@ -782,12 +774,12 @@ class TestSharedClusterLabeling:
         )
 
         assert best_genre == "news"
-        assert confidence >= 0.8
-        assert method == "bootstrap-inferred"
+        assert confidence == pytest.approx(1.0)
+        assert method == "cluster-derived"
 
     def test_label_clusters_delegates_to_assign_cluster_label(self, monkeypatch):
         """Batch cluster labeling should delegate per-cluster assignment to shared helper."""
-        ops = ClusteringOperations(min_confidence=0.8)
+        ops = ClusteringOperations()
         cluster_centroids = {
             0: np.array([1.0, 0.0]),
             1: np.array([0.0, 1.0]),
@@ -802,23 +794,22 @@ class TestSharedClusterLabeling:
         def _mock_assign_cluster_label(centroid, references):
             calls.append(tuple(centroid.tolist()))
             assert references is reference_embeddings
-            return ("news", 0.5, "bootstrap-inferred", [("news", 0.5), ("wiki", 0.4)])
+            return ("news", 0.5, "cluster-derived", [("news", 0.5), ("wiki", 0.4)])
 
         monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
 
-        labels, high_conf_count, low_conf_count = ops.label_clusters(
+        labels, labeled_count = ops.label_clusters(
             cluster_centroids, reference_embeddings
         )
 
         assert len(calls) == 2
-        assert labels[0] == ("news", 0.5, "bootstrap-inferred")
-        assert labels[1] == ("news", 0.5, "bootstrap-inferred")
-        assert high_conf_count == 0
-        assert low_conf_count == 2
+        assert labels[0] == ("news", 0.5, "cluster-derived")
+        assert labels[1] == ("news", 0.5, "cluster-derived")
+        assert labeled_count == 2
 
     def test_label_cluster_descriptors_delegates_to_assign_cluster_label(self, monkeypatch):
         """Descriptor labeling should reuse assign_cluster_label and propagate sentence labels."""
-        ops = ClusteringOperations(min_confidence=0.8)
+        ops = ClusteringOperations()
         cluster_descriptors = [
             {
                 "cluster_id": 0,
@@ -841,7 +832,7 @@ class TestSharedClusterLabeling:
         def _mock_assign_cluster_label(centroid, references):
             calls.append(tuple(centroid.tolist()))
             assert references is reference_embeddings
-            return ("news", 0.5, "bootstrap-inferred", [("news", 0.5), ("wiki", 0.4)])
+            return ("news", 0.5, "cluster-derived", [("news", 0.5), ("wiki", 0.4)])
 
         monkeypatch.setattr(ops, "assign_cluster_label", _mock_assign_cluster_label)
 
@@ -849,25 +840,23 @@ class TestSharedClusterLabeling:
             cluster_labels,
             sentence_labels,
             cluster_similarities,
-            high_conf_count,
-            low_conf_count,
+            labeled_count,
         ) = ops.label_cluster_descriptors(cluster_descriptors, reference_embeddings)
 
         assert len(calls) == 2
-        assert cluster_labels[0] == ("news", 0.5, "bootstrap-inferred")
-        assert cluster_labels[1] == ("news", 0.5, "bootstrap-inferred")
-        assert sentence_labels["s1"] == ("news", 0.5, "bootstrap-inferred")
-        assert sentence_labels["s2"] == ("news", 0.5, "bootstrap-inferred")
-        assert sentence_labels["s3"] == ("news", 0.5, "bootstrap-inferred")
+        assert cluster_labels[0] == ("news", 0.5, "cluster-derived")
+        assert cluster_labels[1] == ("news", 0.5, "cluster-derived")
+        assert sentence_labels["s1"] == ("news", 0.5, "cluster-derived")
+        assert sentence_labels["s2"] == ("news", 0.5, "cluster-derived")
+        assert sentence_labels["s3"] == ("news", 0.5, "cluster-derived")
         assert cluster_similarities[0][0] == ("news", 0.5)
-        assert high_conf_count == 0
-        assert low_conf_count == 2
+        assert labeled_count == 2
 
     def test_label_predictable_combinations_enforces_one_to_one_and_combo_restriction(
         self, monkeypatch
     ):
         """Matching should be one-to-one and only consider genres in the current combination."""
-        ops = ClusteringOperations(min_confidence=0.0, min_margin=0.0)
+        ops = ClusteringOperations()
         genre_combination_clusters = {
             ("news", "wiki"): {
                 ("xx_demo", "test"): [
@@ -893,13 +882,13 @@ class TestSharedClusterLabeling:
                 return (
                     "news",
                     0.99,
-                    "bootstrap-labeled",
+                    "cluster-derived",
                     [("news", 0.99), ("wiki", 0.98)],
                 )
             return (
                 "news",
                 0.95,
-                "bootstrap-labeled",
+                "cluster-derived",
                 [("news", 0.95), ("wiki", 0.20)],
             )
 
@@ -926,7 +915,7 @@ class TestSharedClusterLabeling:
         self, monkeypatch
     ):
         """Assigned clusters should be promoted and unresolved parts moved to reduced combinations."""
-        ops = ClusteringOperations(min_confidence=0.0, min_margin=0.0)
+        ops = ClusteringOperations()
         genre_combination_clusters = {
             ("news", "spoken", "wiki"): {
                 ("xx_demo", "test"): [
@@ -955,20 +944,20 @@ class TestSharedClusterLabeling:
                 return (
                     "news",
                     0.90,
-                    "bootstrap-labeled",
+                    "cluster-derived",
                     [("news", 0.90), ("wiki", 0.10)],
                 )
             if float(centroid[0]) == 1.0:
                 return (
                     "wiki",
                     0.95,
-                    "bootstrap-labeled",
+                    "cluster-derived",
                     [("wiki", 0.95), ("news", 0.20)],
                 )
             return (
                 "news",
                 0.85,
-                "bootstrap-labeled",
+                "cluster-derived",
                 [("news", 0.85), ("wiki", 0.80)],
             )
 
@@ -988,7 +977,7 @@ class TestSharedClusterLabeling:
         assert final_labels["sid_news"][0] == "news"
         assert final_labels["sid_wiki"][0] == "wiki"
         assert final_labels["sid_spoken"][0] == "spoken"
-        assert final_labels["sid_spoken"][2] == "bootstrap-inferred"
+        assert final_labels["sid_spoken"][2] == "cluster-derived"
         assert ("news", "spoken", "wiki") not in genre_combination_clusters
         assert ("news",) in genre_combination_clusters
         assert ("wiki",) in genre_combination_clusters

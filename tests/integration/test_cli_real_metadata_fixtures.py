@@ -214,8 +214,6 @@ class _StubClusteringEvaluator:
         self,
         n_folds: int,
         group_by: str,
-        min_confidence: float,
-        min_margin: float,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",

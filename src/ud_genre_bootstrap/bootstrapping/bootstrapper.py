@@ -94,8 +94,6 @@ class GenreBootstrapper:
 
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
-            min_confidence=config.bootstrapping.min_confidence,
-            min_margin=config.bootstrapping.min_margin,
             reference_weighting=config.bootstrapping.reference_weighting,
         )
 
@@ -797,9 +795,7 @@ class GenreBootstrapper:
             )
             env_summary = env_summaries[0]
             logger.info(
-                f"  Summary: {env_summary['labels_assigned']} clusters labeled "
-                f"({env_summary['labels_high_confidence']} high conf, "
-                f"{env_summary['labels_low_confidence']} low conf)"
+                f"  Summary: {env_summary['labels_assigned']} cluster-derived labels"
             )
 
     def _get_known_genre_embeddings(self, known_genres: List[str]) -> Dict[str, np.ndarray]:
@@ -836,9 +832,7 @@ class GenreBootstrapper:
         )
 
         logger.info(
-            f"  Summary: {env_summary['labels_assigned']} clusters labeled "
-            f"({env_summary['labels_high_confidence']} high conf, "
-            f"{env_summary['labels_low_confidence']} low conf)"
+            f"  Summary: {env_summary['labels_assigned']} cluster-derived labels"
         )
 
     def _generate_cross_lingual_report(self):

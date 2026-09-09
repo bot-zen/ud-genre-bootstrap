@@ -24,6 +24,11 @@ HF_PUBLISH_FILES = ("README.md", "all_genres.parquet", "release_manifest.json")
 PROJECT_REPOSITORY_URL = "https://github.com/bot-zen/ud-genre-bootstrap"
 UD_WORKSHOP_PAPER_URL = "https://universaldependencies.org/udw26/papers/41_Paper.pdf"
 POINT_OF_CONTACT = "appliedlinguisticsdevs@eurac.edu"
+CANONICAL_RELEASE_METHODS = (
+    "single-genre-treebank",
+    "virtual-split",
+    "cluster-derived",
+)
 
 
 def resolve_config_name(config) -> str:
@@ -172,10 +177,6 @@ def build_algorithm_recipe(config) -> Dict[str, Any]:
             "max_iter": int(config.clustering.max_iter),
             "fit_sample_size": config.clustering.fit_sample_size,
             "reg_covar": float(config.clustering.reg_covar),
-        },
-        "thresholds": {
-            "min_confidence": float(config.bootstrapping.min_confidence),
-            "min_margin": float(config.bootstrapping.min_margin),
         },
         "bootstrapping": {
             "reference_weighting": str(config.bootstrapping.reference_weighting),
@@ -375,8 +376,7 @@ def _method_description(method: str) -> str:
     descriptions = {
         "single-genre-treebank": "Directly inherited from a single-genre UD treebank.",
         "virtual-split": "Directly inherited from sentence/document metadata in a mixed treebank.",
-        "bootstrap-labeled": "Cluster-derived label meeting confidence and margin thresholds.",
-        "bootstrap-inferred": "Cluster-derived label below one or both uncertainty thresholds.",
+        "cluster-derived": "Assigned by cluster-to-reference genre similarity.",
     }
     return descriptions.get(method, "Other exported label provenance.")
 
@@ -390,7 +390,7 @@ def build_label_summary(stats: Dict[str, Any]) -> Dict[str, Any]:
     genre_counts = dict(_sorted_counts(stats.get("genre_counts")))
 
     metadata_methods = ("single-genre-treebank", "virtual-split")
-    clustering_methods = ("bootstrap-labeled", "bootstrap-inferred")
+    clustering_methods = ("cluster-derived",)
     metadata_count = sum(method_counts.get(method, 0) for method in metadata_methods)
     clustering_count = sum(method_counts.get(method, 0) for method in clustering_methods)
     known_group_count = metadata_count + clustering_count
@@ -421,20 +421,6 @@ def build_label_summary(stats: Dict[str, Any]) -> Dict[str, Any]:
                 "count": clustering_count,
                 "share_of_labeled_percent": _percentage(clustering_count, labeled_sentences),
                 "methods": list(clustering_methods),
-            },
-            "high_confidence_clustering": {
-                "count": method_counts.get("bootstrap-labeled", 0),
-                "share_of_labeled_percent": _percentage(
-                    method_counts.get("bootstrap-labeled", 0),
-                    labeled_sentences,
-                ),
-            },
-            "lower_confidence_clustering": {
-                "count": method_counts.get("bootstrap-inferred", 0),
-                "share_of_labeled_percent": _percentage(
-                    method_counts.get("bootstrap-inferred", 0),
-                    labeled_sentences,
-                ),
             },
             "other": {
                 "count": other_count,
@@ -546,7 +532,8 @@ def _format_label_summary_lines(label_summary: Dict[str, Any]) -> List[str]:
     if confidence_summary:
         lines.extend([
             "",
-            "Confidence scores are top-1 cluster-label similarity scores where available.",
+            "For `cluster-derived` rows, confidence is the top-1 cluster-label similarity score.",
+            "Direct metadata-derived rows use confidence `1.0`.",
             f"- Mean confidence: `{_format_metric(confidence_summary.get('mean'))}`",
             f"- Median confidence: `{_format_metric(confidence_summary.get('median'))}`",
         ])
@@ -667,6 +654,32 @@ def validate_release_genre_inventory(config, stats: Dict[str, Any]) -> Dict[str,
     return stats
 
 
+def validate_release_method_inventory(stats: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a release export only contains the public method vocabulary."""
+    method_counts = {
+        str(method): int(count)
+        for method, count in (stats.get("method_counts") or {}).items()
+        if method is not None
+    }
+    canonical_methods = set(CANONICAL_RELEASE_METHODS)
+    noncanonical_counts = {
+        method: count
+        for method, count in method_counts.items()
+        if method not in canonical_methods
+    }
+    stats["canonical_methods"] = list(CANONICAL_RELEASE_METHODS)
+    stats["noncanonical_method_counts"] = noncanonical_counts
+
+    if noncanonical_counts:
+        raise ValueError(
+            "Release export contains non-canonical method values: "
+            f"{_format_genre_counts(noncanonical_counts)}. "
+            "Regenerate the labels with the current code before publishing."
+        )
+
+    return stats
+
+
 def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
     """Summarize an exported ``all_genres.parquet`` file."""
     import pandas as pd
@@ -680,6 +693,8 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
             "confidence_summary": {},
             "canonical_genres": [],
             "noncanonical_genre_counts": {},
+            "canonical_methods": list(CANONICAL_RELEASE_METHODS),
+            "noncanonical_method_counts": {},
         }
 
     df = pd.read_parquet(output_file)
@@ -712,6 +727,8 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
         "confidence_summary": confidence_summary,
         "canonical_genres": [],
         "noncanonical_genre_counts": {},
+        "canonical_methods": list(CANONICAL_RELEASE_METHODS),
+        "noncanonical_method_counts": {},
     }
 
 
@@ -921,9 +938,9 @@ def _build_dataset_card(
         "## Output Columns",
         "- `treebank`, `split`, `sent_id`: primary join key back to UD",
         "- `genre`: derived sentence label",
-        "- `confidence`: top-1 similarity score for the assigned cluster label",
-        "- `method`: `single-genre-treebank`, `virtual-split`, `bootstrap-labeled`, "
-        "or `bootstrap-inferred`",
+        "- `confidence`: top-1 similarity score for `cluster-derived` rows; "
+        "`1.0` for direct metadata-derived rows",
+        "- `method`: `single-genre-treebank`, `virtual-split`, or `cluster-derived`",
         "- `ud_version`, `model`, `pooling`, `clustering_method`, `config_name`, "
         "`run_id`: compact row-level provenance",
         "",
@@ -965,6 +982,7 @@ def write_release_artifacts(
     """Write release metadata files alongside exported labels."""
     output_path.mkdir(parents=True, exist_ok=True)
     stats = validate_release_genre_inventory(config, stats)
+    stats = validate_release_method_inventory(stats)
 
     snapshot_name = _write_config_snapshot(config, output_path)
     config_hash = file_sha256(output_path / snapshot_name)
@@ -1120,8 +1138,6 @@ def write_release_artifacts(
             "fit_sample_size": config.clustering.fit_sample_size,
         },
         "bootstrapping": {
-            "min_confidence": float(config.bootstrapping.min_confidence),
-            "min_margin": float(config.bootstrapping.min_margin),
             "reference_weighting": str(config.bootstrapping.reference_weighting),
             "max_iterations": int(config.bootstrapping.max_iterations),
         },
@@ -1130,6 +1146,8 @@ def write_release_artifacts(
         "evaluation_summary": evaluation_summary,
         "canonical_genres": stats.get("canonical_genres", []),
         "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
+        "canonical_methods": stats.get("canonical_methods", []),
+        "noncanonical_method_counts": stats.get("noncanonical_method_counts", {}),
         "artifacts": artifacts,
         "hf_payload": hf_payload,
         "mapping_files": mapping_files,
@@ -1175,6 +1193,8 @@ def write_release_artifacts(
         "evaluation_summary": evaluation_summary,
         "canonical_genres": stats.get("canonical_genres", []),
         "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
+        "canonical_methods": stats.get("canonical_methods", []),
+        "noncanonical_method_counts": stats.get("noncanonical_method_counts", {}),
         "artifacts": artifacts,
         "hf_payload": hf_payload,
     }

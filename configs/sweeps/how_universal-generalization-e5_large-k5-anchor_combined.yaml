@@ -14,8 +14,6 @@ clustering:
   device: auto
   fit_sample_size: null
 bootstrapping:
-  min_confidence: 0.8
-  min_margin: 0.05
   reference_weighting: sentence_count
   max_iterations: 32
   fail_on_incomplete: false

@@ -77,6 +77,22 @@ def test_parse_reference_weighting_rejects_invalid_value():
         Config.from_dict({"bootstrapping": {"reference_weighting": "invalid"}})
 
 
+def test_legacy_bootstrap_threshold_keys_are_ignored():
+    cfg = Config.from_dict(
+        {
+            "bootstrapping": {
+                "min_confidence": 0.8,
+                "min_margin": 0.05,
+                "reference_weighting": "uniform",
+            }
+        }
+    )
+
+    assert cfg.bootstrapping.reference_weighting == "uniform"
+    assert not hasattr(cfg.bootstrapping, "min_confidence")
+    assert not hasattr(cfg.bootstrapping, "min_margin")
+
+
 def test_parse_metadata_path():
     cfg = Config.from_dict({"metadata_path": "configs/metadata.json"})
     assert cfg.metadata_path == "configs/metadata.json"

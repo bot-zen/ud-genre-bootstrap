@@ -26,7 +26,6 @@ clustering:
   seed: 42
 
 bootstrapping:
-  min_confidence: 0.8
   max_iterations: 10
   fail_on_incomplete: false
   unresolved_handling: "null"

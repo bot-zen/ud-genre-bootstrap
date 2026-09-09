@@ -124,16 +124,16 @@ def test_annotate_current_cluster_map_adds_cluster_level_labels():
         }
     }
     final_labels = {
-        "tb1:test:s1": ("news", 0.91, "bootstrap-labeled"),
-        "tb1:test:s2": ("news", 0.88, "bootstrap-labeled"),
-        "tb1:test:s3": ("wiki", 0.42, "bootstrap-inferred"),
+        "tb1:test:s1": ("news", 0.91, "cluster-derived"),
+        "tb1:test:s2": ("news", 0.88, "cluster-derived"),
+        "tb1:test:s3": ("wiki", 0.42, "cluster-derived"),
     }
 
     annotate_current_cluster_map(cluster_map, cluster_sent_refs, final_labels)
 
     assert cluster_map["tb1"][0]["label"] == "news"
     assert cluster_map["tb1"][0]["confidence"] == 0.91
-    assert cluster_map["tb1"][0]["method"] == "bootstrap-labeled"
+    assert cluster_map["tb1"][0]["method"] == "cluster-derived"
     assert cluster_map["tb1"][0]["labeled_sent_count"] == 2
     assert cluster_map["tb1"][1]["label"] == "wiki"
-    assert cluster_map["tb1"][1]["method"] == "bootstrap-inferred"
+    assert cluster_map["tb1"][1]["method"] == "cluster-derived"

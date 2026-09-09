@@ -69,7 +69,7 @@ Following the schedule from Stage 4, multi-genre clusters are labeled by compari
 For each unlabeled cluster:
 1. Compute cosine similarity to all known genre embeddings
 2. Assign the genre with highest similarity
-3. Apply uncertainty thresholds to set method flags (`bootstrap-labeled` vs `bootstrap-inferred`)
+3. Store `cluster-derived` as the method tag
 4. All sentences in the cluster receive the assigned genre label, confidence, and method tag
 
 **Input:** Cluster embeddings, reference genre embeddings, bootstrap schedule
@@ -94,7 +94,7 @@ The final labeled dataset is exported in formats compatible with the Universal D
 
 4. **Virtual Split Innovation:** When sentence-level metadata exists in multi-genre treebanks, the pipeline creates virtual single-genre splits that span all available splits, effectively increasing the available reference data for bootstrap initialization.
 
-5. **High Coverage with Uncertainty Flags:** All clusters are labeled for maximum coverage. Configurable uncertainty thresholds mark assignments as high-confidence (`bootstrap-labeled`) or low-confidence (`bootstrap-inferred`) so downstream consumers can filter by method when stricter precision is needed.
+5. **High Coverage with Continuous Confidence:** All clusters are labeled for maximum coverage. Cluster-derived assignments keep a continuous cosine-similarity confidence score, while the `method` column records only the provenance of the label.
 
 ## 2. Implementation Details
 
@@ -107,7 +107,7 @@ To ensure consistency between production and evaluation, core clustering operati
 - **Creating virtual splits**: Extracting single-genre subsets from multi-genre treebanks
 - **Computing cluster centroids**: Averaging embeddings within clusters
 - **Building reference embeddings**: Constructing genre references from virtual splits
-- **Labeling clusters**: Assigning genres with confidence + margin thresholds
+- **Labeling clusters**: Assigning genres with continuous confidence scores
 
 This architectural pattern ensures that any improvements or bug fixes automatically apply to both production and evaluation, preventing divergence.
 
@@ -383,27 +383,11 @@ Within each predictable treebank combination, assignment uses a one-to-one strat
 1. **Compute similarities:** cosine similarity of each cluster centroid to reference genre embeddings.
 2. **Greedy one-to-one matching:** pick highest-similarity cluster↔genre pairs, enforcing unique cluster and unique genre use within that treebank.
 3. **Fallback rules:**
-   - If exactly one unresolved genre and one cluster remain, infer that mapping (`bootstrap-inferred`).
+   - If exactly one unresolved genre and one cluster remain, assign that mapping (`cluster-derived`, confidence `0.0` because no similarity decision is made).
    - If all genres in the combination are already predictable but clusters remain, assign by independent nearest-neighbor.
-4. **Apply uncertainty thresholds for method tagging:**
-   ```python
-   margin = top1_similarity - top2_similarity
-   method = "bootstrap-labeled" if (
-       confidence >= min_confidence and margin >= min_margin
-   ) else "bootstrap-inferred"
-   ```
-5. Propagate cluster labels to all member sentences.
+4. Propagate cluster labels to all member sentences.
 
-**Parameters:**
-- `min_confidence`: Minimum top-1 cosine similarity threshold (default: `0.8`)
-- `min_margin`: Minimum top1-top2 cosine similarity gap (default: `0.05`)
-
-**Behavioral note:**
-Thresholds do **not** suppress labeling. They control the uncertainty flag in `method`:
-- High confidence: `confidence >= min_confidence` **and** `margin >= min_margin` → `bootstrap-labeled`
-- Low confidence: otherwise → `bootstrap-inferred`
-
-This design favors high recall/coverage during bootstrap. Downstream analysis can filter to `bootstrap-labeled` only when higher precision is required.
+The method value for all cluster-labeled sentences is `cluster-derived`. Users who need stricter subsets should inspect or threshold the continuous `confidence` column rather than relying on a second method label.
 
 **Distance Metric:**
 Cosine distance is used throughout:
@@ -417,8 +401,7 @@ Range: [0, 2], where 0 = identical, 1 = orthogonal, 2 = opposite
 Each sentence receives a method tag indicating its labeling source:
 - `single-genre-treebank`: From original single-genre treebank
 - `virtual-split`: From virtual split with sentence-level metadata
-- `bootstrap-labeled`: From multi-genre cluster labeling meeting both uncertainty thresholds
-- `bootstrap-inferred`: From multi-genre cluster labeling that fails either threshold
+- `cluster-derived`: From multi-genre cluster labeling
 
 ### 2.5 Configuration System
 
@@ -443,8 +426,6 @@ clustering:
   reg_covar: 1e-4            # GMM: covariance regularization (prevents singular matrices)
 
 bootstrapping:
-  min_confidence: 0.8
-  min_margin: 0.05
   reference_weighting: "sentence_count" # or "uniform"
   max_iterations: 10
   fail_on_incomplete: false
@@ -547,7 +528,6 @@ The evaluation faithfully mirrors the production implementation in two key ways:
    - Example: If `de_pud` is in the test fold, all its splits are combined, clustered together, and evaluated jointly
 
 **Bootstrap Configuration:**
-- **`min_confidence` / `min_margin`**: Evaluation uses the same uncertainty thresholds as production. Cluster assignments are always labeled, but tracked as `bootstrap-labeled` vs `bootstrap-inferred` for analysis.
 - **`reference_weighting`**: Shared reference aggregation strategy (`sentence_count` or `uniform`) used by both production labeling and evaluation.
 - **`max_iterations`**: Upper bound for schedule iterations in the shared bootstrap runner.
 - **`protocol`**:

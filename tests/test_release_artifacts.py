@@ -80,7 +80,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
             "total_sentences": 4,
             "labeled_sentences": 4,
             "method_counts": {
-                "bootstrap-labeled": 2,
+                "cluster-derived": 2,
                 "single-genre-treebank": 1,
                 "virtual-split": 1,
             },
@@ -112,7 +112,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["source_files"]["config"]["path"] == str(config_path)
     assert run_metadata["source_files"]["mappings"][0]["path"] == str(mapping_path)
     assert run_metadata["algorithm_recipe"]["embeddings"]["model"] == cfg.embeddings.model
-    assert run_metadata["algorithm_recipe"]["thresholds"]["min_confidence"] == 0.8
+    assert "thresholds" not in run_metadata["algorithm_recipe"]
     assert run_metadata["label_summary"]["total_sentences"] == 4
     assert run_metadata["label_summary"]["provenance_groups"]["clustering_derived"][
         "count"
@@ -121,6 +121,12 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["evaluation_summary"]["metrics"]["overall_micro_f1"] == 0.3333
     assert "news" in run_metadata["canonical_genres"]
     assert run_metadata["noncanonical_genre_counts"] == {}
+    assert run_metadata["canonical_methods"] == [
+        "single-genre-treebank",
+        "virtual-split",
+        "cluster-derived",
+    ]
+    assert run_metadata["noncanonical_method_counts"] == {}
 
     assert manifest["train_id"] == run_metadata["train_id"]
     assert manifest["artifact_key"] == run_metadata["artifact_key"]
@@ -137,6 +143,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert manifest["evaluation_summary"] == run_metadata["evaluation_summary"]
     assert manifest["canonical_genres"] == run_metadata["canonical_genres"]
     assert manifest["noncanonical_genre_counts"] == {}
+    assert manifest["canonical_methods"] == run_metadata["canonical_methods"]
+    assert manifest["noncanonical_method_counts"] == {}
     assert readme.startswith("---\n")
     card_metadata = yaml.safe_load(readme.split("---", 2)[1])
     assert card_metadata["pretty_name"] == "UD Genre Labels 2.17"
@@ -170,13 +178,45 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "## Label Coverage And Provenance" in readme
     assert "- Total UD sentences in artifact: `4`" in readme
     assert "- Clustering-derived labels: `2` (50.0% of labeled sentences)" in readme
-    assert "| `bootstrap-labeled` | Cluster-derived label" in readme
+    assert "| `cluster-derived` | Assigned by cluster-to-reference genre similarity." in readme
     assert "## Genre Distribution" in readme
     assert "| `news` | 3 | 75.0% |" in readme
     assert "## Evaluation Summary" in readme
     assert "- Protocol: `generalization`" in readme
     assert "| Overall Acc / Micro-F1 | 0.3333 |" in readme
     assert "Missing anchor genres in this baseline: `email, government`" in readme
+
+
+def test_prepare_release_directory_rejects_legacy_method_values(tmp_path):
+    labels_path = tmp_path / "all_genres.parquet"
+    pd.DataFrame(
+        [
+            {
+                "treebank": "tb",
+                "split": "train",
+                "sent_id": "s1",
+                "genre": "news",
+                "confidence": 0.5,
+                "method": "bootstrap-inferred",
+            }
+        ]
+    ).to_parquet(labels_path, index=False)
+
+    cfg = Config.from_dict(
+        {
+            "ud_version": "2.18",
+            "release": {
+                "train_id": "full-ud-v1.1.0",
+                "scope": "full",
+                "label_schema": "ud",
+                "artifact_version": "v1.1.0",
+            },
+            "output": {"genres_path": str(tmp_path)},
+        }
+    )
+
+    with pytest.raises(ValueError, match="non-canonical method values"):
+        prepare_release_directory(cfg, tmp_path)
 
 
 def _git(repo_dir, *args: str) -> str:

@@ -381,8 +381,6 @@ class ClusteringEvaluator:
         n_folds: int = 5,
         group_by: Optional[str] = "language",
         random_state: int = 42,
-        min_confidence: float = 0.8,
-        min_margin: float = 0.05,
         max_iterations: int = 10,
         anchor_mode: str = "strict",
         anchor_pool_policy: str = "auto",
@@ -395,8 +393,6 @@ class ClusteringEvaluator:
             n_folds: Number of folds for cross-validation
             group_by: Variable to group by to avoid data leakage ('language', 'treebank', or None)
             random_state: Random seed
-            min_confidence: Minimum top-1 similarity threshold for high-confidence labeling
-            min_margin: Minimum top1-top2 similarity gap for high-confidence labeling
             max_iterations: Maximum bootstrap schedule iterations
             anchor_mode: Anchor source mode ('strict' or 'parity')
             anchor_pool_policy: Anchor source policy ('auto', 'train_virtual',
@@ -408,8 +404,6 @@ class ClusteringEvaluator:
         self.n_folds = n_folds
         self.group_by = group_by
         self.random_state = random_state
-        self.min_confidence = min_confidence
-        self.min_margin = min_margin
         self.scheduler = BootstrapScheduler(max_iterations=max_iterations)
         self.protocol = (protocol or "generalization").strip().lower()
         if self.protocol not in {"generalization", "paper_parity"}:
@@ -431,8 +425,6 @@ class ClusteringEvaluator:
 
         # Initialize shared clustering operations
         self.clustering_ops = ClusteringOperations(
-            min_confidence=min_confidence,
-            min_margin=min_margin,
             reference_weighting=self.reference_weighting,
         )
 
@@ -1139,12 +1131,10 @@ class ClusteringEvaluator:
 
         for env_idx, summary in enumerate(env_summaries):
             logger.info(
-                "    Bootstrap env %d/%d: labeled %d clusters (%d high conf, %d low conf)",
+                "    Bootstrap env %d/%d: labeled %d cluster-derived assignments",
                 env_idx + 1,
                 len(env_summaries),
                 summary["labels_assigned"],
-                summary["labels_high_confidence"],
-                summary["labels_low_confidence"],
             )
 
         scoring_split_keys = None

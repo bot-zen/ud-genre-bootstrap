@@ -297,8 +297,6 @@ def run_current_with_tracking(
         n_folds=cfg.evaluation.metadata_validation.k,
         group_by=cfg.evaluation.metadata_validation.group_by,
         random_state=cfg.clustering.seed,
-        min_confidence=cfg.bootstrapping.min_confidence,
-        min_margin=cfg.bootstrapping.min_margin,
         max_iterations=cfg.bootstrapping.max_iterations,
         anchor_mode=cfg.evaluation.metadata_validation.anchor_mode,
         anchor_pool_policy=cfg.evaluation.metadata_validation.anchor_pool_policy,

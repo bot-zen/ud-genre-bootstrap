@@ -4,7 +4,7 @@ from ud_genre_bootstrap.utils.release_identity import resolve_release_identity
 from ud_genre_bootstrap.utils.release_matrix import load_release_matrix_config
 
 
-MATRIX = "configs/releases/full-ud-v1.0.2.yaml"
+MATRIX = "configs/releases/full-ud-v1.1.0.yaml"
 
 
 def test_release_matrix_resolves_default_ud_version():
@@ -13,16 +13,16 @@ def test_release_matrix_resolves_default_ud_version():
 
     assert cfg.ud_version == "2.18"
     assert cfg.output.genres_path == "output/2.18-community-release/genres"
-    assert cfg.output.run_id == "full-ud-v1.0.2-ud2.18"
+    assert cfg.output.run_id == "full-ud-v1.1.0-ud2.18"
     assert cfg.output.baseline_summary_path == (
         "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
     )
-    assert identity["train_id"] == "full-ud-v1.0.2"
-    assert identity["artifact_key"] == "full-ud-v1.0.2-ud2.18"
-    assert identity["hf_tag"] == "artifact/full-ud-v1.0.2/ud2.18"
-    assert identity["hf_revisions"] == ["2.18", "artifact/full-ud-v1.0.2/ud2.18"]
-    assert identity["source_tag"] == "source/full-ud-v1.0.2"
-    assert getattr(cfg, "_release_matrix_path").endswith("full-ud-v1.0.2.yaml")
+    assert identity["train_id"] == "full-ud-v1.1.0"
+    assert identity["artifact_key"] == "full-ud-v1.1.0-ud2.18"
+    assert identity["hf_tag"] == "artifact/full-ud-v1.1.0/ud2.18"
+    assert identity["hf_revisions"] == ["2.18", "artifact/full-ud-v1.1.0/ud2.18"]
+    assert identity["source_tag"] == "source/full-ud-v1.1.0"
+    assert getattr(cfg, "_release_matrix_path").endswith("full-ud-v1.1.0.yaml")
     assert getattr(cfg, "_release_profile_path").endswith("full-ud.yaml")
 
 
