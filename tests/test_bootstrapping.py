@@ -123,7 +123,11 @@ class TestGenreExport:
 
         bootstrapper = GenreBootstrapper(config)
         bootstrapper.final_labels = {
-            ("xx_demo", "train", "test-001"): ("news", None, "metadata"),
+            ("xx_demo", "train", "test-001"): (
+                "news",
+                None,
+                "single-genre-treebank",
+            ),
         }
 
         bootstrapper._export_results()
