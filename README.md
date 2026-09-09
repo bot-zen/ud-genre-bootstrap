@@ -296,9 +296,7 @@ train:
 
 versions:
   "2.18": {}
-  "2.17":
-    output:
-      baseline_summary_path: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
+  "2.17": {}
 ```
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
@@ -319,9 +317,11 @@ uv run ud-genre-bootstrap publish \
   --include-main
 ```
 
-This regenerates local release metadata, copies only `README.md`,
-`all_genres.parquet`, and `release_manifest.json` into the HF checkout, commits
-the payload on branch `2.18`, creates the immutable tag
+This regenerates local release metadata and the Hugging Face dataset card,
+including label counts, label provenance, genre distribution, confidence
+summary, source provenance, and the locked evaluation baseline. It then copies
+only `README.md`, `all_genres.parquet`, and `release_manifest.json` into the HF
+checkout, commits the payload on branch `2.18`, creates the immutable tag
 `artifact/full-ud-v1.0.2/ud2.18`, and moves `main` because `--include-main` is
 passed.
 

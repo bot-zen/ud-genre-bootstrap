@@ -17,6 +17,27 @@ from ud_genre_bootstrap.utils.release_artifacts import (
 def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     mapping_path = tmp_path / "genre_mappings.json"
     mapping_path.write_text('{"news": "news"}\n', encoding="utf-8")
+    baseline_path = tmp_path / "baseline_summary.json"
+    baseline_path.write_text(
+        json.dumps({
+            "name": "UD v2.17 all_focused generalization baseline",
+            "description": "Locked release-train quality context.",
+            "protocol": "generalization",
+            "ud_version": "2.17",
+            "treebank_set": "all_focused",
+            "config": "configs/sweeps/baseline.yaml",
+            "source_log": "output/logs/baseline.log",
+            "metrics": {
+                "overall_micro_f1": 0.3333,
+                "macro_f1": 0.2636,
+                "purity": 0.5568,
+                "agreement_treebank": 0.5922,
+                "overlap_error_treebank": 0.0589,
+                "missing_anchor_genres": ["email", "government"],
+            },
+        }),
+        encoding="utf-8",
+    )
     config_path = tmp_path / "release.yaml"
     config_path.write_text("ud_version: '2.17'\n", encoding="utf-8")
     all_genres_path = tmp_path / "all_genres.parquet"
@@ -46,6 +67,7 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
                 "genres_path": str(tmp_path),
                 "genres_hf_repo": "commul/ud_genre",
                 "genres_revision": "2.17",
+                "baseline_summary_path": str(baseline_path),
             },
         }
     )
@@ -54,7 +76,17 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     artifacts = write_release_artifacts(
         cfg,
         tmp_path,
-        {"total_sentences": 1, "labeled_sentences": 1, "genre_counts": {"news": 1}},
+        {
+            "total_sentences": 4,
+            "labeled_sentences": 4,
+            "method_counts": {
+                "bootstrap-labeled": 2,
+                "single-genre-treebank": 1,
+                "virtual-split": 1,
+            },
+            "genre_counts": {"news": 3, "wiki": 1},
+            "confidence_summary": {"mean": 0.85, "median": 0.9},
+        },
         all_genres_path=all_genres_path,
     )
 
@@ -81,6 +113,12 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert run_metadata["source_files"]["mappings"][0]["path"] == str(mapping_path)
     assert run_metadata["algorithm_recipe"]["embeddings"]["model"] == cfg.embeddings.model
     assert run_metadata["algorithm_recipe"]["thresholds"]["min_confidence"] == 0.8
+    assert run_metadata["label_summary"]["total_sentences"] == 4
+    assert run_metadata["label_summary"]["provenance_groups"]["clustering_derived"][
+        "count"
+    ] == 2
+    assert run_metadata["evaluation_summary"]["protocol"] == "generalization"
+    assert run_metadata["evaluation_summary"]["metrics"]["overall_micro_f1"] == 0.3333
     assert "news" in run_metadata["canonical_genres"]
     assert run_metadata["noncanonical_genre_counts"] == {}
 
@@ -95,6 +133,8 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
         "release_manifest.json",
     ]
     assert manifest["mapping_file_hashes"] == run_metadata["mapping_file_hashes"]
+    assert manifest["label_summary"] == run_metadata["label_summary"]
+    assert manifest["evaluation_summary"] == run_metadata["evaluation_summary"]
     assert manifest["canonical_genres"] == run_metadata["canonical_genres"]
     assert manifest["noncanonical_genre_counts"] == {}
     assert readme.startswith("---\n")
@@ -127,6 +167,16 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "Canonical labels: `academic" in readme
     assert "Source repo: `https://github.com/bot-zen/ud-genre-bootstrap`" in readme
     assert "`run_id`: compact row-level provenance" in readme
+    assert "## Label Coverage And Provenance" in readme
+    assert "- Total UD sentences in artifact: `4`" in readme
+    assert "- Clustering-derived labels: `2` (50.0% of labeled sentences)" in readme
+    assert "| `bootstrap-labeled` | Cluster-derived label" in readme
+    assert "## Genre Distribution" in readme
+    assert "| `news` | 3 | 75.0% |" in readme
+    assert "## Evaluation Summary" in readme
+    assert "- Protocol: `generalization`" in readme
+    assert "| Overall Acc / Micro-F1 | 0.3333 |" in readme
+    assert "Missing anchor genres in this baseline: `email, government`" in readme
 
 
 def _git(repo_dir, *args: str) -> str:

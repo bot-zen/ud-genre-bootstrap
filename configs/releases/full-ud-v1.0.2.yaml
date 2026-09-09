@@ -42,8 +42,6 @@ versions:
   "2.15": {}
   "2.16": {}
   "2.17":
-    output:
-      baseline_summary_path: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
     evaluation:
       treebank_sets:
         how_universal:

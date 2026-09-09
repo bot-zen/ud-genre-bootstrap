@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 import subprocess
 from dataclasses import asdict
@@ -316,6 +317,327 @@ def _format_genre_counts(genre_counts: Dict[str, int]) -> str:
     )
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _round_float(value: Any, digits: int = 4) -> Optional[float]:
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _percentage(count: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round((count / denominator) * 100.0, 2)
+
+
+def _format_int(value: Any) -> str:
+    return f"{_safe_int(value):,}"
+
+
+def _format_percent(value: Any) -> str:
+    rounded = _round_float(value, digits=2)
+    if rounded is None:
+        return "n/a"
+    return f"{rounded:.1f}%"
+
+
+def _format_metric(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) or "none"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def _sorted_counts(counts: Optional[Dict[str, Any]]) -> List[tuple[str, int]]:
+    return sorted(
+        (
+            (str(label), _safe_int(count))
+            for label, count in (counts or {}).items()
+            if label is not None
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+
+def _method_description(method: str) -> str:
+    descriptions = {
+        "single-genre-treebank": "Directly inherited from a single-genre UD treebank.",
+        "virtual-split": "Directly inherited from sentence/document metadata in a mixed treebank.",
+        "bootstrap-labeled": "Cluster-derived label meeting confidence and margin thresholds.",
+        "bootstrap-inferred": "Cluster-derived label below one or both uncertainty thresholds.",
+    }
+    return descriptions.get(method, "Other exported label provenance.")
+
+
+def build_label_summary(stats: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a compact label-count and provenance summary for release artifacts."""
+    total_sentences = _safe_int(stats.get("total_sentences"))
+    labeled_sentences = _safe_int(stats.get("labeled_sentences"))
+    unlabeled_sentences = max(total_sentences - labeled_sentences, 0)
+    method_counts = dict(_sorted_counts(stats.get("method_counts")))
+    genre_counts = dict(_sorted_counts(stats.get("genre_counts")))
+
+    metadata_methods = ("single-genre-treebank", "virtual-split")
+    clustering_methods = ("bootstrap-labeled", "bootstrap-inferred")
+    metadata_count = sum(method_counts.get(method, 0) for method in metadata_methods)
+    clustering_count = sum(method_counts.get(method, 0) for method in clustering_methods)
+    known_group_count = metadata_count + clustering_count
+    other_count = max(labeled_sentences - known_group_count, 0)
+
+    return {
+        "total_sentences": total_sentences,
+        "labeled_sentences": labeled_sentences,
+        "unlabeled_sentences": unlabeled_sentences,
+        "label_coverage_percent": _percentage(labeled_sentences, total_sentences),
+        "exported_genres": len(genre_counts),
+        "method_counts": method_counts,
+        "method_percentages": {
+            method: _percentage(count, labeled_sentences)
+            for method, count in method_counts.items()
+        },
+        "method_descriptions": {
+            method: _method_description(method)
+            for method in method_counts
+        },
+        "provenance_groups": {
+            "metadata_derived": {
+                "count": metadata_count,
+                "share_of_labeled_percent": _percentage(metadata_count, labeled_sentences),
+                "methods": list(metadata_methods),
+            },
+            "clustering_derived": {
+                "count": clustering_count,
+                "share_of_labeled_percent": _percentage(clustering_count, labeled_sentences),
+                "methods": list(clustering_methods),
+            },
+            "high_confidence_clustering": {
+                "count": method_counts.get("bootstrap-labeled", 0),
+                "share_of_labeled_percent": _percentage(
+                    method_counts.get("bootstrap-labeled", 0),
+                    labeled_sentences,
+                ),
+            },
+            "lower_confidence_clustering": {
+                "count": method_counts.get("bootstrap-inferred", 0),
+                "share_of_labeled_percent": _percentage(
+                    method_counts.get("bootstrap-inferred", 0),
+                    labeled_sentences,
+                ),
+            },
+            "other": {
+                "count": other_count,
+                "share_of_labeled_percent": _percentage(other_count, labeled_sentences),
+            },
+        },
+        "genre_counts": genre_counts,
+        "genre_percentages": {
+            genre: _percentage(count, labeled_sentences)
+            for genre, count in genre_counts.items()
+        },
+        "confidence_summary": stats.get("confidence_summary", {}),
+    }
+
+
+def _infer_evaluation_protocol(baseline_summary: Dict[str, Any]) -> Optional[str]:
+    protocol = baseline_summary.get("protocol")
+    if protocol:
+        return str(protocol)
+
+    text = " ".join(
+        str(baseline_summary.get(field) or "")
+        for field in ("name", "description", "command", "config")
+    ).lower()
+    if "paper_parity" in text or "paper-parity" in text:
+        return "paper_parity"
+    if "generalization" in text:
+        return "generalization"
+    return None
+
+
+def _infer_evaluation_ud_version(baseline_summary: Dict[str, Any]) -> Optional[str]:
+    explicit = baseline_summary.get("ud_version")
+    if explicit:
+        return str(explicit)
+
+    text = " ".join(
+        str(baseline_summary.get(field) or "")
+        for field in ("name", "description", "command", "config", "source_log")
+    )
+    match = re.search(r"(?:UD\s*v?|ud[_ -]?)(2\.\d+)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+def build_evaluation_summary(
+    baseline_summary: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build compact evaluation metadata for release cards and manifests."""
+    if not baseline_summary:
+        return {
+            "available": False,
+            "note": "No locked evaluation baseline is configured for this artifact.",
+        }
+
+    return {
+        "available": True,
+        "name": baseline_summary.get("name"),
+        "description": baseline_summary.get("description"),
+        "protocol": _infer_evaluation_protocol(baseline_summary),
+        "ud_version": _infer_evaluation_ud_version(baseline_summary),
+        "treebank_set": baseline_summary.get("treebank_set"),
+        "config": baseline_summary.get("config"),
+        "source_log": baseline_summary.get("source_log"),
+        "source": baseline_summary.get("source"),
+        "copied_to": baseline_summary.get("copied_to"),
+        "command": baseline_summary.get("command"),
+        "metrics": baseline_summary.get("metrics", {}),
+    }
+
+
+def _format_label_summary_lines(label_summary: Dict[str, Any]) -> List[str]:
+    provenance = label_summary.get("provenance_groups", {})
+    metadata_group = provenance.get("metadata_derived", {})
+    clustering_group = provenance.get("clustering_derived", {})
+
+    lines = [
+        "## Label Coverage And Provenance",
+        f"- Total UD sentences in artifact: `{_format_int(label_summary['total_sentences'])}`",
+        f"- Labeled sentences: `{_format_int(label_summary['labeled_sentences'])}` "
+        f"({_format_percent(label_summary['label_coverage_percent'])})",
+        f"- Unlabeled sentences: `{_format_int(label_summary['unlabeled_sentences'])}`",
+        f"- Genres exported: `{_format_int(label_summary['exported_genres'])}`",
+        "- Metadata-derived labels: "
+        f"`{_format_int(metadata_group.get('count'))}` "
+        f"({_format_percent(metadata_group.get('share_of_labeled_percent'))} of labeled sentences)",
+        "- Clustering-derived labels: "
+        f"`{_format_int(clustering_group.get('count'))}` "
+        f"({_format_percent(clustering_group.get('share_of_labeled_percent'))} of labeled sentences)",
+        "",
+        "| Method | Meaning | Sentences | Share of labeled |",
+        "| --- | --- | ---: | ---: |",
+    ]
+
+    method_counts = label_summary.get("method_counts", {})
+    method_percentages = label_summary.get("method_percentages", {})
+    method_descriptions = label_summary.get("method_descriptions", {})
+    if method_counts:
+        for method, count in method_counts.items():
+            lines.append(
+                f"| `{method}` | {method_descriptions.get(method, '')} | "
+                f"{_format_int(count)} | {_format_percent(method_percentages.get(method))} |"
+            )
+    else:
+        lines.append("| n/a | No method counts were recorded. | 0 | n/a |")
+
+    confidence_summary = label_summary.get("confidence_summary") or {}
+    if confidence_summary:
+        lines.extend([
+            "",
+            "Confidence scores are top-1 cluster-label similarity scores where available.",
+            f"- Mean confidence: `{_format_metric(confidence_summary.get('mean'))}`",
+            f"- Median confidence: `{_format_metric(confidence_summary.get('median'))}`",
+        ])
+
+    lines.append("")
+    return lines
+
+
+def _format_genre_distribution_lines(label_summary: Dict[str, Any]) -> List[str]:
+    lines = [
+        "## Genre Distribution",
+        "| Genre | Sentences | Share of labeled |",
+        "| --- | ---: | ---: |",
+    ]
+    genre_counts = label_summary.get("genre_counts", {})
+    genre_percentages = label_summary.get("genre_percentages", {})
+    if genre_counts:
+        for genre, count in genre_counts.items():
+            lines.append(
+                f"| `{genre}` | {_format_int(count)} | "
+                f"{_format_percent(genre_percentages.get(genre))} |"
+            )
+    else:
+        lines.append("| n/a | 0 | n/a |")
+    lines.append("")
+    return lines
+
+
+def _format_evaluation_summary_lines(
+    config,
+    evaluation_summary: Dict[str, Any],
+) -> List[str]:
+    lines = ["## Evaluation Summary"]
+    if not evaluation_summary.get("available"):
+        lines.extend([
+            "No locked evaluation baseline is configured for this artifact.",
+            "",
+        ])
+        return lines
+
+    baseline_ud_version = evaluation_summary.get("ud_version")
+    if baseline_ud_version and str(baseline_ud_version) != str(config.ud_version):
+        scope_note = (
+            f"Train-level quality context measured on UD {baseline_ud_version}; "
+            f"this artifact targets UD {config.ud_version}."
+        )
+    elif baseline_ud_version:
+        scope_note = f"Locked evaluation baseline measured on UD {baseline_ud_version}."
+    else:
+        scope_note = "Locked train-level quality baseline for this release train."
+
+    lines.extend([
+        f"- Baseline: `{evaluation_summary.get('name') or 'locked baseline'}`",
+        f"- Scope: {scope_note}",
+        f"- Protocol: `{evaluation_summary.get('protocol') or 'n/a'}`",
+        f"- Treebank set: `{evaluation_summary.get('treebank_set') or 'n/a'}`",
+        f"- Config: `{evaluation_summary.get('config') or 'n/a'}`",
+        f"- Source log: `{evaluation_summary.get('source_log') or 'n/a'}`",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+    ])
+
+    metrics = evaluation_summary.get("metrics", {})
+    metric_rows = [
+        ("Overall Acc / Micro-F1", metrics.get("overall_micro_f1")),
+        ("Macro-F1", metrics.get("macro_f1")),
+        ("Mean Fold Micro-F1", metrics.get("mean_fold_micro_f1")),
+        ("Std Fold Micro-F1", metrics.get("std_fold_micro_f1")),
+        ("Mean Fold Macro-F1", metrics.get("mean_fold_macro_f1")),
+        ("Std Fold Macro-F1", metrics.get("std_fold_macro_f1")),
+        ("Purity (PUR)", metrics.get("purity")),
+        ("Agreement (AGR)", metrics.get("agreement_treebank")),
+        ("Overlap Error (Delta BC)", metrics.get("overlap_error_treebank")),
+    ]
+    for label, value in metric_rows:
+        if value is not None:
+            lines.append(f"| {label} | {_format_metric(value)} |")
+
+    missing_anchor_genres = metrics.get("missing_anchor_genres")
+    if missing_anchor_genres:
+        lines.extend([
+            "",
+            "- Missing anchor genres in this baseline: "
+            f"`{', '.join(str(genre) for genre in missing_anchor_genres)}`",
+        ])
+
+    lines.append("")
+    return lines
+
+
 def validate_release_genre_inventory(config, stats: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure a release export only contains configured canonical labels."""
     canonical_genres = _canonical_genres_for_config(config)
@@ -355,6 +677,7 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
             "labeled_sentences": 0,
             "method_counts": {},
             "genre_counts": {},
+            "confidence_summary": {},
             "canonical_genres": [],
             "noncanonical_genre_counts": {},
         }
@@ -368,11 +691,25 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
         str(genre): int(count)
         for genre, count in df.get("genre", pd.Series(dtype=object)).dropna().value_counts().items()
     }
+    confidence_summary: Dict[str, Any] = {}
+    if "confidence" in df.columns:
+        confidence = pd.to_numeric(df["confidence"], errors="coerce").dropna()
+        if not confidence.empty:
+            confidence_summary = {
+                "count": int(confidence.count()),
+                "mean": round(float(confidence.mean()), 4),
+                "median": round(float(confidence.median()), 4),
+                "min": round(float(confidence.min()), 4),
+                "p25": round(float(confidence.quantile(0.25)), 4),
+                "p75": round(float(confidence.quantile(0.75)), 4),
+                "max": round(float(confidence.max()), 4),
+            }
     return {
         "total_sentences": int(len(df)),
         "labeled_sentences": int(df.get("genre", pd.Series(dtype=object)).notna().sum()),
         "method_counts": method_counts,
         "genre_counts": genre_counts,
+        "confidence_summary": confidence_summary,
         "canonical_genres": [],
         "noncanonical_genre_counts": {},
     }
@@ -455,20 +792,8 @@ def _build_dataset_card(
     git_metadata: Dict[str, Any],
     config_hash: str,
 ) -> str:
-    baseline_lines: List[str] = []
-    if baseline_summary:
-        metrics = baseline_summary.get("metrics", {})
-        baseline_lines = [
-            "## Locked Baseline",
-            f"- Overall Acc (Micro-F1): `{metrics.get('overall_micro_f1', 'n/a')}`",
-            f"- Macro-F1: `{metrics.get('macro_f1', 'n/a')}`",
-            f"- Purity (PUR): `{metrics.get('purity', 'n/a')}`",
-            f"- Agreement (AGR): `{metrics.get('agreement_treebank', 'n/a')}`",
-            f"- Overlap Error (ΔBC): `{metrics.get('overlap_error_treebank', 'n/a')}`",
-            f"- Source: `{baseline_summary.get('source', 'n/a')}`",
-            "",
-        ]
-
+    label_summary = build_label_summary(stats)
+    evaluation_summary = build_evaluation_summary(baseline_summary)
     mapping_lines = [
         f"- `{entry['source']}` (sha256: `{entry['sha256']}`)"
         for entry in mapping_files
@@ -511,6 +836,8 @@ def _build_dataset_card(
         "The export is a derived annotation layer, not a replacement for the UD "
         "treebanks and not a hand-validated gold genre dataset.",
         "",
+        *_format_label_summary_lines(label_summary),
+        *_format_genre_distribution_lines(label_summary),
         "## Loading",
         "```python",
         "from datasets import load_dataset",
@@ -607,13 +934,13 @@ def _build_dataset_card(
         "- Known limitation: some paper-era treebank genre inventories are not fully "
         "recoverable from current sentence-level metadata subsets.",
         "",
-        *baseline_lines,
+        *_format_evaluation_summary_lines(config, evaluation_summary),
         "## Release Summary",
-        f"- Total sentences: `{stats.get('total_sentences', 0)}`",
-        f"- Labeled sentences: `{stats.get('labeled_sentences', 0)}`",
-        f"- Genres exported: `{len(stats.get('genre_counts', {}))}`",
+        f"- Total sentences: `{_format_int(label_summary.get('total_sentences'))}`",
+        f"- Labeled sentences: `{_format_int(label_summary.get('labeled_sentences'))}`",
+        f"- Genres exported: `{_format_int(label_summary.get('exported_genres'))}`",
         "- Methods exported: "
-        f"`{', '.join(sorted(stats.get('method_counts', {}).keys())) or 'none'}`",
+        f"`{', '.join(label_summary.get('method_counts', {}).keys()) or 'none'}`",
         "",
         "## Source Mapping Files",
         *mapping_lines,
@@ -650,6 +977,8 @@ def write_release_artifacts(
     release_identity = resolve_release_identity(config)
     git_metadata = _build_git_metadata(release_identity)
     algorithm_recipe = build_algorithm_recipe(config)
+    label_summary = build_label_summary(stats)
+    evaluation_summary = build_evaluation_summary(baseline_summary)
     config_source_path = getattr(config, "_config_path", None)
     profile_source_path = getattr(config, "_release_profile_path", None)
     matrix_source_path = getattr(config, "_release_matrix_path", None)
@@ -797,6 +1126,8 @@ def write_release_artifacts(
             "max_iterations": int(config.bootstrapping.max_iterations),
         },
         "stats": stats,
+        "label_summary": label_summary,
+        "evaluation_summary": evaluation_summary,
         "canonical_genres": stats.get("canonical_genres", []),
         "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
         "artifacts": artifacts,
@@ -840,6 +1171,8 @@ def write_release_artifacts(
         "mapping_file_hashes": mapping_file_hashes,
         "source_files": source_files,
         "algorithm_recipe": algorithm_recipe,
+        "label_summary": label_summary,
+        "evaluation_summary": evaluation_summary,
         "canonical_genres": stats.get("canonical_genres", []),
         "noncanonical_genre_counts": stats.get("noncanonical_genre_counts", {}),
         "artifacts": artifacts,

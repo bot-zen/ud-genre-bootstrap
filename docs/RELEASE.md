@@ -253,12 +253,26 @@ The public HF Git payload is intentionally minimal:
 - `all_genres.parquet`
 - `release_manifest.json`
 
+`README.md` is the Hugging Face dataset card. It is regenerated during
+`prepare-release`, `publish`, and `upload` from the release parquet and locked
+baseline summary. The card must include:
+
+- label coverage and total sentence counts
+- label provenance by `method` (`single-genre-treebank`, `virtual-split`,
+  `bootstrap-labeled`, `bootstrap-inferred`)
+- genre distribution and confidence summary when confidence scores are present
+- source/config/mapping-file provenance
+- the locked evaluation baseline when `output.baseline_summary_path` is set
+
+The same compact `label_summary` and `evaluation_summary` blocks are written to
+`run_metadata.json` and `release_manifest.json`.
+
 ## Validation
 
 Inspect counts and metadata:
 
 ```bash
-uv run python -c "import json, pathlib, pandas as pd; base=pathlib.Path('output/<UD_VERSION>-community-release/genres'); df=pd.read_parquet(base/'all_genres.parquet'); manifest=json.loads((base/'release_manifest.json').read_text()); print(len(df)); print(manifest['train_id']); print(manifest['artifact_key']); print(manifest['ud_source_revision'])"
+uv run python -c "import json, pathlib, pandas as pd; base=pathlib.Path('output/<UD_VERSION>-community-release/genres'); df=pd.read_parquet(base/'all_genres.parquet'); manifest=json.loads((base/'release_manifest.json').read_text()); print(len(df)); print(manifest['train_id']); print(manifest['artifact_key']); print(manifest['ud_source_revision']); print(manifest['label_summary']['provenance_groups']); print(manifest['evaluation_summary'])"
 ```
 
 Run release tests after source changes:

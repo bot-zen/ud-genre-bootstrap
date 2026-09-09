@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clustering metadata extraction and `test-genres` now use the metadata-only
   iterator, so inherited document metadata from local CoNLL-U and ordered HF
   parquet rows can drive virtual split detection and diagnostics.
+- Generated HF dataset cards now include label coverage, method/provenance
+  counts, genre distribution, confidence summaries, and locked evaluation
+  baseline metrics; the same summaries are written to release metadata sidecars.
 - Shared `full-ud` release profile and `full-ud-v1.0.1` release matrix for UD
   2.7 through UD 2.18, replacing committed full configs per UD version.
 - **Cluster quality metrics computation**

@@ -62,7 +62,7 @@ evaluation:
 output:
   embeddings_hf_repo: "commul/ud-embeddings-multilingual-e5-large"
   genres_hf_repo: "commul/ud_genre"
-  baseline_summary_path: null
+  baseline_summary_path: "configs/baselines/2.17-all_focused-generalization-e5_large-k10-anchor_combined.json"
   push_to_hub: false
   hf_token: "${HF_TOKEN}"
 
