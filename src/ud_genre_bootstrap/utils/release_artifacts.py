@@ -769,6 +769,18 @@ def _build_dataset_card_yaml(config, stats: Dict[str, Any]) -> str:
             "datasets",
         ],
         "size_categories": [_size_category(int(stats.get("total_sentences", 0)))],
+        "configs": [
+            {
+                "config_name": "default",
+                "data_files": [
+                    {
+                        "split": "train",
+                        "path": "all_genres.parquet",
+                    }
+                ],
+                "default": True,
+            }
+        ],
     }
     return "---\n" + yaml.safe_dump(metadata, sort_keys=False) + "---\n"
 

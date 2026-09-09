@@ -156,6 +156,18 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "universal-dependencies" in card_metadata["tags"]
     assert "derived-annotations" in card_metadata["tags"]
     assert card_metadata["size_categories"] == ["n<1K"]
+    assert card_metadata["configs"] == [
+        {
+            "config_name": "default",
+            "data_files": [
+                {
+                    "split": "train",
+                    "path": "all_genres.parquet",
+                }
+            ],
+            "default": True,
+        }
+    ]
     assert "revision=\"2.17\"" in readme
     assert "revision=\"artifact/full-ud-v1.0.2/ud2.17\"" in readme
     assert "## Dataset Description" in readme

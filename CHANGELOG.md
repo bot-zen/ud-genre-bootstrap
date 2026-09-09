@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before Hub upload or Git-backed HF publishing.
 - `allow_partial_ud_source` config switch for explicit partial-cache diagnostics
   when inspecting whatever UD splits are locally available.
+- Generated HF dataset-card YAML now declares `all_genres.parquet` as the
+  default `train` split so sidecar files are not auto-detected as dataset data.
 - `audit-readme-genres` CLI command for ranking README-derived genre extraction
   hints before release regeneration.
 - `audit-readme-genres --sort-by` modes for prioritizing candidates by
@@ -154,6 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Makes visualization workflow simpler: just specify `--config` instead of all paths and flags
 
 ### Fixed
+- Default `load_dataset("commul/ud_genre")` loading on Hugging Face no longer
+  auto-detects release sidecars as the dataset split.
 - Incomplete or unavailable UD sources can no longer silently produce partial or
   zero-row release outputs; release-safe strict loading is now the default.
 - Missing `json` import in CLI visualization command
