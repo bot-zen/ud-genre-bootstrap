@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import heapq
 import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from ud_genre_bootstrap.utils.conllu import (
+    ConlluSentenceMetadata,
+    iter_conllu_sentence_metadata,
+)
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 
 README_NAMES = ("README.md", "README.txt")
@@ -18,7 +24,6 @@ README_GENRE_LINE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 DIRECT_GENRE_RE = re.compile(r"^#\s*(?:newdoc\s+)?genre\s*=\s*(?P<genre>\S+)")
-COMMENT_KEY_RE = re.compile(r"^#\s*(?P<key>[^=]+?)\s*=")
 README_HINTS = {
     "explicit_genre_comment": re.compile(r"#\s*(?:newdoc\s+)?genre\s*=", re.IGNORECASE),
     "sent_id": re.compile(r"\bsent[_ -]?id\b", re.IGNORECASE),
@@ -39,6 +44,7 @@ AUDIT_SORT_MODES = {
     "sentences",
     "uncovered-sentences",
 }
+COLLISION_EXAMPLE_LIMIT = 10
 
 
 @dataclass
@@ -56,16 +62,22 @@ class TreebankReadmeDescriptor:
 class SentenceMetadataScan:
     """Sentence-level metadata summary for one treebank."""
 
+    available_sentences: int = 0
     total_sentences: int = 0
     sentences_with_extracted_genre: int = 0
+    multi_genre_sentence_count: int = 0
     extracted_genre_counts: Counter = field(default_factory=Counter)
+    extracted_genre_set_counts: Counter = field(default_factory=Counter)
     raw_direct_genre_counts: Counter = field(default_factory=Counter)
     normalized_direct_genre_counts: Counter = field(default_factory=Counter)
     alias_counts: Counter = field(default_factory=Counter)
     unmapped_raw_genres: Counter = field(default_factory=Counter)
     noncanonical_extracted_genres: Counter = field(default_factory=Counter)
     comment_key_counts: Counter = field(default_factory=Counter)
+    newdoc_key_counts: Counter = field(default_factory=Counter)
+    newpar_key_counts: Counter = field(default_factory=Counter)
     sent_id_token_counts: Counter = field(default_factory=Counter)
+    collision_examples: List[Dict[str, Any]] = field(default_factory=list)
     scanned_files: List[str] = field(default_factory=list)
 
     @property
@@ -243,6 +255,32 @@ def _normalize_metadata_genres(
     return sorted(set(normalized))
 
 
+def _genre_source_status(
+    readme_genres: List[str],
+    metadata_genres: List[str],
+) -> Dict[str, Any]:
+    readme_set = set(readme_genres)
+    metadata_set = set(metadata_genres)
+    if readme_set and metadata_set and readme_set == metadata_set:
+        status = "agreement"
+    elif readme_set and metadata_set:
+        status = "disagreement"
+    elif readme_set:
+        status = "readme_only"
+    elif metadata_set:
+        status = "metadata_only"
+    else:
+        status = "missing"
+
+    return {
+        "declared_genres": sorted(readme_set | metadata_set),
+        "readme_only_genres": sorted(readme_set - metadata_set),
+        "metadata_only_genres": sorted(metadata_set - readme_set),
+        "genre_sources_agree": status == "agreement",
+        "genre_source_status": status,
+    }
+
+
 def _treebank_patternless_genre_mapping(
     mapper: GenreMapper,
     treebank_code: str,
@@ -255,6 +293,49 @@ def _treebank_patternless_genre_mapping(
             continue
         mapping.update(pattern_entry.get("genre_mapping") or {})
     return mapping
+
+
+def _configured_extraction_summary(
+    mapper: GenreMapper,
+    treebank_code: str,
+) -> Dict[str, Any]:
+    regex_patterns = []
+    patternless_mappings: Dict[str, Any] = {}
+    static_default_genres = []
+
+    for pattern_entry in mapper.metadata_patterns.get(treebank_code, []):
+        if isinstance(pattern_entry, str):
+            regex_patterns.append(pattern_entry)
+            continue
+
+        if not isinstance(pattern_entry, dict):
+            continue
+
+        pattern = pattern_entry.get("pattern")
+        if pattern:
+            regex_patterns.append(str(pattern))
+            continue
+
+        if "genre_mapping" in pattern_entry:
+            patternless_mappings.update(pattern_entry.get("genre_mapping") or {})
+        if "genre" in pattern_entry:
+            static_default_genres.append(pattern_entry["genre"])
+
+    return {
+        "regex_patterns": regex_patterns,
+        "regex_pattern_count": len(regex_patterns),
+        "patternless_mappings": patternless_mappings,
+        "patternless_mapping_count": len(patternless_mappings),
+        "static_default_genres": static_default_genres,
+        "static_default_genre": (
+            static_default_genres[0]
+            if len(static_default_genres) == 1
+            else None
+        ),
+        "has_regex_patterns": bool(regex_patterns),
+        "has_patternless_mappings": bool(patternless_mappings),
+        "has_static_default_genre": bool(static_default_genres),
+    }
 
 
 def _normalize_direct_genre(
@@ -271,47 +352,6 @@ def _normalize_direct_genre(
     return _normalize_optional_genre(mapper, raw_genre, treebank_code)
 
 
-def _iter_conllu_sentence_metadata(file_path: Path) -> Iterator[Dict[str, Any]]:
-    current_sent_id = None
-    current_text = None
-    current_comments = []
-
-    with open(file_path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.rstrip("\n")
-            if not line:
-                if current_sent_id is not None or current_comments:
-                    yield {
-                        "sent_id": current_sent_id,
-                        "text": current_text,
-                        "comments": current_comments,
-                    }
-                current_sent_id = None
-                current_text = None
-                current_comments = []
-                continue
-
-            if not line.startswith("#"):
-                continue
-
-            current_comments.append(line)
-            if line.startswith("# sent_id"):
-                parts = line.split("=", 1)
-                if len(parts) == 2:
-                    current_sent_id = parts[1].strip()
-            elif line.startswith("# text"):
-                parts = line.split("=", 1)
-                if len(parts) == 2:
-                    current_text = parts[1].strip()
-
-    if current_sent_id is not None or current_comments:
-        yield {
-            "sent_id": current_sent_id,
-            "text": current_text,
-            "comments": current_comments,
-        }
-
-
 def _extract_direct_genre_comments(comments: Iterable[str]) -> List[str]:
     genres = []
     for comment in comments:
@@ -319,13 +359,6 @@ def _extract_direct_genre_comments(comments: Iterable[str]) -> List[str]:
         if match:
             genres.append(match.group("genre"))
     return genres
-
-
-def _comment_key(comment: str) -> Optional[str]:
-    match = COMMENT_KEY_RE.match(comment.strip())
-    if not match:
-        return None
-    return " ".join(match.group("key").lower().split())
 
 
 def _sent_id_tokens(sent_id: Optional[str]) -> List[str]:
@@ -336,6 +369,82 @@ def _sent_id_tokens(sent_id: Optional[str]) -> List[str]:
         for token in re.split(r"[^A-Za-z]+", sent_id)
         if token and token.lower() not in {"ud", "train", "dev", "test"}
     ][:4]
+
+
+def _stable_sentence_sample_key(sentence: ConlluSentenceMetadata) -> int:
+    identity = "\0".join([
+        str(sentence.file_path),
+        str(sentence.split or ""),
+        str(sentence.sent_id or sentence.index),
+    ])
+    digest = hashlib.blake2b(identity.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, byteorder="big")
+
+
+def _iter_sampled_sentences(
+    conllu_files: Iterable[Path],
+    max_sentences: int,
+) -> Tuple[int, List[ConlluSentenceMetadata]]:
+    available_sentences = 0
+    sampled_sentences: List[ConlluSentenceMetadata] = []
+    sampled_heap: List[Tuple[int, int, ConlluSentenceMetadata]] = []
+    sequence = 0
+
+    for conllu_file in conllu_files:
+        for sentence in iter_conllu_sentence_metadata(conllu_file):
+            available_sentences += 1
+            if not max_sentences:
+                sampled_sentences.append(sentence)
+                continue
+
+            sample_key = _stable_sentence_sample_key(sentence)
+            heap_entry = (-sample_key, sequence, sentence)
+            if len(sampled_heap) < max_sentences:
+                heapq.heappush(sampled_heap, heap_entry)
+            elif heap_entry > sampled_heap[0]:
+                heapq.heapreplace(sampled_heap, heap_entry)
+            sequence += 1
+
+    if max_sentences:
+        sampled_sentences = [
+            entry[2]
+            for entry in sorted(sampled_heap, key=lambda entry: entry[1])
+        ]
+
+    return available_sentences, sampled_sentences
+
+
+def _genre_set_key(genres: Iterable[str]) -> str:
+    return " + ".join(sorted(set(genres)))
+
+
+def _relative_sentence_file(
+    sentence: ConlluSentenceMetadata,
+    descriptor: TreebankReadmeDescriptor,
+) -> str:
+    try:
+        return str(sentence.file_path.relative_to(descriptor.directory))
+    except ValueError:
+        return str(sentence.file_path)
+
+
+def _collision_example(
+    sentence: ConlluSentenceMetadata,
+    descriptor: TreebankReadmeDescriptor,
+    genres: List[str],
+) -> Dict[str, Any]:
+    return {
+        "file": _relative_sentence_file(sentence, descriptor),
+        "split": sentence.split,
+        "sent_id": sentence.sent_id,
+        "genres": sorted(set(genres)),
+        "comments": sentence.to_sentence_dict(
+            include_inherited_comments=True,
+            include_comment_metadata=False,
+        )["comments"],
+        "inherited_newdoc_metadata": sentence.inherited_newdoc_metadata,
+        "inherited_newpar_metadata": sentence.inherited_newpar_metadata,
+    }
 
 
 def scan_sentence_metadata(
@@ -352,43 +461,67 @@ def scan_sentence_metadata(
         ]
     )
     canonical_genres = set(mapper.canonical_genres)
+    scan.available_sentences, sampled_sentences = _iter_sampled_sentences(
+        descriptor.conllu_files,
+        max_sentences,
+    )
 
-    for conllu_file in descriptor.conllu_files:
-        for sentence in _iter_conllu_sentence_metadata(conllu_file):
-            if max_sentences and scan.total_sentences >= max_sentences:
-                return scan
+    for sentence in sampled_sentences:
+        scan.total_sentences += 1
+        mapper_sentence = sentence.to_sentence_dict(
+            include_inherited_comments=True,
+            include_comment_metadata=True,
+        )
+        comments = mapper_sentence.get("comments", []) or []
+        for key in sentence.comment_values:
+            scan.comment_key_counts[key] += 1
+        for key in sentence.inherited_newdoc_metadata:
+            scan.newdoc_key_counts[key] += 1
+        for key in sentence.inherited_newpar_metadata:
+            scan.newpar_key_counts[key] += 1
 
-            scan.total_sentences += 1
-            comments = sentence.get("comments", []) or []
-            for comment in comments:
-                key = _comment_key(comment)
-                if key:
-                    scan.comment_key_counts[key] += 1
+        for token in _sent_id_tokens(sentence.sent_id):
+            scan.sent_id_token_counts[token] += 1
 
-            for token in _sent_id_tokens(sentence.get("sent_id")):
-                scan.sent_id_token_counts[token] += 1
+        for raw_genre in _extract_direct_genre_comments(comments):
+            scan.raw_direct_genre_counts[raw_genre] += 1
+            normalized = _normalize_direct_genre(mapper, raw_genre, descriptor.treebank)
+            if normalized and normalized in canonical_genres:
+                scan.normalized_direct_genre_counts[normalized] += 1
+                if normalized != raw_genre:
+                    scan.alias_counts[f"{raw_genre} -> {normalized}"] += 1
+            elif normalized:
+                scan.unmapped_raw_genres[raw_genre] += 1
 
-            for raw_genre in _extract_direct_genre_comments(comments):
-                scan.raw_direct_genre_counts[raw_genre] += 1
-                normalized = _normalize_direct_genre(mapper, raw_genre, descriptor.treebank)
-                if normalized and normalized in canonical_genres:
-                    scan.normalized_direct_genre_counts[normalized] += 1
-                    if normalized != raw_genre:
-                        scan.alias_counts[f"{raw_genre} -> {normalized}"] += 1
-                elif normalized:
-                    scan.unmapped_raw_genres[raw_genre] += 1
+        extracted_genres = [
+            str(genre)
+            for genre in mapper.extract_genres_from_metadata(
+                mapper_sentence,
+                descriptor.treebank,
+            )
+            if genre
+        ]
+        unique_extracted_genres = list(dict.fromkeys(extracted_genres))
+        if unique_extracted_genres:
+            scan.sentences_with_extracted_genre += 1
+            scan.extracted_genre_set_counts[
+                _genre_set_key(unique_extracted_genres)
+            ] += 1
+            for genre in unique_extracted_genres:
+                scan.extracted_genre_counts[genre] += 1
+                if genre not in canonical_genres:
+                    scan.noncanonical_extracted_genres[genre] += 1
 
-            extracted_genres = [
-                str(genre)
-                for genre in mapper.extract_genres_from_metadata(sentence, descriptor.treebank)
-                if genre
-            ]
-            if extracted_genres:
-                scan.sentences_with_extracted_genre += 1
-                primary_genre = extracted_genres[0]
-                scan.extracted_genre_counts[primary_genre] += 1
-                if primary_genre not in canonical_genres:
-                    scan.noncanonical_extracted_genres[primary_genre] += 1
+            if len(set(unique_extracted_genres)) > 1:
+                scan.multi_genre_sentence_count += 1
+                if len(scan.collision_examples) < COLLISION_EXAMPLE_LIMIT:
+                    scan.collision_examples.append(
+                        _collision_example(
+                            sentence,
+                            descriptor,
+                            unique_extracted_genres,
+                        )
+                    )
 
     return scan
 
@@ -407,12 +540,14 @@ def _readme_hints(readme_text: str, readme_genres: List[str]) -> List[str]:
 def _classify_treebank(
     *,
     declared_genres: List[str],
-    has_configured_patterns: bool,
+    configured_extraction: Dict[str, Any],
     readme_hints: List[str],
     scan: SentenceMetadataScan,
     threshold: float,
 ) -> Tuple[str, str, List[str]]:
     is_multi_genre = len(declared_genres) >= 2
+    has_regex_patterns = bool(configured_extraction["has_regex_patterns"])
+    has_static_default_genre = bool(configured_extraction["has_static_default_genre"])
     reasons: List[str] = []
 
     if scan.unmapped_raw_genres:
@@ -423,6 +558,10 @@ def _classify_treebank(
         reasons.append("current extraction emits labels outside the schema")
         return "high", "fix_pattern_or_mapping", reasons
 
+    if scan.multi_genre_sentence_count:
+        reasons.append("current extraction emits multiple labels for some sentences")
+        return "high", "review_conflicting_patterns", reasons
+
     if scan.coverage >= threshold and scan.alias_counts:
         reasons.append("direct sentence genre aliases are already mapped to canonical labels")
         return "integrated", "covered_by_alias_mapping", reasons
@@ -432,16 +571,19 @@ def _classify_treebank(
         return "covered", "single_genre_treebank_metadata", reasons
 
     if scan.coverage >= threshold:
-        if has_configured_patterns:
+        if has_regex_patterns:
             reasons.append("configured patterns cover the multi-genre treebank")
             return "covered", "covered_by_configured_patterns", reasons
+        if has_static_default_genre:
+            reasons.append("configured static default genre covers the treebank")
+            return "covered", "covered_by_static_default_genre", reasons
         if scan.raw_direct_genre_counts:
             reasons.append("built-in direct genre comment extraction covers the treebank")
             return "covered", "covered_by_direct_metadata", reasons
         reasons.append("current extraction reaches the coverage threshold")
         return "covered", "covered", reasons
 
-    if has_configured_patterns:
+    if has_regex_patterns:
         reasons.append("configured patterns exist but do not reach the coverage threshold")
         return "high", "review_existing_pattern", reasons
 
@@ -481,17 +623,18 @@ def _audit_descriptor(
         descriptor.treebank,
     )
     metadata_genres = _normalize_metadata_genres(metadata_entry, mapper, descriptor.treebank)
-    declared_genres = readme_genres or metadata_genres
+    genre_source = _genre_source_status(readme_genres, metadata_genres)
+    declared_genres = genre_source["declared_genres"]
     scan = scan_sentence_metadata(
         descriptor,
         mapper,
         max_sentences=max_sentences_per_treebank,
     )
     hints = _readme_hints(readme_text, readme_genres)
-    has_configured_patterns = descriptor.treebank in mapper.metadata_patterns
+    configured_extraction = _configured_extraction_summary(mapper, descriptor.treebank)
     priority, action, reasons = _classify_treebank(
         declared_genres=declared_genres,
-        has_configured_patterns=has_configured_patterns,
+        configured_extraction=configured_extraction,
         readme_hints=hints,
         scan=scan,
         threshold=threshold,
@@ -505,16 +648,26 @@ def _audit_descriptor(
         "readme_genre_lines": readme_genre_lines,
         "metadata_genres": metadata_genres,
         "declared_genres": declared_genres,
-        "configured_patterns": has_configured_patterns,
+        "readme_only_genres": genre_source["readme_only_genres"],
+        "metadata_only_genres": genre_source["metadata_only_genres"],
+        "genre_sources_agree": genre_source["genre_sources_agree"],
+        "genre_source_status": genre_source["genre_source_status"],
+        "configured_patterns": configured_extraction["has_regex_patterns"],
+        "configured_extraction": configured_extraction,
         "priority": priority,
         "action": action,
         "reasons": reasons,
         "readme_hints": hints,
         "sentence_scan": {
+            "available_sentences": scan.available_sentences,
             "total_sentences": scan.total_sentences,
             "sentences_with_extracted_genre": scan.sentences_with_extracted_genre,
+            "multi_genre_sentence_count": scan.multi_genre_sentence_count,
             "coverage": scan.coverage,
             "extracted_genre_counts": _counter_to_dict(scan.extracted_genre_counts),
+            "extracted_genre_set_counts": _counter_to_dict(
+                scan.extracted_genre_set_counts
+            ),
             "raw_direct_genre_counts": _counter_to_dict(scan.raw_direct_genre_counts),
             "normalized_direct_genre_counts": _counter_to_dict(
                 scan.normalized_direct_genre_counts
@@ -525,7 +678,10 @@ def _audit_descriptor(
                 scan.noncanonical_extracted_genres
             ),
             "comment_key_counts": _counter_to_dict(scan.comment_key_counts, limit=20),
+            "newdoc_key_counts": _counter_to_dict(scan.newdoc_key_counts, limit=20),
+            "newpar_key_counts": _counter_to_dict(scan.newpar_key_counts, limit=20),
             "sent_id_token_counts": _counter_to_dict(scan.sent_id_token_counts, limit=20),
+            "collision_examples": scan.collision_examples,
             "scanned_files": scan.scanned_files,
         },
     }
@@ -534,6 +690,23 @@ def _audit_descriptor(
 def _uncovered_sentence_count(item: Dict[str, Any]) -> int:
     scan = item["sentence_scan"]
     return int(scan["total_sentences"]) - int(scan["sentences_with_extracted_genre"])
+
+
+def _available_sentence_count(item: Dict[str, Any]) -> int:
+    scan = item["sentence_scan"]
+    return int(scan.get("available_sentences") or scan["total_sentences"])
+
+
+def _estimated_uncovered_sentence_count(item: Dict[str, Any]) -> int:
+    scan = item["sentence_scan"]
+    total_sentences = int(scan["total_sentences"])
+    available_sentences = _available_sentence_count(item)
+    if total_sentences <= 0:
+        return available_sentences
+    if available_sentences == total_sentences:
+        return _uncovered_sentence_count(item)
+    coverage = float(scan["coverage"])
+    return round(available_sentences * (1.0 - coverage))
 
 
 def _sort_audit_items(
@@ -551,7 +724,7 @@ def _sort_audit_items(
             key=lambda item: (
                 PRIORITY_ORDER.get(item["priority"], 99),
                 item["action"],
-                -int(item["sentence_scan"]["total_sentences"]),
+                -_available_sentence_count(item),
                 float(item["sentence_scan"]["coverage"]),
                 item["treebank"],
             ),
@@ -561,7 +734,7 @@ def _sort_audit_items(
         return sorted(
             items,
             key=lambda item: (
-                -int(item["sentence_scan"]["total_sentences"]),
+                -_available_sentence_count(item),
                 PRIORITY_ORDER.get(item["priority"], 99),
                 item["action"],
                 float(item["sentence_scan"]["coverage"]),
@@ -573,7 +746,7 @@ def _sort_audit_items(
         return sorted(
             items,
             key=lambda item: (
-                -_uncovered_sentence_count(item),
+                -_estimated_uncovered_sentence_count(item),
                 PRIORITY_ORDER.get(item["priority"], 99),
                 item["action"],
                 float(item["sentence_scan"]["coverage"]),
@@ -670,6 +843,26 @@ def audit_genre_readmes(
             "configured_pattern_treebanks": sum(
                 1 for item in treebank_items if item["configured_patterns"]
             ),
+            "patternless_mapping_treebanks": sum(
+                1
+                for item in treebank_items
+                if item["configured_extraction"]["has_patternless_mappings"]
+            ),
+            "static_default_genre_treebanks": sum(
+                1
+                for item in treebank_items
+                if item["configured_extraction"]["has_static_default_genre"]
+            ),
+            "genre_source_disagreements": sum(
+                1
+                for item in treebank_items
+                if item["genre_source_status"] == "disagreement"
+            ),
+            "multi_genre_sentence_treebanks": sum(
+                1
+                for item in treebank_items
+                if item["sentence_scan"]["multi_genre_sentence_count"] > 0
+            ),
             "candidate_treebanks": len(candidate_items),
             "priority_counts": _counter_to_dict(priority_counts),
             "action_counts": _counter_to_dict(action_counts),
@@ -698,6 +891,8 @@ def render_audit_markdown(report: Dict[str, Any], max_candidates: int = 50) -> s
         f"- README files: `{summary['readme_files']}`",
         f"- README genre mentions: `{summary['readme_genre_mentions']}`",
         f"- Candidate treebanks: `{summary['candidate_treebanks']}`",
+        f"- Genre source disagreements: `{summary['genre_source_disagreements']}`",
+        f"- Multi-label extraction treebanks: `{summary['multi_genre_sentence_treebanks']}`",
         f"- Sort order: `{report.get('sort_by') or 'priority'}`",
         "",
         "## README Genre Scale",
@@ -731,22 +926,23 @@ def render_audit_markdown(report: Dict[str, Any], max_candidates: int = 50) -> s
         "## Candidates",
         "",
         (
-            "| Priority | Action | Treebank | Sentences | Uncovered | Coverage | "
-            "Declared genres | Reason |"
+            "| Priority | Action | Treebank | Available | Scanned | Uncovered | "
+            "Coverage | Declared genres | Reason |"
         ),
-        "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
     ])
     for item in report["candidates"][:max_candidates]:
         declared = ", ".join(item["declared_genres"]) or "n/a"
         reason = "; ".join(item["reasons"]) or "n/a"
+        available_sentences = _available_sentence_count(item)
         total_sentences = int(item["sentence_scan"]["total_sentences"])
-        uncovered_sentences = _uncovered_sentence_count(item)
+        uncovered_sentences = _estimated_uncovered_sentence_count(item)
         coverage = float(item["sentence_scan"]["coverage"]) * 100
         lines.append(
             "| "
             f"`{item['priority']}` | `{item['action']}` | `{item['treebank']}` | "
-            f"{total_sentences} | {uncovered_sentences} | {coverage:.1f}% | "
-            f"{declared} | {reason} |"
+            f"{available_sentences} | {total_sentences} | {uncovered_sentences} | "
+            f"{coverage:.1f}% | {declared} | {reason} |"
         )
 
     return "\n".join(lines) + "\n"

@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hints before release regeneration.
 - `audit-readme-genres --sort-by` modes for prioritizing candidates by
   sentence volume or currently uncovered sentence counts.
+- Shared CoNLL-U sentence metadata iterator with split, parsed comments, and
+  inherited `newdoc`/`newpar` metadata.
+- Clustering metadata extraction and `test-genres` now use the metadata-only
+  iterator, so inherited document metadata from local CoNLL-U and ordered HF
+  parquet rows can drive virtual split detection and diagnostics.
 - Shared `full-ud` release profile and `full-ud-v1.0.1` release matrix for UD
   2.7 through UD 2.18, replacing committed full configs per UD version.
 - **Cluster quality metrics computation**
@@ -104,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserves the treebank-specific `w -> nonfiction` mapping.
 - `ru_syntagrus` direct `journalism` sentence metadata now maps to canonical
   `news`.
+- `audit-readme-genres` now reports README/metadata genre source disagreements,
+  separates regex patterns from patternless mappings and static defaults, counts
+  all extracted labels per sentence, flags multi-label extraction collisions,
+  and uses stable-hash sampling when capped.
 - Transitional per-UD source refs such as `source/ud2.*`, `release/v1`, and
   `ud2.X-full-ud-v...` artifact identities have been replaced by
   `release/full-ud-v1`, train source tags such as `source/full-ud-v1.0.2`,

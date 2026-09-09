@@ -45,12 +45,17 @@ The JSON report is intentionally broader than the console table. It records:
 
 - README genre lines and normalized README genres.
 - Generated UD metadata genres when a local metadata JSON file is available.
+- README-only genres, metadata-only genres, and source agreement status.
 - Current sentence-level extraction coverage from local CoNLL-U comments.
 - Raw direct `# genre = ...` and `# newdoc genre = ...` values.
 - Alias mappings already integrated by the configured mapping files.
 - Raw labels that still do not normalize to a canonical `ud` schema label.
 - Non-canonical labels emitted by existing extraction patterns.
-- Comment-key counts, `sent_id` token counts, and scanned CoNLL-U file names.
+- Multiple-label extraction counts and representative collision examples.
+- Separate extraction config summaries for regex patterns, patternless mappings,
+  and static default genres.
+- Comment-key counts, inherited `newdoc`/`newpar` metadata counts, `sent_id`
+  token counts, and scanned CoNLL-U file names.
 
 Use the Markdown report for triage and the JSON report when checking the exact
 evidence behind a candidate.
@@ -83,6 +88,11 @@ uv run ud-genre-bootstrap audit-readme-genres \
   --max-sentences-per-treebank 500
 ```
 
+When `--max-sentences-per-treebank` is set, the audit uses a deterministic
+stable-hash sample by sentence identity. It no longer scans only the first
+sentences in each treebank, which avoids missing later contiguous source blocks.
+The report keeps both `available_sentences` and sampled `total_sentences`.
+
 Use `--sort-by` to choose the triage order:
 
 - `priority`: existing severity-first order.
@@ -101,8 +111,10 @@ the full treebank.
   not normalize to the configured canonical schema.
 - `high` / `fix_pattern_or_mapping`: current extraction emits a non-canonical
   label.
-- `high` / `review_existing_pattern`: a configured pattern exists but does not
-  reach the coverage threshold.
+- `high` / `review_conflicting_patterns`: current extraction emits multiple
+  labels for some sentences.
+- `high` / `review_existing_pattern`: a configured regex pattern exists but
+  does not reach the coverage threshold.
 - `medium` / `inspect_readme_hint_for_pattern`: a multi-genre treebank lacks
   enough current sentence-level coverage, but its README mentions `sent_id`,
   document IDs, file names, or source conventions that may encode genre.
@@ -133,7 +145,7 @@ direct sentence-level genre comments; the fixed mapping recovers the
    `evaluate` sequence.
 2. Integrate `high` priority mapping fixes first, because they are usually
    low-risk and easy to test.
-3. Review broken existing patterns before adding new ones.
+3. Review conflicting or broken existing regex patterns before adding new ones.
 4. Add `medium` priority README-derived patterns only when the README statement,
    sentence-comment samples, and `test-genres` output agree unambiguously.
 5. Re-run `coverage` and `audit-readme-genres` after every mapping or pattern

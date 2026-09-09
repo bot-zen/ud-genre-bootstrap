@@ -1,6 +1,7 @@
 """Tests for data loading fast-paths."""
 
 import json
+
 import pytest
 
 from ud_genre_bootstrap.utils.data_loader import UDDataLoader
@@ -59,13 +60,78 @@ def test_iter_treebank_sentences_metadata_only_local(tmp_path):
     assert metadata_rows[1]["sent_id"] == "s2"
     assert metadata_rows[0]["text"] == "Hello"
     assert metadata_rows[1]["text"] == "World"
-    assert metadata_rows[0]["comments"] == ["# sent_id = s1", "# text = Hello", "# newdoc genre = news"]
+    assert metadata_rows[0]["comments"] == [
+        "# sent_id = s1",
+        "# text = Hello",
+        "# newdoc genre = news",
+    ]
+    assert metadata_rows[1]["inherited_newdoc_metadata"] == {"newdoc genre": ["news"]}
     assert all("tokens" not in row for row in metadata_rows)
 
     full_rows = list(loader.iter_treebank_sentences("xx_testtb", "train"))
     assert len(full_rows) == 2
     assert full_rows[0]["tokens"] == ["Hello"]
     assert full_rows[1]["tokens"] == ["World"]
+    assert "inherited_newdoc_metadata" not in full_rows[1]
+
+
+def test_metadata_only_local_newdoc_id_patterns_apply_to_following_sentences(tmp_path):
+    """No-hash anchored newdoc-id patterns should match inherited document IDs."""
+    ud_root = tmp_path / "ud"
+    conllu_dir = ud_root / "UD_TestTB"
+    conllu_dir.mkdir(parents=True)
+    conllu_path = conllu_dir / "xx_testtb-ud-train.conllu"
+    conllu_path.write_text(
+        "# newdoc id = EMEA-b1\n"
+        "# sent_id = s1\n"
+        "# text = First.\n"
+        "1\tFirst\t_\tADJ\t_\t_\t0\troot\t_\t_\n"
+        "\n"
+        "# sent_id = s2\n"
+        "# text = Second.\n"
+        "1\tSecond\t_\tADJ\t_\t_\t0\troot\t_\t_\n"
+        "\n",
+        encoding="utf-8",
+    )
+
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(
+        json.dumps({
+            "xx_testtb": {
+                "lcode": "xx",
+                "genre": [],
+                "splits": {
+                    "train": {
+                        "files": ["UD_TestTB/xx_testtb-ud-train.conllu"],
+                    }
+                },
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    loader = UDDataLoader(
+        ud_source=f"local://{ud_root}",
+        metadata_path=metadata_path,
+    )
+    metadata_rows = list(
+        loader.iter_treebank_sentences("xx_testtb", "train", metadata_only=True)
+    )
+
+    mapper = GenreMapper(metadata_patterns_path=None)
+    mapper.metadata_patterns = {
+        "xx_testtb": [
+            {
+                "pattern": "^newdoc id = EMEA-b1",
+                "genre": "medical",
+            }
+        ]
+    }
+
+    assert metadata_rows[1]["inherited_newdoc_metadata"] == {"newdoc id": ["EMEA-b1"]}
+    assert mapper.extract_genres_from_metadata(metadata_rows[1], "xx_testtb") == [
+        "medical"
+    ]
 
 
 def test_genre_coverage_analyzer_uses_metadata_only_iteration():
@@ -114,6 +180,12 @@ def test_iter_treebank_sentences_metadata_only_hf_uses_materialized_comments(mon
                 "comments": [["__SENT_ID__", "__TEXT__", "newdoc id = d1"], ["genre = news"]],
                 "genre": [None, "news"],
             }
+            yield {
+                "sent_id": ["s3"],
+                "text": ["Again"],
+                "comments": [["__SENT_ID__", "__TEXT__"]],
+                "genre": [None],
+            }
 
         def __iter__(self):
             raise AssertionError("Row iteration fallback should not run in this test")
@@ -124,8 +196,19 @@ def test_iter_treebank_sentences_metadata_only_hf_uses_materialized_comments(mon
             "sent_id": batch["sent_id"],
             "text": batch["text"],
             "comments": [
-                ["sent_id = s1", "text = Hello", "newdoc id = d1"],
-                ["genre = news"],
+                [
+                    "sent_id = " + sent_id
+                    if comment == "__SENT_ID__"
+                    else "text = " + text
+                    if comment == "__TEXT__"
+                    else comment
+                    for comment in comments
+                ]
+                for sent_id, text, comments in zip(
+                    batch["sent_id"],
+                    batch["text"],
+                    batch["comments"],
+                )
             ],
             "genre": batch["genre"],
         }
@@ -151,10 +234,12 @@ def test_iter_treebank_sentences_metadata_only_hf_uses_materialized_comments(mon
     rows = list(loader.iter_treebank_sentences("xx_testtb", "train", metadata_only=True))
 
     assert loader._dataset.selected_columns == ["sent_id", "text", "comments", "genre"]
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert rows[0]["comments"] == ["sent_id = s1", "text = Hello", "newdoc id = d1"]
-    assert rows[1]["comments"] == ["genre = news"]
+    assert rows[1]["comments"] == ["genre = news", "# newdoc id = d1"]
     assert rows[1]["genre"] == "news"
+    assert rows[2]["comments"] == ["sent_id = s3", "text = Again", "# newdoc id = d1"]
+    assert rows[2]["inherited_newdoc_metadata"] == {"newdoc id": ["d1"]}
 
 
 def test_ud_source_requires_explicit_scheme(tmp_path):

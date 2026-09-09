@@ -1,10 +1,9 @@
 """Genre mapping and extraction utilities."""
 
+import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
-
-import json
+from typing import Dict, List, Optional, Union
 
 
 class GenreMapper:
@@ -336,3 +335,30 @@ class GenreMapper:
             True if canonical, False otherwise
         """
         return genre in self.canonical_genres
+
+
+def build_genre_mapper_from_config(config, data_loader=None) -> GenreMapper:
+    """Build a genre mapper from the shared genre-extraction config."""
+    mapping_path = (
+        Path(config.genre_extraction.mapping_path)
+        if config.genre_extraction.mapping_path
+        else None
+    )
+    patterns_path = _resolve_patterns_path(config.genre_extraction.patterns_path)
+
+    return GenreMapper(
+        genre_mapping_path=mapping_path,
+        metadata_patterns_path=patterns_path,
+        canonical_genres=config.genre_extraction.canonical_genres,
+        data_loader=data_loader,
+    )
+
+
+def _resolve_patterns_path(
+    patterns_path: Optional[Union[str, Path, List[Union[str, Path]]]],
+) -> Optional[Union[Path, List[Path]]]:
+    if not patterns_path:
+        return None
+    if isinstance(patterns_path, list):
+        return [Path(path) for path in patterns_path]
+    return Path(patterns_path)

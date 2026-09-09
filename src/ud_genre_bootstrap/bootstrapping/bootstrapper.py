@@ -14,7 +14,7 @@ from ud_genre_bootstrap.clustering.kmeans_clusterer import KMeansClusterer
 from ud_genre_bootstrap.embeddings.generator import EmbeddingGenerator
 from ud_genre_bootstrap.utils.config import Config
 from ud_genre_bootstrap.utils.data_loader import UDDataLoader
-from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+from ud_genre_bootstrap.utils.genre_mapping import build_genre_mapper_from_config
 from ud_genre_bootstrap.utils.release_artifacts import (
     build_release_row_metadata,
     prepare_release_directory,
@@ -51,22 +51,8 @@ class GenreBootstrapper:
             metadata_path=Path(config.metadata_path) if config.metadata_path else None,
         )
 
-        # Initialize genre mapper with configuration
-        from pathlib import Path as PathLib
-        mapping_path = None
-        patterns_path = None
-        if config.genre_extraction.mapping_path:
-            mapping_path = PathLib(config.genre_extraction.mapping_path)
-        if config.genre_extraction.patterns_path:
-            if isinstance(config.genre_extraction.patterns_path, list):
-                patterns_path = [PathLib(p) for p in config.genre_extraction.patterns_path]
-            else:
-                patterns_path = PathLib(config.genre_extraction.patterns_path)
-
-        self.genre_mapper = GenreMapper(
-            genre_mapping_path=mapping_path,
-            metadata_patterns_path=patterns_path,
-            canonical_genres=config.genre_extraction.canonical_genres,
+        self.genre_mapper = build_genre_mapper_from_config(
+            config,
             data_loader=self.data_loader,
         )
 
@@ -364,32 +350,37 @@ class GenreBootstrapper:
                 metadata_split_errors = []
                 metadata_sentence_errors = 0
 
-                # Extract genres from ALL splits
+                # Extract genres from ALL splits. This path only needs sentence
+                # metadata, so use the metadata iterator to preserve inherited
+                # document/paragraph comments from local CoNLL-U files.
                 for tb_key in tb_keys:
                     split = tb_key[1]
                     try:
-                        dataset = self.data_loader.load_treebank(tb_code, split)
+                        sentence_iter = self.data_loader.iter_treebank_sentences(
+                            tb_code,
+                            split,
+                            metadata_only=True,
+                        )
+                        for sentence in sentence_iter:
+                            sent_id = sentence.get('sent_id', None)
+                            try:
+                                extracted = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
+                            except Exception:
+                                metadata_sentence_errors += 1
+                                continue
+
+                            if sent_id and extracted:
+                                sent_ref = qualify_sentence_ref(tb_code, split, sent_id)
+                                if len(extracted) == 1:
+                                    genre = extracted[0]
+                                    sentence_metadata[(tb_code, split, sent_ref)] = genre
+                                    genres_from_sentences.add(genre)
+                                else:
+                                    # Ambiguous sentence-level metadata: avoid arbitrary label choice.
+                                    ambiguous_genre_sentences += 1
                     except Exception as e:
                         metadata_split_errors.append((split, e))
                         continue
-
-                    for sentence in dataset:
-                        sent_id = sentence.get('sent_id', None)
-                        try:
-                            extracted = self.genre_mapper.extract_genres_from_metadata(sentence, tb_code)
-                        except Exception:
-                            metadata_sentence_errors += 1
-                            continue
-
-                        if sent_id and extracted:
-                            sent_ref = qualify_sentence_ref(tb_code, split, sent_id)
-                            if len(extracted) == 1:
-                                genre = extracted[0]
-                                sentence_metadata[(tb_code, split, sent_ref)] = genre
-                                genres_from_sentences.add(genre)
-                            else:
-                                # Ambiguous sentence-level metadata: avoid arbitrary label choice.
-                                ambiguous_genre_sentences += 1
 
                 if metadata_split_errors:
                     preview = ", ".join(

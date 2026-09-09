@@ -59,6 +59,7 @@ class StubDataLoader:
 
     last_ud_source: Optional[str] = None
     last_metadata_path: Optional[Path] = None
+    last_iter_calls: List[Tuple[str, str, bool]] = []
 
     def __init__(
         self,
@@ -93,6 +94,7 @@ class StubDataLoader:
         split: str = "train",
         metadata_only: bool = False,
     ) -> Iterator[Dict]:
+        StubDataLoader.last_iter_calls.append((treebank_code, split, metadata_only))
         rows = [
             {
                 "sent_id": f"{treebank_code}-1",
@@ -1077,6 +1079,7 @@ def test_test_genres_command_cover_hf_and_local_sources(monkeypatch, cfg: Config
     """`test-genres` should use configured source when initializing data loader."""
     _patch_common_cli(monkeypatch, cfg)
     cfg.metadata_path = "/tmp/test-metadata.json"
+    StubDataLoader.last_iter_calls = []
     monkeypatch.setattr("ud_genre_bootstrap.utils.data_loader.UDDataLoader", StubDataLoader)
     monkeypatch.setattr("ud_genre_bootstrap.utils.genre_mapping.GenreMapper", StubGenreMapper)
     runner = CliRunner()
@@ -1097,6 +1100,7 @@ def test_test_genres_command_cover_hf_and_local_sources(monkeypatch, cfg: Config
     assert result.exit_code == 0, result.stdout
     assert StubDataLoader.last_ud_source == cfg.ud_source
     assert StubDataLoader.last_metadata_path == Path("/tmp/test-metadata.json")
+    assert StubDataLoader.last_iter_calls == [("xx_demo", "train", True)]
 
 
 def test_visualize_clusters_command_flow(monkeypatch, tmp_path: Path):

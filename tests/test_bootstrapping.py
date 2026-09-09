@@ -1,10 +1,13 @@
 """Tests for bootstrapping functionality."""
 
-import pytest
-import pandas as pd
-import numpy as np
+import json
 from pathlib import Path
-from collections import defaultdict
+from textwrap import dedent
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from ud_genre_bootstrap.bootstrapping.bootstrapper import GenreBootstrapper
 from ud_genre_bootstrap.clustering.clustering_utils import ClusteringOperations
 from ud_genre_bootstrap.utils.config import Config
@@ -125,7 +128,7 @@ class TestGenreExport:
             ("xx_demo", "train", "test-001"): ("news", None, "metadata"),
         }
 
-        results = bootstrapper._export_results()
+        bootstrapper._export_results()
 
         output_file = tmp_path / "all_genres.parquet"
         df = pd.read_parquet(output_file)
@@ -577,10 +580,15 @@ class TestBootstrapperConfigWiring:
             }
         }
 
-        def _mock_load_treebank(_tb_code, _split):
+        def _mock_iter_treebank_sentences(_tb_code, _split, metadata_only=False):
+            assert metadata_only is True
             raise RuntimeError("mock load failure to force fallback path")
 
-        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", _mock_load_treebank)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "iter_treebank_sentences",
+            _mock_iter_treebank_sentences,
+        )
         monkeypatch.setattr(
             bootstrapper.data_loader,
             "get_treebank_genres",
@@ -1046,7 +1054,17 @@ class TestVirtualSplitQualityGates:
             {"sent_id": "sid_c", "mock_genres": ["news", "wiki"]},  # ambiguous
         ]
 
-        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", lambda _tb, _sp: dataset)
+        observed_metadata_only = []
+
+        def _mock_iter_treebank_sentences(_tb, _sp, metadata_only=False):
+            observed_metadata_only.append(metadata_only)
+            return iter(dataset)
+
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "iter_treebank_sentences",
+            _mock_iter_treebank_sentences,
+        )
         monkeypatch.setattr(bootstrapper.data_loader, "get_treebank_genres", lambda _tb: ["news", "wiki"])
         monkeypatch.setattr(
             bootstrapper.genre_mapper,
@@ -1068,6 +1086,8 @@ class TestVirtualSplitQualityGates:
 
         bootstrapper._cluster_treebanks(embeddings_by_tb)
 
+        assert observed_metadata_only == [True]
+
         news_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "news")]
         wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "wiki")]
 
@@ -1080,6 +1100,112 @@ class TestVirtualSplitQualityGates:
 
         regular_clusters = bootstrapper.treebank_clusters[("xx_demo", "__combined__")]["cluster_result"]["clusters"]
         assert any("sid_c" in cluster["sent_ids"] for cluster in regular_clusters.values())
+
+    def test_cluster_treebanks_uses_inherited_newdoc_patterns_for_virtual_splits(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Inherited document metadata should be available to clustering metadata extraction."""
+        ud_root = tmp_path / "ud"
+        treebank_dir = ud_root / "UD_Xx-Demo"
+        treebank_dir.mkdir(parents=True)
+        conllu_path = treebank_dir / "xx_demo-ud-train.conllu"
+        conllu_path.write_text(
+            dedent(
+                """
+                # newdoc id = news-doc
+                # sent_id = sid_news_1
+                # text = News one.
+                1\tNews\t_\tNOUN\t_\t_\t0\troot\t_\t_
+
+                # sent_id = sid_news_2
+                # text = News two.
+                1\tNews\t_\tNOUN\t_\t_\t0\troot\t_\t_
+
+                # newdoc id = wiki-doc
+                # genre = wiki
+                # sent_id = sid_wiki
+                # text = Wiki.
+                1\tWiki\t_\tNOUN\t_\t_\t0\troot\t_\t_
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+
+        metadata_path = ud_root / "metadata.json"
+        metadata_path.write_text(
+            json.dumps({
+                "xx_demo": {
+                    "language": "Xx",
+                    "genres": ["news", "wiki"],
+                    "splits": {
+                        "train": {
+                            "files": ["UD_Xx-Demo/xx_demo-ud-train.conllu"],
+                        },
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        patterns_path = tmp_path / "metadata_patterns.json"
+        patterns_path.write_text(
+            json.dumps({
+                "xx_demo": [
+                    {
+                        "pattern": "^(?:#\\s*)?newdoc id = news-doc$",
+                        "genre": "news",
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        config = Config()
+        config.ud_source = f"local://{ud_root}"
+        config.metadata_path = str(metadata_path)
+        config.genre_extraction.patterns_path = str(patterns_path)
+        config.evaluation.metadata_validation.coverage_threshold = 1.0
+        config.evaluation.metadata_validation.min_genre_sentences = 1
+        bootstrapper = GenreBootstrapper(config)
+
+        embeddings_by_tb = {
+            ("xx_demo", "train"): {
+                "sent_id": ["sid_wiki", "sid_news_2", "sid_news_1"],
+                "embedding": np.array([[0.0, 1.0], [0.9, 0.1], [1.0, 0.0]]),
+            }
+        }
+
+        monkeypatch.setattr(
+            bootstrapper.clusterer,
+            "cluster_treebank",
+            lambda embeddings, sent_ids, n_genres: {
+                "clusters": {
+                    0: {
+                        "sent_ids": sent_ids,
+                        "size": len(sent_ids),
+                        "confidence": 1.0,
+                    },
+                },
+                "metrics": {},
+            },
+        )
+
+        bootstrapper._cluster_treebanks(embeddings_by_tb)
+
+        news_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "news")]
+        wiki_virtual = bootstrapper.treebank_clusters[("xx_demo", "__combined__", "wiki")]
+
+        assert set(news_virtual["cluster_result"]["clusters"][0]["sent_ids"]) == {
+            ("xx_demo", "train", "sid_news_1"),
+            ("xx_demo", "train", "sid_news_2"),
+        }
+        assert set(wiki_virtual["cluster_result"]["clusters"][0]["sent_ids"]) == {
+            ("xx_demo", "train", "sid_wiki"),
+        }
+        assert bootstrapper.treebank_clusters[("xx_demo", "__combined__")]["has_virtual_splits"] is True
 
     def test_cluster_treebanks_keeps_regular_clusters_combined_across_splits(self, monkeypatch):
         """Regular treebank clusters should stay combined instead of split-fragmented."""
@@ -1099,8 +1225,8 @@ class TestVirtualSplitQualityGates:
 
         monkeypatch.setattr(
             bootstrapper.data_loader,
-            "load_treebank",
-            lambda _tb, _split: [],
+            "iter_treebank_sentences",
+            lambda _tb, _split, metadata_only=False: iter([]),
         )
         monkeypatch.setattr(
             bootstrapper.data_loader,
@@ -1141,10 +1267,15 @@ class TestVirtualSplitQualityGates:
             }
         }
 
-        def _mock_load_treebank(_tb_code, _split):
+        def _mock_iter_treebank_sentences(_tb_code, _split, metadata_only=False):
+            assert metadata_only is True
             raise RuntimeError("metadata boom")
 
-        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", _mock_load_treebank)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "iter_treebank_sentences",
+            _mock_iter_treebank_sentences,
+        )
         monkeypatch.setattr(
             bootstrapper.data_loader,
             "get_treebank_genres",
@@ -1185,7 +1316,11 @@ class TestVirtualSplitQualityGates:
             {"sent_id": "sid_fail"},
         ]
 
-        monkeypatch.setattr(bootstrapper.data_loader, "load_treebank", lambda _tb, _sp: dataset)
+        monkeypatch.setattr(
+            bootstrapper.data_loader,
+            "iter_treebank_sentences",
+            lambda _tb, _sp, metadata_only=False: iter(dataset),
+        )
         monkeypatch.setattr(
             bootstrapper.data_loader,
             "get_treebank_genres",

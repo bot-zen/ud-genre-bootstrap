@@ -28,7 +28,9 @@ This tool automatically classifies Universal Dependencies sentences into genres 
 4. **Evaluation**: Cross-validate results against metadata
 
 HF parquet comment markers (`__SENT_ID__`/`__TEXT__`) are materialized at read time in
-the metadata extraction path, so HF and local CoNLL-U genre extraction behave the same.
+the metadata extraction path, and ordered HF rows carry inherited `newdoc`/`newpar`
+metadata like local CoNLL-U streams. HF and local CoNLL-U genre extraction should
+therefore behave the same for release metadata patterns.
 
 ## Public Release
 

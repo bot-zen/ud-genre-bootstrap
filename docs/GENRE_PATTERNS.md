@@ -34,6 +34,12 @@ sentence fields (`sent_id`/`text`) so pattern behavior stays equivalent to
 local CoNLL-U input. The extractor keeps a fallback materialization path for
 legacy rows.
 
+In metadata-only release, coverage, `test-genres`, and audit paths, both local
+CoNLL-U streams and ordered HF parquet rows propagate document and paragraph
+metadata to following sentences. A pattern over `# newdoc id = ...` therefore
+also applies to later sentences in the same document when the marker appears
+only at the document boundary.
+
 ### When Do You Need Patterns?
 
 Use pattern-based extraction when genre information is encoded in:

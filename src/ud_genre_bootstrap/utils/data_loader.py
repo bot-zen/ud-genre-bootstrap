@@ -7,6 +7,11 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from datasets import Dataset, load_dataset
 
+from ud_genre_bootstrap.utils.conllu import (
+    iter_conllu_sentence_metadata,
+    iter_sentence_dicts_with_inherited_comment_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -32,6 +37,7 @@ class UDDataLoader:
             ud_source: Either "hf://<dataset-repo>" or "local://<path-to-ud-root>"
             ud_version: UD version (used as HF revision)
             metadata_path: Optional path to metadata.json file
+
         """
         self.ud_source = ud_source
         self.ud_version = ud_version
@@ -94,6 +100,7 @@ class UDDataLoader:
 
         Returns:
             Dictionary containing treebank metadata
+
         """
         if self.metadata_path:
             # Load from local file
@@ -140,6 +147,7 @@ class UDDataLoader:
 
         Returns:
             List of treebank codes
+
         """
         return list(self.metadata.keys())
 
@@ -151,6 +159,7 @@ class UDDataLoader:
 
         Returns:
             List of available split names (e.g., ['train', 'dev', 'test'])
+
         """
         if treebank_code not in self.metadata:
             return []
@@ -174,6 +183,7 @@ class UDDataLoader:
 
         Returns:
             List of existing CoNLL-U file paths
+
         """
         if treebank_code not in self.metadata:
             raise ValueError(f"Treebank {treebank_code} not found in metadata")
@@ -215,6 +225,7 @@ class UDDataLoader:
 
         Returns:
             Dataset with parsed sentences
+
         """
         # Parse CoNLL-U files
         sentences = []
@@ -234,82 +245,47 @@ class UDDataLoader:
 
         Returns:
             List of sentence dictionaries
+
         """
         sentences = []
-        current_sentence = {
-            'sent_id': None,
-            'text': None,
-            'comments': [],
-            'tokens': [],
-            'lemmas': [],
-            'upos': [],
-            'xpos': [],
-            'feats': [],
-            'head': [],
-            'deprel': [],
-            'deps': [],
-            'misc': [],
-        }
+        for metadata in iter_conllu_sentence_metadata(file_path, include_tokens=True):
+            if not metadata.sent_id:
+                continue
 
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.rstrip('\n')
+            current_sentence = metadata.to_sentence_dict(
+                include_inherited_comments=False,
+                include_comment_metadata=False,
+            )
+            current_sentence.update({
+                'tokens': [],
+                'lemmas': [],
+                'upos': [],
+                'xpos': [],
+                'feats': [],
+                'head': [],
+                'deprel': [],
+                'deps': [],
+                'misc': [],
+            })
 
-                # Empty line = end of sentence
-                if not line:
-                    if current_sentence['sent_id']:
-                        sentences.append(current_sentence)
-                        current_sentence = {
-                            'sent_id': None,
-                            'text': None,
-                            'comments': [],
-                            'tokens': [],
-                            'lemmas': [],
-                            'upos': [],
-                            'xpos': [],
-                            'feats': [],
-                            'head': [],
-                            'deprel': [],
-                            'deps': [],
-                            'misc': [],
-                        }
+            for parts in metadata.token_rows:
+                if len(parts) != 10:
                     continue
 
-                # Comment line
-                if line.startswith('#'):
-                    current_sentence['comments'].append(line)
-
-                    # Extract sent_id
-                    if line.startswith('# sent_id'):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            current_sentence['sent_id'] = parts[1].strip()
-                    # Extract text
-                    elif line.startswith('# text'):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            current_sentence['text'] = parts[1].strip()
+                # Skip multiword tokens (e.g., 1-2) and empty nodes.
+                if '-' in parts[0] or '.' in parts[0]:
                     continue
 
-                # Token line
-                parts = line.split('\t')
-                if len(parts) == 10:
-                    # Skip multiword tokens (e.g., 1-2)
-                    if '-' in parts[0] or '.' in parts[0]:
-                        continue
+                current_sentence['tokens'].append(parts[1])  # FORM
+                current_sentence['lemmas'].append(parts[2])  # LEMMA
+                current_sentence['upos'].append(parts[3])    # UPOS
+                current_sentence['xpos'].append(parts[4])    # XPOS
+                current_sentence['feats'].append(parts[5])   # FEATS
+                current_sentence['head'].append(parts[6])    # HEAD
+                current_sentence['deprel'].append(parts[7])  # DEPREL
+                current_sentence['deps'].append(parts[8])    # DEPS
+                current_sentence['misc'].append(parts[9])    # MISC
 
-                    current_sentence['tokens'].append(parts[1])  # FORM
-                    current_sentence['lemmas'].append(parts[2])  # LEMMA
-                    current_sentence['upos'].append(parts[3])    # UPOS
-                    current_sentence['xpos'].append(parts[4])    # XPOS
-                    current_sentence['feats'].append(parts[5])   # FEATS
-                    current_sentence['head'].append(parts[6])    # HEAD
-                    current_sentence['deprel'].append(parts[7])  # DEPREL
-                    current_sentence['deps'].append(parts[8])    # DEPS
-                    current_sentence['misc'].append(parts[9])    # MISC
-
-        # Don't forget last sentence
-        if current_sentence['sent_id']:
             sentences.append(current_sentence)
 
         return sentences
@@ -325,53 +301,20 @@ class UDDataLoader:
 
         Yields:
             Sentence dictionaries with at least `sent_id`, `text`, and `comments`
+
         """
-        current_sent_id = None
-        current_text = None
-        current_comments = []
-
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.rstrip('\n')
-
-                # Empty line = end of sentence
-                if not line:
-                    if current_sent_id is not None or current_comments:
-                        yield {
-                            'sent_id': current_sent_id,
-                            'text': current_text,
-                            'comments': current_comments,
-                        }
-                    current_sent_id = None
-                    current_text = None
-                    current_comments = []
-                    continue
-
-                # Keep only comment lines for metadata extraction
-                if line.startswith('#'):
-                    current_comments.append(line)
-                    if line.startswith('# sent_id'):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            current_sent_id = parts[1].strip()
-                    elif line.startswith('# text'):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            current_text = parts[1].strip()
-
-        # Don't forget last sentence when file doesn't end with blank line
-        if current_sent_id is not None or current_comments:
-            yield {
-                'sent_id': current_sent_id,
-                'text': current_text,
-                'comments': current_comments,
-            }
+        for metadata in iter_conllu_sentence_metadata(file_path):
+            yield metadata.to_sentence_dict(
+                include_inherited_comments=True,
+                include_comment_metadata=True,
+            )
 
     def get_language_treebanks(self) -> Dict[str, List[str]]:
         """Get mapping of languages to their treebanks.
 
         Returns:
             Dictionary: {language: [treebank_codes]}
+
         """
         language_map = {}
         for tb_code, tb_meta in self.metadata.items():
@@ -396,6 +339,7 @@ class UDDataLoader:
 
         Returns:
             HuggingFace Dataset containing the treebank data
+
         """
         if self._is_hf_source():
             return load_dataset(
@@ -423,6 +367,7 @@ class UDDataLoader:
 
         Yields:
             Sentence dictionaries
+
         """
         if not metadata_only:
             dataset = self.load_treebank(treebank_code, split)
@@ -432,15 +377,29 @@ class UDDataLoader:
 
         if self._is_hf_source():
             dataset = self.load_treebank(treebank_code, split)
-            yield from self._iter_hf_metadata_sentences(dataset)
+            yield from self._iter_hf_metadata_sentences(dataset, split=split)
             return
 
         for file_path in self._resolve_local_split_files(treebank_code, split):
             logger.debug(f"Loading metadata from {file_path}")
             yield from self._iter_conllu_sentence_metadata(file_path)
 
-    def _iter_hf_metadata_sentences(self, dataset: Dataset) -> Iterator[Dict[str, Any]]:
+    def _iter_hf_metadata_sentences(
+        self,
+        dataset: Dataset,
+        split: Optional[str] = None,
+    ) -> Iterator[Dict[str, Any]]:
         """Iterate metadata rows from HF datasets with optional DuckDB materialization."""
+        yield from iter_sentence_dicts_with_inherited_comment_metadata(
+            self._iter_materialized_hf_metadata_rows(dataset),
+            split=split,
+        )
+
+    def _iter_materialized_hf_metadata_rows(
+        self,
+        dataset: Dataset,
+    ) -> Iterator[Dict[str, Any]]:
+        """Iterate row-local metadata from HF datasets."""
         metadata_fields = ("sent_id", "text", "comments", "genre")
         select_columns = [field for field in metadata_fields if field in dataset.column_names]
         if select_columns:
@@ -496,6 +455,7 @@ class UDDataLoader:
 
         Yields:
             Tuple of (treebank_code, split_name, dataset)
+
         """
         treebank_codes = self.get_treebank_codes()
 
@@ -510,7 +470,7 @@ class UDDataLoader:
                 try:
                     dataset = self.load_treebank(tb_code, split_name)
                     yield tb_code, split_name, dataset
-                except Exception as e:
+                except Exception:
                     # Skip if split doesn't exist
                     continue
 
@@ -522,6 +482,7 @@ class UDDataLoader:
 
         Returns:
             List of genre labels for this treebank
+
         """
         if treebank_code not in self.metadata:
             logger.warning(f"Treebank {treebank_code} not found in metadata")
@@ -540,6 +501,7 @@ class UDDataLoader:
 
         Returns:
             List of treebank metadata dicts with 'id' and 'genres' fields
+
         """
         treebank_data = []
         for tb_code, tb_meta in self.metadata.items():

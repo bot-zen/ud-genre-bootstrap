@@ -5,8 +5,10 @@ from textwrap import dedent
 
 import pytest
 
+from ud_genre_bootstrap.utils.conllu import iter_conllu_sentence_metadata
 from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
 from ud_genre_bootstrap.utils.genre_readme_audit import (
+    _stable_sentence_sample_key,
     audit_genre_readmes,
     render_audit_markdown,
 )
@@ -144,6 +146,11 @@ def test_audit_honors_treebank_specific_patternless_mappings(tmp_path):
     )
 
     item = report["treebanks"][0]
+    assert report["summary"]["configured_pattern_treebanks"] == 0
+    assert report["summary"]["patternless_mapping_treebanks"] == 1
+    assert item["configured_patterns"] is False
+    assert item["configured_extraction"]["regex_pattern_count"] == 0
+    assert item["configured_extraction"]["patternless_mapping_count"] == 1
     assert item["priority"] == "integrated"
     assert item["action"] == "covered_by_alias_mapping"
     assert item["sentence_scan"]["alias_counts"] == {"chat -> social": 1}
@@ -210,7 +217,10 @@ def test_audit_can_sort_candidates_by_sentence_count(tmp_path):
     ]
 
     markdown = render_audit_markdown(report, max_candidates=2)
-    assert "| `medium` | `inspect_readme_hint_for_pattern` | `xx_zlarge` | 3 | 3 |" in markdown
+    assert (
+        "| `medium` | `inspect_readme_hint_for_pattern` | "
+        "`xx_zlarge` | 3 | 3 | 3 |"
+    ) in markdown
 
 
 def test_audit_rejects_unknown_sort_mode(tmp_path):
@@ -225,3 +235,139 @@ def test_audit_rejects_unknown_sort_mode(tmp_path):
             ud_version="2.18",
             sort_by="unknown",
         )
+
+
+def test_audit_reports_readme_metadata_genre_disagreement(tmp_path):
+    ud_root = tmp_path / "ud-treebanks-v2.18"
+    ud_root.mkdir()
+
+    treebank_dir = ud_root / "UD_Demo-Disagreement"
+    treebank_dir.mkdir()
+    (treebank_dir / "README.md").write_text("Genre: news\n", encoding="utf-8")
+    _write_conllu(
+        treebank_dir / "xx_disagree-ud-train.conllu",
+        [
+            """
+            # sent_id = d1
+            # text = Disagreement.
+            """,
+        ],
+    )
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(
+        '{"xx_disagree": {"dirname": "UD_Demo-Disagreement", "genre": ["wiki"]}}',
+        encoding="utf-8",
+    )
+
+    mapper = GenreMapper(genre_mapping_path=Path("configs/genre_mappings.json"))
+    report = audit_genre_readmes(
+        ud_root=ud_root,
+        genre_mapper=mapper,
+        ud_version="2.18",
+        metadata_path=metadata_path,
+    )
+
+    item = report["treebanks"][0]
+    assert item["declared_genres"] == ["news", "wiki"]
+    assert item["readme_only_genres"] == ["news"]
+    assert item["metadata_only_genres"] == ["wiki"]
+    assert item["genre_sources_agree"] is False
+    assert item["genre_source_status"] == "disagreement"
+    assert report["summary"]["genre_source_disagreements"] == 1
+
+
+def test_audit_flags_multiple_extracted_genres_per_sentence(tmp_path):
+    ud_root = tmp_path / "ud-treebanks-v2.18"
+    ud_root.mkdir()
+
+    treebank_dir = ud_root / "UD_Demo-Collision"
+    treebank_dir.mkdir()
+    (treebank_dir / "README.md").write_text("Genre: news wiki\n", encoding="utf-8")
+    _write_conllu(
+        treebank_dir / "xx_collision-ud-train.conllu",
+        [
+            """
+            # sent_id = both-1
+            # text = Ambiguous.
+            """,
+        ],
+    )
+    patterns_path = tmp_path / "patterns.json"
+    patterns_path.write_text(
+        (
+            '{"xx_collision": ['
+            '{"pattern": "# sent_id = both", "genre": "news"},'
+            '{"pattern": "# sent_id = both", "genre": "wiki"}'
+            ']}'
+        ),
+        encoding="utf-8",
+    )
+
+    mapper = GenreMapper(metadata_patterns_path=patterns_path)
+    report = audit_genre_readmes(
+        ud_root=ud_root,
+        genre_mapper=mapper,
+        ud_version="2.18",
+    )
+
+    item = report["treebanks"][0]
+    assert item["priority"] == "high"
+    assert item["action"] == "review_conflicting_patterns"
+    assert item["sentence_scan"]["multi_genre_sentence_count"] == 1
+    assert item["sentence_scan"]["extracted_genre_counts"] == {
+        "news": 1,
+        "wiki": 1,
+    }
+    assert item["sentence_scan"]["extracted_genre_set_counts"] == {
+        "news + wiki": 1,
+    }
+    assert item["sentence_scan"]["collision_examples"][0]["genres"] == [
+        "news",
+        "wiki",
+    ]
+    assert report["summary"]["multi_genre_sentence_treebanks"] == 1
+
+
+def test_audit_max_sentence_cap_uses_stable_hash_sampling(tmp_path):
+    ud_root = tmp_path / "ud-treebanks-v2.18"
+    ud_root.mkdir()
+
+    treebank_dir = ud_root / "UD_Demo-Sampling"
+    treebank_dir.mkdir()
+    (treebank_dir / "README.md").write_text("Genre: news wiki\n", encoding="utf-8")
+    conllu_path = treebank_dir / "xx_sampling-ud-train.conllu"
+    _write_conllu(
+        conllu_path,
+        [
+            f"""
+            # sent_id = sample-{idx}
+            # genre = raw{idx}
+            # text = Sample {idx}.
+            """
+            for idx in range(10)
+        ],
+    )
+
+    expected_sentences = sorted(
+        iter_conllu_sentence_metadata(conllu_path),
+        key=_stable_sentence_sample_key,
+    )[:3]
+    expected_raw_genres = {
+        f"raw{sentence.sent_id.rsplit('-', 1)[1]}": 1
+        for sentence in expected_sentences
+    }
+    first_three_genres = {f"raw{idx}": 1 for idx in range(3)}
+    assert expected_raw_genres != first_three_genres
+
+    mapper = GenreMapper(genre_mapping_path=Path("configs/genre_mappings.json"))
+    report = audit_genre_readmes(
+        ud_root=ud_root,
+        genre_mapper=mapper,
+        ud_version="2.18",
+        max_sentences_per_treebank=3,
+    )
+
+    item = report["treebanks"][0]
+    assert item["sentence_scan"]["available_sentences"] == 10
+    assert item["sentence_scan"]["total_sentences"] == 3
+    assert item["sentence_scan"]["raw_direct_genre_counts"] == expected_raw_genres

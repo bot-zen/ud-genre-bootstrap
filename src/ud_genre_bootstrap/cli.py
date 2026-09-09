@@ -9,11 +9,10 @@ from typing import Dict, List, Optional, Tuple
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ud_genre_bootstrap.bootstrapping import GenreBootstrapper
-from ud_genre_bootstrap.evaluation import CrossValidator
 from ud_genre_bootstrap.utils.config import Config
 from ud_genre_bootstrap.utils.release_artifacts import (
     list_release_upload_files,
@@ -645,26 +644,10 @@ def _resolve_local_ud_root_for_audit(cfg: Config, ud_root: Optional[Path]) -> Pa
     )
 
 
-def _build_genre_mapper_from_config(cfg: Config):
-    from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
+def _build_genre_mapper_from_config(cfg: Config, data_loader=None):
+    from ud_genre_bootstrap.utils.genre_mapping import build_genre_mapper_from_config
 
-    mapping_path = (
-        Path(cfg.genre_extraction.mapping_path)
-        if cfg.genre_extraction.mapping_path
-        else None
-    )
-    patterns_path = None
-    if cfg.genre_extraction.patterns_path:
-        if isinstance(cfg.genre_extraction.patterns_path, list):
-            patterns_path = [Path(path) for path in cfg.genre_extraction.patterns_path]
-        else:
-            patterns_path = Path(cfg.genre_extraction.patterns_path)
-
-    return GenreMapper(
-        genre_mapping_path=mapping_path,
-        metadata_patterns_path=patterns_path,
-        canonical_genres=cfg.genre_extraction.canonical_genres,
-    )
+    return build_genre_mapper_from_config(cfg, data_loader=data_loader)
 
 
 @app.command()
@@ -1729,24 +1712,8 @@ def evaluate(
         console.print("\n[yellow]Loading treebank metadata...[/yellow]")
         bootstrapper = GenreBootstrapper(cfg)
 
-        # Initialize genre mapper for coverage checking
-        from pathlib import Path as PathLib
-        from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
-
-        mapping_path = None
-        patterns_path = None
-        if cfg.genre_extraction.mapping_path:
-            mapping_path = PathLib(cfg.genre_extraction.mapping_path)
-        if cfg.genre_extraction.patterns_path:
-            if isinstance(cfg.genre_extraction.patterns_path, list):
-                patterns_path = [PathLib(p) for p in cfg.genre_extraction.patterns_path]
-            else:
-                patterns_path = PathLib(cfg.genre_extraction.patterns_path)
-
-        genre_mapper = GenreMapper(
-            genre_mapping_path=mapping_path,
-            metadata_patterns_path=patterns_path,
-            canonical_genres=cfg.genre_extraction.canonical_genres,
+        genre_mapper = _build_genre_mapper_from_config(
+            cfg,
             data_loader=bootstrapper.data_loader,
         )
 
@@ -3410,6 +3377,10 @@ def _display_readme_audit_report(report: Dict, *, top: int, only_candidates: boo
         "metadata_genre_mentions",
         "multi_genre_treebanks",
         "configured_pattern_treebanks",
+        "patternless_mapping_treebanks",
+        "static_default_genre_treebanks",
+        "genre_source_disagreements",
+        "multi_genre_sentence_treebanks",
         "candidate_treebanks",
     ]:
         summary_table.add_row(key, str(summary[key]))
@@ -3436,21 +3407,32 @@ def _display_readme_audit_report(report: Dict, *, top: int, only_candidates: boo
     candidate_table.add_column("Priority", style="cyan")
     candidate_table.add_column("Action", style="yellow")
     candidate_table.add_column("Treebank", style="green")
-    candidate_table.add_column("Sentences", justify="right")
+    candidate_table.add_column("Available", justify="right")
+    candidate_table.add_column("Scanned", justify="right")
     candidate_table.add_column("Uncovered", justify="right")
     candidate_table.add_column("Coverage", justify="right")
     candidate_table.add_column("Declared Genres")
     candidate_table.add_column("Reason")
     for item in items:
-        total_sentences = int(item["sentence_scan"]["total_sentences"])
-        uncovered_sentences = total_sentences - int(
-            item["sentence_scan"]["sentences_with_extracted_genre"]
+        available_sentences = int(
+            item["sentence_scan"].get("available_sentences")
+            or item["sentence_scan"]["total_sentences"]
         )
+        total_sentences = int(item["sentence_scan"]["total_sentences"])
+        if available_sentences == total_sentences or total_sentences == 0:
+            uncovered_sentences = total_sentences - int(
+                item["sentence_scan"]["sentences_with_extracted_genre"]
+            )
+        else:
+            uncovered_sentences = round(
+                available_sentences * (1.0 - float(item["sentence_scan"]["coverage"]))
+            )
         coverage_pct = float(item["sentence_scan"]["coverage"]) * 100
         candidate_table.add_row(
             item["priority"],
             item["action"],
             item["treebank"],
+            str(available_sentences),
             str(total_sentences),
             str(uncovered_sentences),
             f"{coverage_pct:.1f}%",
@@ -3517,8 +3499,6 @@ def test_genres(
     try:
         cfg = load_config_from_path(config, release_matrix, release_ud_version)
 
-        from pathlib import Path
-        from ud_genre_bootstrap.utils.genre_mapping import GenreMapper
         from ud_genre_bootstrap.utils.data_loader import UDDataLoader
 
         # Initialize components
@@ -3528,22 +3508,8 @@ def test_genres(
             metadata_path=Path(cfg.metadata_path) if cfg.metadata_path else None,
         )
 
-        # Initialize genre mapper with patterns
-        mapping_path = None
-        patterns_path = None
-        if cfg.genre_extraction.mapping_path:
-            mapping_path = Path(cfg.genre_extraction.mapping_path)
-        if cfg.genre_extraction.patterns_path:
-            # Handle both string and list of strings
-            if isinstance(cfg.genre_extraction.patterns_path, list):
-                patterns_path = [Path(p) for p in cfg.genre_extraction.patterns_path]
-            else:
-                patterns_path = Path(cfg.genre_extraction.patterns_path)
-
-        genre_mapper = GenreMapper(
-            genre_mapping_path=mapping_path,
-            metadata_patterns_path=patterns_path,
-            canonical_genres=cfg.genre_extraction.canonical_genres,
+        genre_mapper = _build_genre_mapper_from_config(
+            cfg,
             data_loader=data_loader,
         )
 
@@ -4566,8 +4532,12 @@ def _test_treebank_genres(
     console.print(f"\n[bold yellow]Testing: {treebank_code} ({split})[/bold yellow]")
 
     try:
-        # Load treebank data
-        dataset = data_loader.load_treebank(treebank_code, split)
+        # Load the same metadata-only stream used by release metadata scanning.
+        sentence_iter = data_loader.iter_treebank_sentences(
+            treebank_code,
+            split,
+            metadata_only=True,
+        )
 
         # Get expected genres from metadata
         expected_genres = data_loader.get_treebank_genres(treebank_code)
@@ -4589,8 +4559,7 @@ def _test_treebank_genres(
         }
 
         # Process sentences
-        num_sentences = limit if limit > 0 else len(dataset)
-        for i, sentence in enumerate(dataset):
+        for i, sentence in enumerate(sentence_iter):
             if limit > 0 and i >= limit:
                 break
 
