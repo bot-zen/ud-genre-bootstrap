@@ -20,6 +20,13 @@
     }
   ],
 
+  "bg_btb": [
+      {
+          "_description": "",
+          "_comment": "UD Mapping Reference Summary: Novinar-*, Sega-*, Standard-* (National Daily Newspapers): news; bg-lit, for-lit, girl, kleinke (Novels, Literature, Plays): fiction; constitution, bgpatentlaw, euro (Statutory Laws, European Pacts): legal / nonfiction; akadgram, brezinski, penchev (Academic Linguistics & Grammars): nonfiction; kamu, president (State Documents & Official Speeches): nonfiction; random1 to random5 (Balanced Corpus Subsamples): news / nonfiction"
+      }
+  ],
+
   "cs_cac": [
     {
       "_description": "Czech CAC: uses combined letters, extract first and last letter (e.g., a01w -> aw)",
@@ -172,6 +179,74 @@
       }
     }
   ],
+
+  "et_edt": [
+      {
+          "_description": "UD_Estonian-EDT",
+          "_comment": "ChatGPT: aja: Newspaper texts / journalism (ajaleht / ajakirjandus); ilu: Fiction (ilukirjandus); tead: Scientific texts (teaduskirjandus)",
+          "_comment": "ChatGPT: The original Arborest data consisted entirely of newspaper texts"
+      },
+      {
+          "pattern": "^sent_id = (aja|arborest)",
+          "genre": "news"
+      },
+      {
+          "pattern": "^sent_id = (ilu)",
+          "genre": "fiction"
+      },
+      {
+          "pattern": "^sent_id = (tea)",
+          "genre": "academic"
+      }
+  ],
+
+  "fa_perdt": [
+      {
+          "_description": "UD_Persian-PerDT",
+          "_comment": "no info from: README, linked papers and web sites"
+      }
+  ],
+
+  "fr_gsd": [
+      {
+          "_description": "UD_French-GSD",
+          "_comment": "Sentences are shuffled and there is no way to know what is the source or the genre of a given sentence."
+      }
+  ],
+
+  "fro_profiterole": [
+      {
+          "_description": "UD_Old_French-PROFITEROLE",
+          "_comment": "ChatGPT: Strasbourg_842_prose (Diplomatic/military treaty pact): legal; Lapidaire_mid12_prose (Didactic scientific prose (lapidary)),QuatreLivresReis_late12_prose (Historical/Biblical translation prose),ClariConstantinople_1300_prose (Historical eye-witness chronicle):nonfiction; all_the_rest:poetry"
+      },
+      {
+          "pattern": "^newdoc id = (Strasbourg_842_prose)",
+          "genre": "legal"
+      },
+      {
+          "pattern": "^newdoc id = (Lapidaire_mid12_prose|QuatreLivresReis_late12_prose|ClariConstantinople_1300_prose)",
+          "genre": "nonfiction"
+      },
+      {
+          "genre": "poetry"
+      }
+  ],
+
+  "fi_ood": [
+      {
+          "_description": "UD_Finnish-OOD",
+          "_comment": "Text sources are marked as sentence identifier prefixes (`# sent_id = identifier`), cl = nursing narratives, thread = discussion forums, tweet = tweets, web = web crawl, and poem = poetry.",
+          "pattern": "# sent_id = (cl|thread|tweet|web|poem)[0-9]",
+          "genre": "$1",
+          "genre_mapping": {
+              "cl": "medical",
+              "thread": "social",
+              "tweet": "social",
+              "web": "web",
+              "poem": "poetry"
+          }
+      }
+  ],
           
   "fr_poitevindivital": [
     {
@@ -208,28 +283,52 @@
     }   
   ],
 
+  "fr_sequoia": [
+      {
+          "_description": "UD_French-Sequoia",
+          "_comment": "The original sentences of the corpus are taken from: French Europarl (`sent_id` prefix: `Europar.550`); Wikipédia Fr (`sent_id` prefix: `frwiki_50.1000`); Newspaper *Est Républicain* (`sent_id` prefix: `annodis.er`); European Medicines Agency (`sent_id` prefix: `emea-fr-dev` and `emea-fr-test`)"
+      },
+      {
+          "pattern": "# sent_id = Europar.550",
+          "genre": "nonfiction"
+      },
+      {
+          "pattern": "# sent_id = frwiki_50.1000",
+          "genre": "wiki"
+      },
+      {
+          "pattern": "# sent_id = annodis.er",
+          "genre": "news"
+      },
+      {
+          "pattern": "# sent_id = (emea-fr-dev|emea-fr-test)",
+          "genre": "medical"
+      }
+  ],
+
   "gsw_divital": [
     {
-      "_comment": "FIXME: Currently, we don't map all but rather rely on automation...",
+      "_description": "UD_Alemannic-DIVITAL",
+      "_comment": "FIXME: best-guess mapping",
       "genre_mapping": {
         "encyclopedia": "wiki",
-        "short": null,
-        "anecdote": null,
-        "guide": null,
-        "recipe": null,
-        "comedy": null,
-        "drama": null,
-        "tale": "nonfiction",
-        "charter": null,
-        "fable": null,
-        "parable": null,
+        "short": "fiction",
+        "anecdote": "nonfiction",
+        "guide": "nonfiction",
+        "recipe": "nonfiction",
+        "comedy": "fiction",
+        "drama": "fiction",
+        "tale": "fiction",
+        "charter": "legal",
+        "fable": "fiction",
+        "parable": "fiction",
         "poetic": "poetry",
-        "novel": null,
-        "realistic": null,
-        "epistolary": null,
-        "tragicomedy": null,
-        "other": null,
-        "song": null
+        "novel": "fiction",
+        "realistic": "nonfiction",
+        "epistolary": "nonfiction",
+        "tragicomedy": "fiction",
+        "other": "nonfiction",
+        "song": "poetry"
       }
     },
     {
@@ -259,6 +358,47 @@
     }
   ],
 
+  "hy_armtdp": [
+      {
+          "_description": "UD_Armenian-ArmTDP",
+          "pattern": "# sent_id = ([^-]+)-",
+          "genre": "$1",
+          "genre_mapping": {
+              "grammar": "grammar-examples"
+          }
+      }
+  ],
+
+  "is_icepahc": [
+    {
+      "_comment": "UD_Icelandic-IcePaHC contains the following main genres: **NAR**: Narratives (sagas, fiction); **REL**: Religious texts (bible, sermons); **SCI**: Science (linguistics, natural sciences, history); **BIO**: Biographical material (biographies, travelogues); **LAW**: Law texts; Genre: fiction bible nonfiction legal",
+      "pattern": "# sent_id = .*(NAR|REL|SCI|BIO|LAW)",
+      "genre": "$1",
+      "genre_mapping": {
+          "NAR": "fiction",
+          "REL": "bible",
+          "SCI": "academic",
+          "BIO": "nonfiction",
+          "LAW": "legal"
+      }
+    }
+  ],
+
+  "it_isdt": [
+      {
+          "_description": "UD_Italian-ISDT",
+          "_comment": "Data comes from different original corpora, with multiple (sometimes unknown) genres; partial match might work, mostly for news"
+      }
+  ],
+
+  "no_bokmaal": [
+      {
+          "_description": "UD_Norwegian-Bokmaal",
+          "_comment": "ChatGPT: ap, bt, db, kk, vg, sp-bm (Norwegian Newspapers): news; nou (Government Reports): nonfiction; st (Parliament Transcripts): nonfiction; blogg-bm (Public Blogs): blog",
+          "_comment": "Missing mapping from sequential sent_id = 000001 to prefix"
+      }
+  ],
+
   "pl_lfg": [
     { 
       "genre_mapping": {
@@ -272,9 +412,58 @@
 
   "pt_petrogold": [
     {
-      "_description": "...which consists of academic texts from the oil & gas domain in Brazilian Portugues",
+      "_description": "UD_Portuguese-PetroGold",
+      "_comment": "...which consists of academic texts from the oil & gas domain in Brazilian Portugues",
       "genre": "academic"
     }
+  ],
+
+  "ro_rrt": [
+      {
+          "_description": "UD_Romanian-RRT",
+          "_comment": "'# newdoc id' preceedes multiple - but sequential - '# sent_id = {train,dev,test}-[0-9]+' sentences"
+      },
+      {
+          "_comment": "Legal: document ids: Acquis-b1-ttl, Acquis-b2-ttl, Acquis-b3-ttl, JRC-b1, JRC-b2, JRC-noi-b1, JRC-noi-b2, JRC-noi-b3",
+          "pattern": "^newdoc id = (Acquis-b1-ttl|Acquis-b2-ttl|Acquis-b3-ttl|JRC-b1|JRC-b2|JRC-noi-b1|JRC-noi-b2|JRC-noi-b3)",
+          "genre": "legal"
+      },
+      {
+          "_comment": "News: document ids: Agenda-1-300, Agenda-b1, Agenda-b2, Agenda-b3",
+          "pattern": "^newdoc id = (Agenda-1-300|Agenda-b1|Agenda-b2|Agenda-b3)",
+          "genre": "news"
+      },
+      {
+          "_comment": "Fiction: document ids: 1984Orwell-b1-ttl, 1984Orwell-b2-ttl, 1984Orwell-b3-ttl, 1984Orwell-b4-ttl, Literatura-1-300, Literatura-b1, Literatura-b2, Literatura-noi-b1",
+          "pattern": "^newdoc id = (1984Orwell-b1-ttl|1984Orwell-b2-ttl|1984Orwell-b3-ttl|1984Orwell-b4-ttl|Literatura-1-300|Literatura-b1|Literatura-b2|Literatura-noi-b1)",
+          "genre": "fiction"
+      },
+      {
+          "_comment": "Medical document ids: EMEA-b1, EMEA-b2, EMEA-b3, EMEA-noi-b1, Medical-1, Medical-2;",
+          "_mapping": "EMEA-b1:train-3591--3840; EMEA-b2:train-3841--4089; EMEA-b3:train-4090--4250; EMEA-noi-b1:train-4251--4361; Medical-1:train-7143--7263; Medical-2:train-7264--7378 -- 771 + 236 = 1007",
+          "_obsolete_pattern": "# sent_id = train-((359[1-9]|3[6-9][0-9][0-9]|4[0-2][0-9][0-9]|43[0-5][0-9]|4360|4361)|(714[3-9]|71[5-9][0-9]|72[0-9][0-9]|73[0-6][0-9]|737[0-8]))$",
+          "_mapping": "EMEA-b1:dev-345--367; EMEA-b2:dev-368--390; EMEA-b3:dev-391--406; EMEA-noi-b1:dev-407--416; Medical-1:dev-677--685; Medical-2:dev-686--698 -- 72 + 22 = 94",
+          "_obsolete_pattern": "# sent_id = dev-((34[5-9]|3[5-9][0-9]|3[6-9][0-9]|40[0-9]|41[0-6])|(67[7-9]|68[0-9]|69[0-8]))$",
+          "_mapping": "EMEA-b1:test-371--359; EMEA-b2:test-360--380; EMEA-b3:test-381--394; EMEA-noi-b1:test-395--402; Medical-1:test-662--668; Medical-2:test-669--678 -- 32 + 17 = 49",
+          "_obsolete_pattern": "# sent_id = test-((37[1-9]|3[8-9][0-9]|40[0-2])|(66[2-9]|67[0-8]))$",
+          "pattern": "^newdoc id = (EMEA-b1|EMEA-b2|EMEA-b3|EMEA-noi-b1|Medical-1|Medical-2)",
+          "genre": "medical"
+      },
+      {
+          "_comment": "Nonfiction: document ids: PhysicsCompSciMath",
+          "pattern": "^newdoc id = (PhysicsCompSciMath)",
+          "genre": "nonfiction"
+      },
+      {
+          "_comment": "Academic: document ids: DGLR-1-300, DGLR-b1, DGLR-b2, DGLR-b3, DGLR-noi-b1",
+          "pattern": "^newdoc id = (DGLR-1-300|DGLR-b1|DGLR-b2|DGLR-b3|DGLR-noi-b1)",
+          "genre": "academic"
+      },
+      {
+          "_comment": "Wikipedia: document ids: Wikipedia-2-FirstUDRelease, Wikipedia-b1, Wikipedia-b2",
+          "pattern": "^newdoc id = (Wikipedia-2-FirstUDRelease|Wikipedia-b1|Wikipedia-b2)",
+          "genre": "wiki"
+      }
   ],
 
   "ru_syntagrus": [
@@ -309,6 +498,41 @@
         "fiction-kids": "fiction"
       }
     }
+  ],
+
+  "sk_snk": [
+      {
+          "_description": "UD_Slovak-SNK",
+          "_comment": "ChatGPT: UD Mapping Reference Summary: sme (SME Daily Newspaper):news; blogsme, inzine (Blogs and Digital Magazines):blog / web; orwell1984, rozpravky, psiakoza (Dystopian/Folk/Satirical Literature):fiction; milosferko, mojaprvalaska (Contemporary Slovak Fiction/Novels): fiction; durovic, mucska, raczovaoslov (Linguistics, History, and Academic Texts): nonfiction; patmos (Religious Commentary / Historical Essay): nonfiction; programvyhlasenie (Official Slovak Government Manifestos): legal / nonfiction"
+      },
+      {
+          "pattern": "^sent_id = (sme)",
+          "genre": "news"
+      },
+      {
+          "pattern": "^sent_id = (blogsme)",
+          "genre": "blog"
+      },
+      {
+          "pattern": "^sent_id = (inzine)",
+          "genre": "web"
+      },
+      {
+          "pattern": "^sent_id = (orwell1984|rozpravky|psiakoza|milosferko|mojaprvalaska)",
+          "genre": "fiction"
+      },
+      {
+          "pattern": "^sent_id = (durovic|mucska|raczovaoslov|patmos)",
+          "genre": "nonfiction"
+      },
+      {
+          "pattern": "^sent_id = (programvyhlasenie)",
+          "genre": "legal"
+      },
+      {
+          "pattern": "^sent_id = (wikipedia)",
+          "genre": "wiki"
+      }
   ],
 
   "tt_nmctt": [
