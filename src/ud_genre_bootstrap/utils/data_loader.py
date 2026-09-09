@@ -30,6 +30,7 @@ class UDDataLoader:
         ud_source: str,
         ud_version: str = "2.17",
         metadata_path: Optional[Path] = None,
+        allow_partial_source: bool = False,
     ):
         """Initialize UD data loader.
 
@@ -37,11 +38,14 @@ class UDDataLoader:
             ud_source: Either "hf://<dataset-repo>" or "local://<path-to-ud-root>"
             ud_version: UD version (used as HF revision)
             metadata_path: Optional path to metadata.json file
+            allow_partial_source: If True, skip metadata-declared splits that fail
+                to load. Defaults to strict release-safe behavior.
 
         """
         self.ud_source = ud_source
         self.ud_version = ud_version
         self.metadata_path = metadata_path
+        self.allow_partial_source = allow_partial_source
         self.source_type, source_target = self._parse_ud_source(ud_source)
         self.hf_repo_id = source_target if self.source_type == "hf" else None
         self.local_root = (
@@ -205,14 +209,29 @@ class UDDataLoader:
         base_path = self._get_local_root()
 
         resolved_paths = []
+        missing_paths = []
         for rel_path in file_paths:
             file_path = base_path / rel_path
 
             if not file_path.exists():
-                logger.warning(f"File not found: {file_path}")
+                missing_paths.append(file_path)
                 continue
 
             resolved_paths.append(file_path)
+
+        if missing_paths:
+            formatted_paths = ", ".join(str(path) for path in missing_paths)
+            message = (
+                f"Missing {len(missing_paths)} file(s) for expected UD split "
+                f"{treebank_code}:{split}: {formatted_paths}"
+            )
+            if getattr(self, "allow_partial_source", False):
+                logger.warning("%s; skipping because allow_partial_source=True", message)
+            else:
+                raise FileNotFoundError(
+                    f"{message}. Set allow_partial_ud_source: true only for "
+                    "explicit partial-cache diagnostics."
+                )
 
         return resolved_paths
 
@@ -459,20 +478,67 @@ class UDDataLoader:
         """
         treebank_codes = self.get_treebank_codes()
 
+        if not treebank_codes:
+            raise RuntimeError(
+                "No UD treebank metadata is available. For hf:// sources this "
+                "usually means metadata.json is not available in the local cache "
+                "or could not be downloaded."
+            )
+
         # Filter treebanks if specified
         if treebank_filter:
             treebank_codes = [tb for tb in treebank_codes if tb in treebank_filter]
 
+        if not treebank_codes:
+            raise ValueError(
+                "No requested treebanks were found in UD metadata: "
+                f"{', '.join(treebank_filter or [])}"
+            )
+
+        loaded_split_count = 0
         for tb_code in treebank_codes:
-            splits_to_load = [split] if split else ["train", "dev", "test"]
+            available_splits = self.get_available_splits(tb_code)
+            if split:
+                if available_splits and split not in available_splits:
+                    continue
+                splits_to_load = [split]
+            elif available_splits:
+                splits_to_load = available_splits
+            else:
+                message = f"No metadata-declared splits found for treebank {tb_code}"
+                if getattr(self, "allow_partial_source", False):
+                    logger.warning("%s; skipping because allow_partial_source=True", message)
+                    continue
+                raise RuntimeError(message)
 
             for split_name in splits_to_load:
                 try:
                     dataset = self.load_treebank(tb_code, split_name)
-                    yield tb_code, split_name, dataset
-                except Exception:
-                    # Skip if split doesn't exist
-                    continue
+                except Exception as exc:
+                    message = f"Failed to load expected UD split {tb_code}:{split_name}"
+                    if getattr(self, "allow_partial_source", False):
+                        logger.warning(
+                            "%s; skipping because allow_partial_source=True: %s",
+                            message,
+                            exc,
+                        )
+                        continue
+                    raise RuntimeError(
+                        f"{message}. If this is an hf:// source in offline mode, "
+                        "ensure the complete UD revision is cached first. Set "
+                        "allow_partial_ud_source: true only for explicit "
+                        "partial-cache diagnostics."
+                    ) from exc
+
+                loaded_split_count += 1
+                yield tb_code, split_name, dataset
+
+        if loaded_split_count == 0:
+            raise RuntimeError(
+                "No UD treebank splits were loaded. This usually indicates an "
+                "incomplete local cache, unavailable source data, or a split filter "
+                "that does not match the selected UD metadata."
+            )
 
     def get_treebank_genres(self, treebank_code: str) -> List[str]:
         """Get genres for a specific treebank from metadata.

@@ -49,6 +49,7 @@ class GenreBootstrapper:
             ud_source=config.ud_source,
             ud_version=config.ud_version,
             metadata_path=Path(config.metadata_path) if config.metadata_path else None,
+            allow_partial_source=config.allow_partial_ud_source,
         )
 
         self.genre_mapper = build_genre_mapper_from_config(

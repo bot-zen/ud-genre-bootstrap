@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all_genres.parquet` before Hub upload or Git-backed HF publishing.
 - Release artifact audit guard that rejects non-canonical public method values
   before Hub upload or Git-backed HF publishing.
+- `allow_partial_ud_source` config switch for explicit partial-cache diagnostics
+  when inspecting whatever UD splits are locally available.
 - `audit-readme-genres` CLI command for ranking README-derived genre extraction
   hints before release regeneration.
 - `audit-readme-genres --sort-by` modes for prioritizing candidates by
@@ -116,6 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bootstrap-labeled` / `bootstrap-inferred` split and the associated
   active `min_confidence` / `min_margin` release distinction have been removed
   from generated labels and release metadata.
+- UD source iteration now uses metadata-declared splits instead of probing
+  `train`/`dev`/`test` and suppressing every load failure.
 - `examples` sentence-level metadata is canonicalized to `grammar-examples`
   for the `ud` label schema.
 - `pl_pud` sentence-level extraction now uses current `sent_id` prefixes and
@@ -150,6 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Makes visualization workflow simpler: just specify `--config` instead of all paths and flags
 
 ### Fixed
+- Incomplete or unavailable UD sources can no longer silently produce partial or
+  zero-row release outputs; release-safe strict loading is now the default.
 - Missing `json` import in CLI visualization command
 - Visualization showing comma-separated genres instead of single-genre assignments
 - `export_metadata_genres.py` script not respecting `include_treebanks` config option

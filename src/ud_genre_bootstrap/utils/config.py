@@ -149,6 +149,7 @@ class Config:
     ud_version: str = "2.17"
     ud_source: str = "hf://universal-dependencies/universal_dependencies"
     metadata_path: Optional[str] = None  # Optional path to metadata.json
+    allow_partial_ud_source: bool = False  # If True, skip source splits that fail to load
     include_treebanks: Optional[List[str]] = None  # Treebank codes to include (None = all)
     exclude_treebanks: List[str] = field(default_factory=list)  # Treebank codes to exclude
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
@@ -186,6 +187,21 @@ class Config:
         raise ValueError(
             f"{field_name} must be an integer or null, got {type(value).__name__}"
         )
+
+    @staticmethod
+    def _parse_bool(value: Any, field_name: str) -> bool:
+        """Parse boolean config values from YAML-friendly inputs."""
+        if isinstance(value, bool):
+            return value
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+
+        raise ValueError(f"{field_name} must be a boolean, got {value!r}")
 
     @staticmethod
     def _parse_anchor_mode(value: Any, field_name: str) -> str:
@@ -353,6 +369,10 @@ class Config:
             ud_version=config_dict.get("ud_version", "2.17"),
             ud_source=config_dict.get("ud_source", "hf://universal-dependencies/universal_dependencies"),
             metadata_path=config_dict.get("metadata_path"),
+            allow_partial_ud_source=cls._parse_bool(
+                config_dict.get("allow_partial_ud_source", False),
+                "allow_partial_ud_source",
+            ),
             include_treebanks=config_dict.get("include_treebanks", None),
             exclude_treebanks=config_dict.get("exclude_treebanks", []),
             embeddings=embeddings,

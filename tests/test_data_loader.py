@@ -302,4 +302,146 @@ def test_local_split_resolution_has_no_alt_path_fallback(tmp_path):
     )
 
     loader = UDDataLoader(ud_source=f"local://{ud_root}")
+    with pytest.raises(FileNotFoundError, match="Missing 1 file"):
+        loader._resolve_local_split_files("xx_testtb", "train")
+
+
+def test_local_split_resolution_can_allow_partial_source(tmp_path):
+    """Partial-source mode keeps the old diagnostic behavior explicit."""
+    ud_root = tmp_path / "ud"
+    treebank_dir = ud_root / "UD_TestTB"
+    treebank_dir.mkdir(parents=True)
+
+    (ud_root / "metadata.json").write_text(
+        json.dumps(
+            {
+                "xx_testtb": {
+                    "lcode": "xx",
+                    "genre": [],
+                    "splits": {
+                        "train": {
+                            "files": ["UD_TestTB/missing.conllu"],
+                        }
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loader = UDDataLoader(
+        ud_source=f"local://{ud_root}",
+        allow_partial_source=True,
+    )
     assert loader._resolve_local_split_files("xx_testtb", "train") == []
+
+
+def test_iter_all_treebanks_uses_metadata_splits_only():
+    """Expected splits come from metadata instead of probing train/dev/test."""
+
+    class StubLoader(UDDataLoader):
+        def __init__(self):
+            self.ud_source = "hf://dummy/repo"
+            self.ud_version = "2.18"
+            self.metadata_path = None
+            self.source_type = "hf"
+            self.hf_repo_id = "dummy/repo"
+            self.local_root = None
+            self.allow_partial_source = False
+            self.metadata = {
+                "xx_testtb": {
+                    "splits": {
+                        "test": {"files": ["unused"]},
+                    },
+                }
+            }
+            self.loaded = []
+
+        def load_treebank(self, treebank_code: str, split: str = "train"):
+            self.loaded.append((treebank_code, split))
+            return [{"sent_id": "s1"}]
+
+    loader = StubLoader()
+    rows = list(loader.iter_all_treebanks())
+
+    assert rows == [("xx_testtb", "test", [{"sent_id": "s1"}])]
+    assert loader.loaded == [("xx_testtb", "test")]
+
+
+def test_iter_all_treebanks_fails_on_expected_split_load_error():
+    """Strict mode should fail if a metadata-declared split cannot be loaded."""
+
+    class StubLoader(UDDataLoader):
+        def __init__(self):
+            self.ud_source = "hf://dummy/repo"
+            self.ud_version = "2.18"
+            self.metadata_path = None
+            self.source_type = "hf"
+            self.hf_repo_id = "dummy/repo"
+            self.local_root = None
+            self.allow_partial_source = False
+            self.metadata = {
+                "xx_testtb": {
+                    "splits": {
+                        "train": {"files": ["unused"]},
+                    },
+                }
+            }
+
+        def load_treebank(self, treebank_code: str, split: str = "train"):
+            raise RuntimeError("not cached")
+
+    loader = StubLoader()
+    with pytest.raises(RuntimeError, match="Failed to load expected UD split"):
+        list(loader.iter_all_treebanks())
+
+
+def test_iter_all_treebanks_can_skip_expected_split_load_error_when_partial():
+    """Partial-source mode can inspect the loadable subset of a cache."""
+
+    class StubLoader(UDDataLoader):
+        def __init__(self):
+            self.ud_source = "hf://dummy/repo"
+            self.ud_version = "2.18"
+            self.metadata_path = None
+            self.source_type = "hf"
+            self.hf_repo_id = "dummy/repo"
+            self.local_root = None
+            self.allow_partial_source = True
+            self.metadata = {
+                "xx_testtb": {
+                    "splits": {
+                        "train": {"files": ["unused"]},
+                        "test": {"files": ["unused"]},
+                    },
+                }
+            }
+
+        def load_treebank(self, treebank_code: str, split: str = "train"):
+            if split == "test":
+                raise RuntimeError("not cached")
+            return [{"sent_id": "s1"}]
+
+    loader = StubLoader()
+    rows = list(loader.iter_all_treebanks())
+
+    assert rows == [("xx_testtb", "train", [{"sent_id": "s1"}])]
+
+
+def test_iter_all_treebanks_fails_without_metadata():
+    """A release run must not silently proceed with zero metadata."""
+
+    class StubLoader(UDDataLoader):
+        def __init__(self):
+            self.ud_source = "hf://dummy/repo"
+            self.ud_version = "2.18"
+            self.metadata_path = None
+            self.source_type = "hf"
+            self.hf_repo_id = "dummy/repo"
+            self.local_root = None
+            self.allow_partial_source = False
+            self.metadata = {}
+
+    loader = StubLoader()
+    with pytest.raises(RuntimeError, match="No UD treebank metadata"):
+        list(loader.iter_all_treebanks())

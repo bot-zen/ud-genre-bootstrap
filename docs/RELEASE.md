@@ -206,6 +206,35 @@ The README-hint audit is documented in
 obvious alias mappings, broken configured patterns, and unambiguous README
 source/ID conventions before starting a full regeneration run.
 
+## UD Source Cache Modes
+
+Release runs use strict UD source loading. The loader reads expected treebank
+splits from `metadata.json`, loads only those declared splits, and fails if any
+declared split cannot be loaded. This prevents an incomplete Hugging Face cache
+or unavailable local CoNLL-U file from silently turning into a partial or empty
+release.
+
+Use online mode when testing the download path:
+
+```bash
+export HF_DATASETS_OFFLINE=0
+export HF_HUB_OFFLINE=0
+```
+
+Use `HF_DATASETS_OFFLINE=1` and `HF_HUB_OFFLINE=1` only after the complete UD
+revision has already been cached locally. With an incomplete cache, the release
+run should fail rather than continue with missing treebanks or splits.
+
+For diagnostics only, a temporary config may set:
+
+```yaml
+allow_partial_ud_source: true
+```
+
+This allows the loader to skip splits that fail to load and inspect whatever is
+available in a partial cache. Do not use this setting for promoted release
+generation, validation, upload, or publication.
+
 ## Full Generation
 
 Run one UD version end to end before starting the next:

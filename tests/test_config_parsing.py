@@ -93,6 +93,16 @@ def test_legacy_bootstrap_threshold_keys_are_ignored():
     assert not hasattr(cfg.bootstrapping, "min_margin")
 
 
+def test_parse_allow_partial_ud_source_bool_string():
+    cfg = Config.from_dict({"allow_partial_ud_source": "true"})
+    assert cfg.allow_partial_ud_source is True
+
+
+def test_parse_allow_partial_ud_source_rejects_invalid_value():
+    with pytest.raises(ValueError, match="allow_partial_ud_source"):
+        Config.from_dict({"allow_partial_ud_source": "sometimes"})
+
+
 def test_parse_metadata_path():
     cfg = Config.from_dict({"metadata_path": "configs/metadata.json"})
     assert cfg.metadata_path == "configs/metadata.json"
