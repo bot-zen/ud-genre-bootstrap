@@ -28,6 +28,9 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
             "config": "configs/sweeps/baseline.yaml",
             "source_log": "output/logs/baseline.log",
             "metrics": {
+                "evaluated_sentences": 1234,
+                "multi_genre_treebank_splits": 7,
+                "n_folds": 10,
                 "overall_micro_f1": 0.3333,
                 "macro_f1": 0.2636,
                 "purity": 0.5568,
@@ -195,6 +198,9 @@ def test_write_release_artifacts_records_identity_and_provenance(tmp_path):
     assert "| `news` | 3 | 75.0% |" in readme
     assert "## Evaluation Summary" in readme
     assert "- Protocol: `generalization`" in readme
+    assert "| Evaluated Sentences | 1234 |" in readme
+    assert "| Multi-Genre Treebank Splits | 7 |" in readme
+    assert "| Number of Folds | 10 |" in readme
     assert "| Overall Acc / Micro-F1 | 0.3333 |" in readme
     assert "Missing anchor genres in this baseline: `email, government`" in readme
 

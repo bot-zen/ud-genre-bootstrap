@@ -81,33 +81,49 @@ The remaining difference is downstream of the algorithm, mainly due to:
 
 ## 3. Locked End-User Baseline
 
-The current locked baseline for future improvements is the broader language-grouped 10-fold generalization run on UD v2.17.
+The current locked baseline for future improvements is the expanded
+language-grouped 10-fold generalization run on UD v2.18. It evaluates every
+UD v2.18 treebank split with usable multi-genre sentence metadata under the
+current metadata patterns, while using the broader single-genre and
+virtual-split material as the anchor/reference pool.
+
+This run was produced immediately before the `full-ud-v1.1.1` matrix bump,
+using the same evaluation recipe and metadata patterns as the current train.
 
 Command used:
 
 ```bash
-HF_HUB_OFFLINE=0 uv run ud-genre-bootstrap evaluate \
-  --config configs/sweeps/how_universal-generalization-e5_large-k5-anchor_combined.yaml \
-  --set all_focused \
+HF_DATASETS_CACHE="/mnt/scratch/egon/huggingface/datasets/" \
+HF_HUB_CACHE="/mnt/scratch/egon/huggingface/hub/" \
+HF_DATASETS_OFFLINE=0 \
+HF_HUB_OFFLINE=0 \
+UV_CACHE_DIR=/tmp/ud-genre-bootstrap-uv-cache \
+uv run ud-genre-bootstrap evaluate \
+  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
+  --ud-version 2.18 \
   --n-folds 10 \
   --group-by language \
-  | tee output/logs/all_focused-generalization-e5_large-k10-anchor_combined-baseline.log
+  2>&1 | tee output/logs/2.18-all_available-generalization-e5_large-k10-anchor_combined-baseline.log
 ```
 
-Result from `output/logs/all_focused-generalization-e5_large-k10-anchor_combined-baseline.log`:
+Result from `output/logs/2.18-all_available-generalization-e5_large-k10-anchor_combined-baseline.log`:
 
-- `Mean Fold Acc (Micro-F1)`: `0.3901 +/- 0.1458`
-- `Overall Acc (Micro-F1)`: `0.3333`
-- `Macro-F1`: `0.2636`
-- macro fold mean: `0.3245 +/- 0.1629`
-- `PUR`: `0.5568`
-- `AGR`: `0.5922`
-- `ΔBC`: `0.0589`
-- missing anchor genres: `email, government`
+- evaluated sentences: `629900`
+- multi-genre treebank splits: `79`
+- instance-labeled treebanks: `44`
+- `Mean Fold Acc (Micro-F1)`: `0.3373 +/- 0.1300`
+- `Overall Acc (Micro-F1)`: `0.3324`
+- `Macro-F1`: `0.2699`
+- macro fold mean: `0.2837 +/- 0.1246`
+- `PUR`: `0.5190`
+- `AGR`: `0.5062`
+- `ΔBC`: `0.0760`
+- missing anchor genres: `email`
 
 Why this is the main baseline:
 
-- it uses the broader `all_focused` evaluation set
+- it uses the discovered `all_available` evaluation set for the current UD
+  release and metadata patterns
 - it groups folds by language, which is closer to the real deployment condition than arbitrary split refolding
 - it measures sentence-level behavior directly
 - it surfaces anchor sparsity rather than hiding it inside a single fixed benchmark score

@@ -599,6 +599,17 @@ def _format_evaluation_summary_lines(
 
     metrics = evaluation_summary.get("metrics", {})
     metric_rows = [
+        ("Evaluated Sentences", metrics.get("evaluated_sentences")),
+        (
+            "Multi-Genre Treebank Splits",
+            metrics.get("multi_genre_treebank_splits"),
+        ),
+        ("Instance-Labeled Treebanks", metrics.get("instance_labeled_treebanks")),
+        (
+            "Instance-Labeled Treebank Splits",
+            metrics.get("instance_labeled_treebank_splits"),
+        ),
+        ("Number of Folds", metrics.get("n_folds")),
         ("Overall Acc / Micro-F1", metrics.get("overall_micro_f1")),
         ("Macro-F1", metrics.get("macro_f1")),
         ("Mean Fold Micro-F1", metrics.get("mean_fold_micro_f1")),

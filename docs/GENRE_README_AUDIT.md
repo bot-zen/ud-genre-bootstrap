@@ -66,7 +66,7 @@ Run the audit against a local UD treebank checkout:
 
 ```bash
 uv run ud-genre-bootstrap audit-readme-genres \
-  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.1.yaml \
   --ud-version 2.18 \
   --ud-root ../huggingface/universal_dependencies/tools/ud-treebanks-v2.18 \
   --sort-by uncovered-sentences \
@@ -82,7 +82,7 @@ For a quick pass, limit the sentence-comment scan:
 
 ```bash
 uv run ud-genre-bootstrap audit-readme-genres \
-  --release-matrix configs/releases/full-ud-v1.1.0.yaml \
+  --release-matrix configs/releases/full-ud-v1.1.1.yaml \
   --ud-version 2.18 \
   --ud-root ../huggingface/universal_dependencies/tools/ud-treebanks-v2.18 \
   --max-sentences-per-treebank 500
