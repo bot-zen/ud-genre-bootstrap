@@ -10,8 +10,8 @@ explicit `label_schema` train.
 Use two complementary views before proposing a reduced inventory:
 
 - rational grouping from linguistic/text-type criteria
-- data-driven grouping from cluster co-occurrence, evaluation confusion, and
-  sentence support
+- data-driven grouping from unsupervised cluster co-occurrence, with evaluation
+  confusion and embedding centroids used as diagnostic context
 
 The first implementation target is UD `2.18`, because it is the current default
 release and has generated local artifacts.
@@ -34,13 +34,19 @@ The analysis command reads a generated release directory:
 output/2.18-community-release/genres/
 ```
 
-It uses `all_genres.parquet` and `clusters/cluster_assignments.parquet`. If a
-full evaluation export is available, the command also projects the confusion
-matrix onto each reduced candidate.
+It uses `all_genres.parquet` and `clusters/cluster_assignments.parquet`.
+Automatic data-driven component suggestions are based on `cluster_merge_score`,
+which combines metadata-derived cluster co-occurrence with same-split
+co-occurrence. If a full evaluation export is available, the command also
+projects the confusion matrix onto each reduced candidate and reports pairwise
+evaluation confusion.
 
 Optionally pass `--cluster-state .../cluster_state.pkl` to add
 metadata-derived embedding-centroid similarity. This pickle is large for full UD
-releases, so it is not loaded by default.
+releases, so it is not loaded by default. Centroid similarity is reported as a
+diagnostic column but is not used to create automatic component candidates,
+because sentence-embedding spaces can have high baseline cosine similarity
+between many unrelated genre centroids.
 
 ## Workflow
 
@@ -104,6 +110,10 @@ The command writes:
 Use metadata-derived rows as the primary evidence. All-label cluster evidence is
 secondary because cluster-derived labels already depend on the current
 bootstrapping process.
+
+Treat centroid similarity as supporting context only. If centroid values are
+uniformly high, rely on `cluster_merge_score`, projected evaluation metrics, and
+the rational mappings instead of centroid-driven components.
 
 Do not choose a target number of reduced genres upfront. Inspect whether the
 same merges appear in:

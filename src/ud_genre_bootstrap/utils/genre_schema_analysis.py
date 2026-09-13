@@ -425,11 +425,13 @@ def build_pair_similarity_table(
             ),
         }
         combined_score = _combine_pair_evidence(evidence)
+        cluster_merge_score = _combine_cluster_merge_evidence(evidence)
         rows.append(
             {
                 "genre_a": genre_a,
                 "genre_b": genre_b,
                 "combined_score": round(combined_score, 6),
+                "cluster_merge_score": round(cluster_merge_score, 6),
                 "metadata_cluster_cooccurrence": round(
                     evidence["metadata_cluster_cooccurrence"], 6
                 ),
@@ -452,7 +454,7 @@ def build_pair_similarity_table(
             }
         )
 
-    return sorted(rows, key=lambda row: row["combined_score"], reverse=True)
+    return sorted(rows, key=lambda row: row["cluster_merge_score"], reverse=True)
 
 
 def build_embedding_centroid_similarity(
@@ -618,10 +620,11 @@ def build_data_driven_candidates(
         name = f"data_threshold_{str(threshold).replace('.', '_')}"
         candidates[name] = {
             "description": (
-                "Connected components from pairwise merge evidence with "
-                f"combined_score >= {threshold}."
+                "Connected components from unsupervised cluster-merge evidence "
+                f"with cluster_merge_score >= {threshold}."
             ),
             "threshold": threshold,
+            "score_column": "cluster_merge_score",
             "target_genres": sorted(target_genres),
             "mapping": mapping,
             "merged_components": reduced_components,
@@ -635,6 +638,7 @@ def write_pair_table(path: Path, pair_rows: Sequence[Mapping[str, Any]]) -> None
         "genre_a",
         "genre_b",
         "combined_score",
+        "cluster_merge_score",
         "metadata_cluster_cooccurrence",
         "all_label_cluster_cooccurrence",
         "same_split_cooccurrence",
@@ -741,20 +745,22 @@ def write_report(
             "",
             "## Strongest Pairwise Merge Evidence",
             "",
-            "| Genre A | Genre B | Combined | Metadata cluster | All-label cluster | "
-            "Same split | Centroid | Eval confusion |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Genre A | Genre B | Cluster merge | Combined | Metadata cluster | "
+            "All-label cluster | Same split | Centroid | Eval confusion |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in pair_rows:
         pair_row = (
-            "| {a} | {b} | {combined:.3f} | {metadata:.3f} | {all_cluster:.3f} | "
-            "{same:.3f} | {centroid} | {eval_conf} |"
+            "| {a} | {b} | {cluster_merge:.3f} | {combined:.3f} | "
+            "{metadata:.3f} | {all_cluster:.3f} | {same:.3f} | {centroid} | "
+            "{eval_conf} |"
         )
         lines.append(
             pair_row.format(
                 a=row["genre_a"],
                 b=row["genre_b"],
+                cluster_merge=row["cluster_merge_score"],
                 combined=row["combined_score"],
                 metadata=row["metadata_cluster_cooccurrence"],
                 all_cluster=row["all_label_cluster_cooccurrence"],
@@ -784,6 +790,8 @@ def write_report(
             "- Treat this report as exploratory evidence, not a release-schema decision.",
             "- Metadata-derived rows are the primary cluster evidence; all-label cluster "
             "evidence is secondary.",
+            "- Automatic data-driven components use `cluster_merge_score`; evaluation "
+            "confusion and centroid similarity are diagnostic context.",
             "- Sparse genres can look easy to merge because they have few anchors. "
             "Check counts before adopting a merge.",
             "- A future publication should introduce a new `label_schema` train rather "
@@ -813,7 +821,7 @@ def write_figures(
     for row in pair_rows:
         i = index[row["genre_a"]]
         j = index[row["genre_b"]]
-        similarity[i, j] = similarity[j, i] = float(row["combined_score"])
+        similarity[i, j] = similarity[j, i] = float(row["cluster_merge_score"])
     distance = np.clip(1.0 - similarity, 0.0, 1.0)
 
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -943,6 +951,13 @@ def _combine_pair_evidence(evidence: Mapping[str, Optional[float]]) -> float:
     return numer / denom if denom else 0.0
 
 
+def _combine_cluster_merge_evidence(evidence: Mapping[str, Optional[float]]) -> float:
+    """Combine unsupervised cluster/split evidence for automatic components."""
+    metadata_cluster = float(evidence.get("metadata_cluster_cooccurrence") or 0.0)
+    same_split = float(evidence.get("same_split_cooccurrence") or 0.0)
+    return (0.85 * metadata_cluster) + (0.15 * same_split)
+
+
 def _cosine_similarity_01(left: np.ndarray, right: np.ndarray) -> float:
     left_norm = float(np.linalg.norm(left))
     right_norm = float(np.linalg.norm(right))
@@ -972,7 +987,7 @@ def _components_for_threshold(
             parent[right_root] = left_root
 
     for row in pair_rows:
-        if float(row["combined_score"]) >= threshold:
+        if float(row["cluster_merge_score"]) >= threshold:
             union(str(row["genre_a"]), str(row["genre_b"]))
 
     components: defaultdict[str, list[str]] = defaultdict(list)

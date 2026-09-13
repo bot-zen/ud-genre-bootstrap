@@ -8,6 +8,7 @@ import yaml
 
 from ud_genre_bootstrap.utils.genre_schema_analysis import (
     analyze_genre_schema,
+    build_data_driven_candidates,
     classification_metrics_from_confusion,
     project_confusion_matrix,
     validate_candidate_mapping,
@@ -66,6 +67,25 @@ def test_project_confusion_matrix_aggregates_reduced_labels():
     metrics = classification_metrics_from_confusion(projected)
     assert metrics["micro_f1"] == pytest.approx(18 / 22)
     assert metrics["macro_f1"] == pytest.approx((28 / 32 + 8 / 12) / 2)
+
+
+def test_data_driven_candidates_use_cluster_merge_score():
+    pair_rows = [
+        {
+            "genre_a": "news",
+            "genre_b": "wiki",
+            "combined_score": 0.95,
+            "cluster_merge_score": 0.2,
+        }
+    ]
+
+    candidates = build_data_driven_candidates(
+        pair_rows=pair_rows,
+        source_genres=["news", "wiki"],
+        thresholds=(0.5,),
+    )
+
+    assert candidates == {}
 
 
 def test_analyze_genre_schema_writes_report_artifacts(tmp_path):
@@ -172,6 +192,9 @@ def test_analyze_genre_schema_writes_report_artifacts(tmp_path):
     assert (output_dir / "candidate_mappings.json").exists()
     assert (output_dir / "genre_similarity.tsv").exists()
     assert "embedding_centroid_similarity" in (
+        output_dir / "genre_similarity.tsv"
+    ).read_text()
+    assert "cluster_merge_score" in (
         output_dir / "genre_similarity.tsv"
     ).read_text()
     scores = json.loads((output_dir / "projection_scores.json").read_text())
