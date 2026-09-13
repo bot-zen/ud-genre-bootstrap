@@ -79,6 +79,11 @@ changes are not one-to-one (`spoken`, `medical`, `blog`, `web`, `fiction`,
 implemented, publish it as a separate `label_schema`, with its own train, mapping
 rules, extraction tests, and documentation.
 
+For exploratory reduced inventories, use
+[`docs/GENRE_SCHEMA_REDUCTION.md`](GENRE_SCHEMA_REDUCTION.md). That workflow
+compares rational mappings with data-driven cluster/evaluation evidence before
+any new `label_schema` is promoted.
+
 ## Versioning Policy
 
 - `MAJOR.MINOR.PATCH` belongs to the train, not to one UD version.

@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -1521,6 +1521,15 @@ def evaluate(
         "--test-partition",
         help="Partition used as held-out test set in --fixed-partition mode.",
     ),
+    export_results: Optional[Path] = typer.Option(
+        None,
+        "--export-results",
+        help=(
+            "Optional JSON path for full evaluation results, including "
+            "confusion matrices."
+        ),
+        dir_okay=False,
+    ),
 ):
     """Evaluate clustering + labeling on multi-genre treebanks.
 
@@ -2326,6 +2335,18 @@ def evaluate(
                 set_results["protocol_notes"] = protocol_notes
 
             _display_evaluation_results(set_results)
+            if export_results is not None:
+                _export_evaluation_results(
+                    export_results,
+                    {
+                        "mode": "fixed_partition",
+                        "ud_version": cfg.ud_version,
+                        "protocol": protocol_val,
+                        "anchor_mode": anchor_mode_val,
+                        "anchor_pool_policy": anchor_pool_policy_val,
+                        "results": set_results,
+                    },
+                )
             return
 
         # With broader parity anchors, scan all treebanks to build the anchor pool.
@@ -2770,9 +2791,122 @@ def evaluate(
             console.print()
             console.print(summary_table)
 
+        if export_results is not None:
+            _export_evaluation_results(
+                export_results,
+                {
+                    "mode": "cross_validation",
+                    "ud_version": cfg.ud_version,
+                    "protocol": protocol_val,
+                    "anchor_mode": anchor_mode_val,
+                    "anchor_pool_policy": anchor_pool_policy_val,
+                    "n_folds": n_folds_val,
+                    "group_by": group_by_val,
+                    "sets": successful_results,
+                },
+            )
+
     except Exception as e:
         console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
         logger.exception("Evaluation failed")
+        raise typer.Exit(1)
+
+
+@app.command("analyze-genre-schema")
+def analyze_genre_schema_command(
+    release_dir: Path = typer.Option(
+        Path("output/2.18-community-release/genres"),
+        "--release-dir",
+        help="Generated release directory containing all_genres.parquet and clusters/.",
+        exists=True,
+        file_okay=False,
+    ),
+    candidate_config: Path = typer.Option(
+        Path("configs/genre_schema_reduction.yaml"),
+        "--candidate-config",
+        help="YAML file with candidate reduced-genre projections.",
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help=(
+            "Directory for report.md, candidate_mappings.json, scores, and figures. "
+            "Defaults to output/schema-reduction/ud<version>."
+        ),
+        file_okay=False,
+    ),
+    evaluation_results: Optional[Path] = typer.Option(
+        None,
+        "--evaluation-results",
+        help="Optional JSON produced by evaluate --export-results.",
+        exists=True,
+        dir_okay=False,
+    ),
+    cluster_state: Optional[Path] = typer.Option(
+        None,
+        "--cluster-state",
+        help=(
+            "Optional cluster_state.pkl for metadata-derived embedding-centroid "
+            "similarity. This can be large."
+        ),
+        exists=True,
+        dir_okay=False,
+    ),
+    ud_version: Optional[str] = typer.Option(
+        None,
+        "--ud-version",
+        help=(
+            "UD version label for the report. Defaults to release_manifest.json "
+            "if present."
+        ),
+    ),
+    top_pairs: int = typer.Option(
+        40,
+        "--top-pairs",
+        min=1,
+        help="Number of pairwise merge-evidence rows to include in report.md.",
+    ),
+):
+    """Analyze candidate reduced genre inventories against release artifacts."""
+    console.print("\n[bold cyan]Reduced Genre Schema Analysis[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        from ud_genre_bootstrap.utils.genre_schema_analysis import analyze_genre_schema
+
+        inferred_ud_version = ud_version or _infer_release_dir_ud_version(release_dir)
+        resolved_output_dir = output_dir or (
+            Path("output/schema-reduction")
+            / f"ud{inferred_ud_version or 'unknown'}"
+        )
+        result = analyze_genre_schema(
+            release_dir=release_dir,
+            candidate_config=candidate_config,
+            output_dir=resolved_output_dir,
+            evaluation_results=evaluation_results,
+            cluster_state=cluster_state,
+            ud_version=inferred_ud_version,
+            top_pairs=top_pairs,
+        )
+
+        console.print(
+            f"[green]✓ Wrote schema analysis to:[/green] {result['output_dir']}"
+        )
+        console.print(
+            f"[blue]Observed genres:[/blue] {len(result['observed_genres'])}; "
+            f"[blue]candidate schemas:[/blue] {result['candidate_schema_count']}; "
+            f"[blue]evaluation export:[/blue] "
+            f"{'yes' if result['evaluation_available'] else 'no'}; "
+            f"[blue]centroids:[/blue] "
+            f"{'yes' if result['centroid_available'] else 'no'}"
+        )
+        console.print(f"[blue]Report:[/blue] {resolved_output_dir / 'report.md'}")
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Genre schema analysis failed")
         raise typer.Exit(1)
 
 
@@ -4355,6 +4489,27 @@ def _save_clustering_confusion_matrix(
     plt.close()
 
     return confusion_matrix_path
+
+
+def _export_evaluation_results(output_path: Path, payload: Dict[str, Any]) -> None:
+    """Write full evaluation results for downstream analysis."""
+    from ud_genre_bootstrap.utils.genre_schema_analysis import write_json
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(output_path, payload)
+    console.print(f"[green]✓ Evaluation results exported:[/green] {output_path}")
+
+
+def _infer_release_dir_ud_version(release_dir: Path) -> Optional[str]:
+    """Infer UD version from a release directory manifest if available."""
+    manifest_path = release_dir / "release_manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return manifest.get("ud_version")
 
 
 def _display_evaluation_results(results: dict):

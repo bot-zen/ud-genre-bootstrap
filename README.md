@@ -302,6 +302,12 @@ versions:
 
 **Genre Extraction Configuration**: See [Genre Pattern Configuration](docs/GENRE_PATTERNS.md) for detailed documentation on pattern-based genre extraction from sentence metadata.
 
+**Reduced Genre Schema Analysis**: See
+[Reduced Genre Schema Analysis](docs/GENRE_SCHEMA_REDUCTION.md) for the
+exploratory workflow that compares rational genre reductions with data-driven
+cluster/evaluation evidence. This does not change the published `ud` label
+schema.
+
 To publish an already generated genre-label release through a local Git checkout of
 the HF dataset repository, use the sibling checkout `../ud_genre-hf/`. That
 checkout maps to `commul/ud_genre` on Hugging Face. The reusable release process
