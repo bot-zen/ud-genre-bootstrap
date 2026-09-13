@@ -28,6 +28,12 @@ It lists the current source genres and several complete source-to-target
 candidate mappings. A candidate must map every source genre exactly once, and all
 target genres must be declared.
 
+The included `convergent_functional_7` candidate is the first balanced proposal
+to inspect after running UD 2.18 analysis. It keeps functional distinctions for
+expository, instructional, literary, regulatory, and ambiguous web material, but
+also incorporates the strict cluster-merge evidence for `blog/email/reviews/social`
+and `news/spoken`.
+
 The analysis command reads a generated release directory:
 
 ```bash
