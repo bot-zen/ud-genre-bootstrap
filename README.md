@@ -1,17 +1,26 @@
 # UD Genre Bootstrap
 
-Modern re-implementation of genre classification for Universal Dependencies using bootstrapping and clustering.
+Sentence-level genre labels for Universal Dependencies using reproducible
+metadata extraction, clustering, bootstrapping, evaluation, and release tooling.
 
 ## Attribution
 
-This project is a modern re-implementation of the genre classification methodology from:
+This repository contains the release pipeline described in:
+
+**"From Treebank Metadata to Sentence-Level Genre in Universal Dependencies: A Reproducible, Versioned Resource"**
+Egon Stemle
+UDW 2026
+[Paper (ACL Anthology)](https://aclanthology.org/2026.udw-1.24/)
+
+The bootstrapping and clustering approach builds on the earlier genre
+classification methodology from:
 
 **"How Universal is Genre in Universal Dependencies?"**
 Max Müller-Eberstein, Rob van der Goot, and Barbara Plank
 SyntaxFest 2021
 [Paper (ACL Anthology)](https://aclanthology.org/2021.tlt-1.7.pdf) | [Original Code](https://github.com/personads/ud-genre)
 
-The core bootstrapping algorithm and clustering approach are based on their work. This implementation modernizes the codebase with:
+This implementation modernizes the codebase with:
 - HuggingFace Datasets integration
 - Modern embedding models (XLM-RoBERTa, mBERT, etc.)
 - Public dataset releases
@@ -61,6 +70,34 @@ This train keeps the `full-ud-v1.1.0` label generation recipe and refreshes the
 release-card baseline with the expanded UD v2.18 all-available evaluation run.
 Cluster-derived labels use one public method value, `cluster-derived`, with
 continuous confidence scores.
+
+An exploratory reduced-schema train is also published on dedicated HF branches.
+It projects the default `ud` labels into the documented
+`udmultigenre_informed_9` schema and preserves the original label in
+`source_genre`:
+
+```python
+from datasets import load_dataset
+
+reduced = load_dataset(
+    "commul/ud_genre",
+    revision="udmultigenre_informed_9/2.18",
+    split="train",
+)
+```
+
+Exploratory train identity:
+
+- train ID: `full-udmultigenre_informed_9-v1.0.0`
+- artifact key: `full-udmultigenre_informed_9-v1.0.0-ud2.18`
+- immutable HF tag: `artifact/full-udmultigenre_informed_9-v1.0.0/ud2.18`
+- label schema: `udmultigenre_informed_9`
+- source branch: `release/full-udmultigenre_informed_9-v1`
+- source tag: `source/full-udmultigenre_informed_9-v1.0.0`
+
+This train is exploratory and does not move `main`, `2.18`, or `2.17`. The
+rationale and evidence are documented in
+[docs/GENRE_SCHEMA_REDUCTION.md](docs/GENRE_SCHEMA_REDUCTION.md).
 
 The publication target is the local HF Git checkout `../ud_genre-hf/`, whose
 origin maps to `git@hf.co:datasets/commul/ud_genre`.
@@ -128,9 +165,9 @@ ud-genre-bootstrap run --config configs/default.yaml
 
 # Or specify UD version and model
 ud-genre-bootstrap run \
-    --ud-version 2.15 \
+    --ud-version 2.18 \
     --model xlm-roberta-base \
-    --output output/v2.15/
+    --output output/v2.18/
 
 # Run individual steps
 ud-genre-bootstrap embed --model xlm-roberta-base --output embeddings/
@@ -154,7 +191,7 @@ ud-genre-bootstrap evaluate --progressive --progressive-step 2 --n-folds 5
 ud-genre-bootstrap build-sentence-split-map \
   --ud-source hf://universal-dependencies/universal_dependencies \
   --ud-version 2.8 \
-  --split-pickle /tmp/ud-genre-personads/ud28/splits/102-915-204.pkl \
+  --split-pickle /tmp/ud-genre-bootstrap/paper-splits/ud28/splits/102-915-204.pkl \
   --output configs/paper-split-map.parquet
 
 # Run evaluation constrained to mapped paper partition(s)
@@ -216,7 +253,7 @@ from ud_genre_bootstrap import GenreBootstrapper
 
 # Initialize with configuration
 bootstrapper = GenreBootstrapper(
-    ud_version="2.15",
+    ud_version="2.18",
     model="xlm-roberta-base",
     clustering_level="treebank"
 )
@@ -229,7 +266,7 @@ print(f"Resolved: {results['resolution_rate']:.2%}")
 print(f"Accuracy: {results['accuracy']:.2%}")
 
 # Export to Hugging Face using the compatibility API upload path
-bootstrapper.push_to_hub("commul/ud_genre", revision="2.15")
+bootstrapper.push_to_hub("commul/ud_genre", revision="2.18")
 ```
 
 ### Visualization
@@ -239,25 +276,25 @@ Visualize cluster assignments and genre labels in 2D using UMAP or t-SNE:
 ```bash
 # Visualize with sentence-level genre labels (after running 'label' command)
 ud-genre-bootstrap visualize-clusters \
-    --clusters output/ud-v2.15/genres/clusters \
+    --clusters output/2.18-community-release/genres/clusters \
     --config configs/default.yaml \
     --color-by genre
 
 # Color by cluster assignments instead
 ud-genre-bootstrap visualize-clusters \
-    --clusters output/ud-v2.15/genres/clusters \
+    --clusters output/2.18-community-release/genres/clusters \
     --config configs/default.yaml \
     --color-by cluster
 
 # Use GPU-accelerated UMAP (requires viz-cuda installation)
 ud-genre-bootstrap visualize-clusters \
-    --clusters output/ud-v2.15/genres/clusters \
+    --clusters output/2.18-community-release/genres/clusters \
     --config configs/default.yaml \
     --use-gpu
 
 # Filter to specific treebanks
 ud-genre-bootstrap visualize-clusters \
-    --clusters output/ud-v2.15/genres/clusters \
+    --clusters output/2.18-community-release/genres/clusters \
     --config configs/default.yaml \
     --treebank en_ewt,de_gsd
 ```
@@ -384,7 +421,7 @@ Contains one genre per sentence after GMM+L bootstrap labeling:
 
 ```python
 import pandas as pd
-df = pd.read_parquet("output/ud-v2.15/genres/all_genres.parquet")
+df = pd.read_parquet("output/2.18-community-release/genres/all_genres.parquet")
 
 # Columns:
 # - sent_id: Sentence identifier (e.g., "en_ewt-ud-train-00001")
@@ -405,7 +442,9 @@ print(df.head())
 Contains cluster IDs before genre labeling:
 
 ```python
-df_clusters = pd.read_parquet("output/ud-v2.15/genres/clusters/cluster_assignments.parquet")
+df_clusters = pd.read_parquet(
+    "output/2.18-community-release/genres/clusters/cluster_assignments.parquet"
+)
 
 # Columns:
 # - treebank: Treebank code (e.g., "en_ewt")
@@ -423,7 +462,12 @@ df_combined = df_clusters.merge(df, on='sent_id')
 ```python
 # Load genre predictions with original UD data
 from datasets import load_dataset
-ud = load_dataset("universal-dependencies/universal_dependencies", "en_ewt", split="train", revision="2.15")
+ud = load_dataset(
+    "universal-dependencies/universal_dependencies",
+    "en_ewt",
+    split="train",
+    revision="2.18",
+)
 ud_with_genres = ud.to_pandas().merge(df, on="sent_id")
 ```
 
@@ -438,7 +482,7 @@ from datasets import load_dataset
 embeddings = load_dataset(
     "commul/ud-embeddings-xlm-roberta-base",
     "en_ewt",
-    revision="2.15",
+    revision="2.18",
     split="train"
 )
 # Returns: {sent_id, embedding}
@@ -581,7 +625,25 @@ pre-commit run --all-files
 
 ## Citation
 
-If you use this tool in your research, please cite both this implementation and the original paper:
+If you use this tool or the released genre labels in your research, please cite
+the UD genre resource paper:
+
+```bibtex
+@inproceedings{stemle-2026-treebank,
+    title = "From Treebank Metadata to Sentence-Level Genre in {U}niversal {D}ependencies: A Reproducible, Versioned Resource",
+    author = "Stemle, Egon",
+    booktitle = "Proceedings of the Ninth Workshop on {U}niversal {D}ependencies ({UDW} 2026)",
+    month = may,
+    year = "2026",
+    address = "Palma de Mallorca, Spain",
+    publisher = "ELRA Language Resources Association (ELRA)",
+    url = "https://aclanthology.org/2026.udw-1.24/",
+    doi = "10.63317/22ivc8whfgue",
+    pages = "268--276",
+}
+```
+
+For the original bootstrapping and clustering method, also cite:
 
 ```bibtex
 @inproceedings{muller-eberstein-etal-2021-universal,
