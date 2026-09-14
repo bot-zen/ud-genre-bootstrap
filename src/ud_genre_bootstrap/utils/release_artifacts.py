@@ -510,7 +510,8 @@ def _format_label_summary_lines(label_summary: Dict[str, Any]) -> List[str]:
         f"({_format_percent(metadata_group.get('share_of_labeled_percent'))} of labeled sentences)",
         "- Clustering-derived labels: "
         f"`{_format_int(clustering_group.get('count'))}` "
-        f"({_format_percent(clustering_group.get('share_of_labeled_percent'))} of labeled sentences)",
+        f"({_format_percent(clustering_group.get('share_of_labeled_percent'))} "
+        "of labeled sentences)",
         "",
         "| Method | Meaning | Sentences | Share of labeled |",
         "| --- | --- | ---: | ---: |",
@@ -733,6 +734,7 @@ def summarize_exported_labels_file(output_file: Path) -> Dict[str, Any]:
     return {
         "total_sentences": int(len(df)),
         "labeled_sentences": int(df.get("genre", pd.Series(dtype=object)).notna().sum()),
+        "columns": [str(column) for column in df.columns],
         "method_counts": method_counts,
         "genre_counts": genre_counts,
         "confidence_summary": confidence_summary,
@@ -855,7 +857,8 @@ def _build_dataset_card(
         f"# UD Genre Labels {release_identity['artifact_key']}",
         "",
         "Derived sentence-level genre annotations for the "
-        f"[universal-dependencies/universal_dependencies]({ud_source_url}) Universal Dependencies dataset.",
+        f"[universal-dependencies/universal_dependencies]({ud_source_url}) "
+        "Universal Dependencies dataset.",
         "These labels are produced by the bootstrapping pipeline and are not "
         "authoritative gold annotations.",
         "",
@@ -966,6 +969,28 @@ def _build_dataset_card(
         "- `method`: `single-genre-treebank`, `virtual-split`, or `cluster-derived`",
         "- `ud_version`, `model`, `pooling`, `clustering_method`, `config_name`, "
         "`run_id`: compact row-level provenance",
+        *(
+            [
+                "- `source_genre`: source label before schema projection",
+                "- `source_label_schema`: label schema used before projection",
+                "- `label_schema`: projected label schema exported in `genre`",
+                "- `schema_projection`: projection mapping identifier",
+            ]
+            if "source_genre" in stats.get("columns", [])
+            else []
+        ),
+        *(
+            [
+                "",
+                "## Label Schema Projection",
+                "This artifact is projected from the full UD-derived `ud` label "
+                "schema into the release label schema shown above. The projected "
+                "label is stored in `genre`; the pre-projection label is preserved "
+                "in `source_genre`.",
+            ]
+            if "source_genre" in stats.get("columns", [])
+            else []
+        ),
         "",
         "## Evaluation Framing",
         "- `paper_parity` is used only for comparison with the original GMM+L paper protocol.",

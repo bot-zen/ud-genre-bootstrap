@@ -2910,6 +2910,133 @@ def analyze_genre_schema_command(
         raise typer.Exit(1)
 
 
+@app.command("project-genre-schema")
+def project_genre_schema_command(
+    source_release_dir: Path = typer.Option(
+        ...,
+        "--source-release-dir",
+        help="Source release directory containing all_genres.parquet to project.",
+        exists=True,
+        file_okay=False,
+    ),
+    release_matrix: Path = typer.Option(
+        ...,
+        "--release-matrix",
+        help="Release train matrix for the projected artifact.",
+        exists=True,
+        dir_okay=False,
+    ),
+    release_ud_version: str = typer.Option(
+        ...,
+        "--ud-version",
+        help="UD version to resolve from --release-matrix.",
+    ),
+    candidate_config: Path = typer.Option(
+        Path("configs/genre_schema_reduction.yaml"),
+        "--candidate-config",
+        help="YAML file with candidate reduced-genre projections.",
+        exists=True,
+        dir_okay=False,
+    ),
+    candidate_name: str = typer.Option(
+        "udmultigenre_informed_9",
+        "--candidate",
+        help="Candidate schema name to materialize.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output release directory. Defaults to output.genres_path from the matrix.",
+        file_okay=False,
+    ),
+):
+    """Project an existing release into a configured reduced label schema."""
+    console.print("\n[bold cyan]Project Genre Schema[/bold cyan]")
+    console.print("=" * 60)
+
+    try:
+        import pandas as pd
+
+        from ud_genre_bootstrap.utils.genre_schema_analysis import (
+            load_candidate_schema_config,
+        )
+        from ud_genre_bootstrap.utils.release_artifacts import (
+            resolve_config_name,
+            resolve_run_id,
+        )
+
+        source_labels_path = source_release_dir / "all_genres.parquet"
+        if not source_labels_path.exists():
+            raise ValueError(f"Source labels file not found: {source_labels_path}")
+
+        cfg = load_release_matrix_config(release_matrix, ud_version=release_ud_version)
+        if output is not None:
+            cfg.output.genres_path = str(output)
+        output_path = Path(cfg.output.genres_path)
+
+        _source_genres, candidates = load_candidate_schema_config(candidate_config)
+        if candidate_name not in candidates:
+            raise ValueError(
+                f"Candidate {candidate_name!r} not found in {candidate_config}. "
+                f"Available: {', '.join(sorted(candidates))}"
+            )
+        candidate = candidates[candidate_name]
+
+        labels_df = pd.read_parquet(source_labels_path)
+        missing = sorted(set(labels_df["genre"].dropna()) - set(candidate.mapping))
+        if missing:
+            raise ValueError(
+                "Source labels contain genre(s) missing from candidate mapping: "
+                + ", ".join(missing)
+            )
+
+        projected_df = labels_df.copy()
+        projected_df["source_genre"] = projected_df["genre"]
+        projected_df["source_label_schema"] = "ud"
+        projected_df["genre"] = projected_df["source_genre"].map(candidate.mapping)
+        projected_df["label_schema"] = str(cfg.release.label_schema)
+        projected_df["schema_projection"] = candidate.name
+        projected_df["config_name"] = resolve_config_name(cfg)
+        projected_df["run_id"] = resolve_run_id(cfg)
+        projected_df["ud_version"] = str(cfg.ud_version)
+
+        output_path.mkdir(parents=True, exist_ok=True)
+        projected_labels_path = output_path / "all_genres.parquet"
+        projected_df.to_parquet(projected_labels_path, index=False)
+
+        projection_record = {
+            "candidate": candidate.name,
+            "description": candidate.description,
+            "source_release_dir": str(source_release_dir),
+            "source_label_schema": "ud",
+            "target_label_schema": str(cfg.release.label_schema),
+            "mapping": candidate.mapping,
+            "target_genres": candidate.target_genres,
+            "rationale": candidate.rationale,
+        }
+        (output_path / "schema_projection.json").write_text(
+            json.dumps(projection_record, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        artifacts = prepare_release_directory(cfg, output_path)
+
+        console.print(f"[green]✓ Projected labels:[/green] {projected_labels_path}")
+        console.print(f"[green]✓ Rows:[/green] {len(projected_df):,}")
+        console.print(
+            f"[green]✓ Target labels:[/green] {', '.join(candidate.target_genres)}"
+        )
+        console.print(
+            f"[blue]Release manifest:[/blue] {output_path / artifacts['release_manifest']}"
+        )
+        console.print(f"[blue]Dataset card:[/blue] {output_path / artifacts['dataset_card']}")
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error:[/bold red] {e}")
+        logger.exception("Genre schema projection failed")
+        raise typer.Exit(1)
+
+
 @app.command("build-sentence-split-map")
 def build_sentence_split_map(
     config: Optional[Path] = typer.Option(

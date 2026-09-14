@@ -1,5 +1,6 @@
 import json
 import pickle
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,7 @@ from ud_genre_bootstrap.utils.genre_schema_analysis import (
     analyze_genre_schema,
     build_data_driven_candidates,
     classification_metrics_from_confusion,
+    load_candidate_schema_config,
     project_confusion_matrix,
     validate_candidate_mapping,
 )
@@ -40,6 +42,21 @@ def test_validate_candidate_mapping_rejects_unknown_target_genres():
             ["news", "wiki"],
             target_genres=["informational"],
         )
+
+
+def test_default_candidate_config_includes_udmultigenre_informed_seed():
+    source_genres, candidates = load_candidate_schema_config(
+        Path("configs/genre_schema_reduction.yaml")
+    )
+
+    assert len(source_genres) == 18
+    assert "udmultigenre_informed_9" in candidates
+    candidate = candidates["udmultigenre_informed_9"]
+    assert len(candidate.target_genres) == 9
+    assert candidate.mapping["news"] == "news"
+    assert candidate.mapping["spoken"] == "spoken"
+    assert candidate.mapping["blog"] == "interactional"
+    assert candidate.mapping["reviews"] == "interactional"
 
 
 def test_project_confusion_matrix_aggregates_reduced_labels():

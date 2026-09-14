@@ -105,6 +105,48 @@ candidate_schemas:
       regulatory: "Groups law, treaties, contracts, official regulations, and governmental documents."
       interactional: "Groups first-person, addressive, user-generated, or socially situated writing."
 
+  udmultigenre_informed_9:
+    description: "Serious 9-way seed candidate informed by UD-MULTIGENRE, CMC/register considerations, and UD 2.17/2.18 evidence."
+    target_genres:
+      - "expository"
+      - "grammar_examples"
+      - "interactional"
+      - "learner_essays"
+      - "literary"
+      - "news"
+      - "regulatory"
+      - "spoken"
+      - "web_residual"
+    mapping:
+      academic: "expository"
+      bible: "literary"
+      blog: "interactional"
+      email: "interactional"
+      fiction: "literary"
+      government: "regulatory"
+      grammar-examples: "grammar_examples"
+      learner-essays: "learner_essays"
+      legal: "regulatory"
+      medical: "expository"
+      news: "news"
+      nonfiction: "expository"
+      poetry: "literary"
+      reviews: "interactional"
+      social: "interactional"
+      spoken: "spoken"
+      web: "web_residual"
+      wiki: "expository"
+    rationale:
+      expository: "Groups informational prose, academic/popular-science text, medical text, nonfiction, and encyclopedic/wiki material; UD-MULTIGENRE similarly treats medical as academic while keeping finer subtypes when source evidence allows."
+      grammar_examples: "Kept as a special residual class because UD-MULTIGENRE excludes grammar_examples as not a coherent genre and local evidence does not support merging it with learner essays."
+      interactional: "Merges blog, email, reviews, and social because the group is linguistically plausible for addressive/opinionated CMC-adjacent writing and is supported by strong UD 2.17/2.18 cluster evidence."
+      learner_essays: "Kept separate because UD-MULTIGENRE treats learner essays as a meaningful label and local evidence does not support merging it with grammar examples."
+      literary: "Groups bible, fiction, and poetry as a broad narrative/literary supercategory; this is a reduced-schema approximation and not a claim that religious, fictional, and verse texts are interchangeable."
+      news: "Kept separate from spoken because the news-spoken cluster signal is borderline and lacks strong linguistic or evaluation support."
+      regulatory: "Groups legal and government as a lossy full-coverage approximation; UD-MULTIGENRE separates parliamentary material when metadata permits."
+      spoken: "Kept separate as a medium/register distinction; UD-MULTIGENRE limits spoken to spontaneous speech rather than planned or parliamentary speech."
+      web_residual: "Kept as a residual/channel-like class because UD-MULTIGENRE excludes web as not a coherent single genre and local evidence does not support a stable merge target."
+
   ud_contribution_guidance_approx:
     description: "Approximate projection toward the newer UD contribution-page text-type guidance."
     target_genres:
@@ -148,7 +190,7 @@ candidate_schemas:
       medical: "Health reports and similar specialized descriptive texts are closest to instruction in the newer guidance."
 
   convergent_functional_7:
-    description: "Balanced 7-way candidate combining functional groupings with the strongest UD 2.18 cluster-merge evidence."
+    description: "Stress-test 7-way candidate combining functional groupings with the strongest UD 2.18 cluster-merge evidence, including the intentionally debated news+spoken merge."
     target_genres:
       - "expository"
       - "instructional"
